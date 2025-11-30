@@ -11,13 +11,18 @@ import StoreIcon from '@mui/icons-material/Store';
 // --- 페이지들 ---
 import SalesDashboard from './components/sales/SalesDashboard';
 import AdminDashboard from './components/admin/AdminDashboard';
-import BrandDashboard from './components/brand/BrandDashboard';
 
 // --- 진행자 관련 페이지 (분리) ---
 import OperatorLayout from './components/operator/OperatorLayout';
 import OperatorCampaignTable from './components/operator/OperatorCampaignTable';
 import OperatorItemTable from './components/operator/OperatorItemTable';
 import OperatorBuyerTable from './components/operator/OperatorBuyerTable';
+
+// --- 브랜드사 관련 페이지 (분리) ---
+import BrandLayout from './components/brand/BrandLayout';
+import BrandCampaignTable from './components/brand/BrandCampaignTable';
+import BrandItemTable from './components/brand/BrandItemTable';
+import BrandBuyerTable from './components/brand/BrandBuyerTable';
 
 function Home() {
   const navigate = useNavigate();
@@ -128,7 +133,16 @@ function App() {
           <Route path="campaign/:campaignId/item/:itemId" element={<OperatorBuyerTable />} />
         </Route>
 
-        <Route path="/brand" element={<BrandDashboard />} />
+        <Route path="/brand" element={<BrandLayout />}>
+          {/* 1단계: 캠페인 목록 (brand/) */}
+          <Route index element={<BrandCampaignTable />} />
+          
+          {/* 2단계: 품목 목록 (brand/campaign/1) */}
+          <Route path="campaign/:campaignId" element={<BrandItemTable />} />
+          
+          {/* 3단계: 구매자/리뷰 관리 (operator/campaign/1/item/101) */}
+          <Route path="campaign/:campaignId/item/:itemId" element={<BrandBuyerTable />} />
+        </Route>        
       </Routes>
     </Router>
   );
