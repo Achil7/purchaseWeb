@@ -15,7 +15,7 @@ import BrandDashboard from './components/brand/BrandDashboard';
 
 // --- 진행자 관련 페이지 (분리) ---
 import OperatorLayout from './components/operator/OperatorLayout';
-import OperatorCampaignTable from './components/operator/CampaignTable';
+import OperatorCampaignTable from './components/operator/OperatorCampaignTable';
 import OperatorItemTable from './components/operator/OperatorItemTable';
 import OperatorBuyerTable from './components/operator/OperatorBuyerTable';
 
