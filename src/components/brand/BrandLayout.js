@@ -4,14 +4,14 @@ import { Box, AppBar, Toolbar, Typography, Button, Container, IconButton, Avatar
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import NotificationsIcon from '@mui/icons-material/Notifications'; // 알림 아이콘
 
-function OperatorLayout() {
+function BrandLayout() {
   const navigate = useNavigate();
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f5f5f5' }}>
       
       {/* 헤더 (상단 고정) */}
-      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, bgcolor: '#00897b' }}>
+      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, bgcolor: '#4a148c' }}>
         <Toolbar>
           {/* 왼쪽: 아이콘 및 타이틀 */}
           <AssignmentIcon sx={{ mr: 2 }} />
@@ -21,7 +21,7 @@ function OperatorLayout() {
             noWrap 
             component="div"
             sx={{ flexGrow: 1, fontWeight: 'bold', cursor: 'pointer' }}
-            onClick={() => navigate('/operator')} // 로고 클릭 시 홈으로
+            onClick={() => navigate('/brand')} // 로고 클릭 시 홈으로
           >
             Campaign Manager
           </Typography>
@@ -33,8 +33,8 @@ function OperatorLayout() {
 
           {/* 오른쪽: 프로필 정보 박스 */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 2, mr: 2, bgcolor: 'rgba(255,255,255,0.1)', px: 1.5, py: 0.5, borderRadius: 2 }}>
-            <Avatar sx={{ width: 32, height: 32, bgcolor: 'teal' }}>OP</Avatar>
-            <Typography variant="subtitle2">김진행 님</Typography>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: 'purple' }}>M</Avatar>
+            <Typography variant="subtitle2">마엔라(주)</Typography>
           </Box>
 
           {/* 오른쪽: 로그아웃 버튼 */}
@@ -57,4 +57,4 @@ function OperatorLayout() {
   );
 }
 
-export default OperatorLayout;
+export default BrandLayout;

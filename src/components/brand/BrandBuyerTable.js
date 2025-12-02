@@ -9,9 +9,6 @@ import ImageIcon from '@mui/icons-material/Image';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
-// 파일명: OperatorAddBuyerDialog
-import OperatorAddBuyerDialog from './OperatorAddBuyerDialog';
-
 const initialBuyers = [
   { 
     id: 1001, itemId: 101, 
@@ -28,7 +25,7 @@ const initialBuyers = [
   },
 ];
 
-function OperatorBuyerTable() {
+function BrandBuyerTable() {
   const { campaignId, itemId } = useParams();
   const navigate = useNavigate();
 
@@ -103,10 +100,10 @@ function OperatorBuyerTable() {
     <>
       <Box sx={{ mb: 2 }}>
         <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />}>
-          <Link underline="hover" color="inherit" onClick={() => navigate('/operator')} sx={{ cursor: 'pointer' }}>
+          <Link underline="hover" color="inherit" onClick={() => navigate('/brand')} sx={{ cursor: 'pointer' }}>
             캠페인 목록
           </Link>
-          <Link underline="hover" color="inherit" onClick={() => navigate(`/operator/campaign/${campaignId}`)} sx={{ cursor: 'pointer' }}>
+          <Link underline="hover" color="inherit" onClick={() => navigate(`/brand/campaign/${campaignId}`)} sx={{ cursor: 'pointer' }}>
             품목 목록
           </Link>
           <Typography color="text.primary">리뷰 관리</Typography>
@@ -236,16 +233,8 @@ function OperatorBuyerTable() {
           </Table>
         </TableContainer>
       </Paper>
-
-      {/* 다이얼로그 호출: editData 전달 */}
-      <OperatorAddBuyerDialog 
-        open={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onSave={handleSaveBuyer}
-        editData={editingBuyer} // 수정할 데이터 (없으면 null)
-      />
     </>
   );
 }
 
-export default OperatorBuyerTable;
+export default BrandBuyerTable;
