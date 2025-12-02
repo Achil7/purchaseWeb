@@ -1,0 +1,22 @@
+# 1. Node 18 LTS 이미지 사용
+FROM node:18
+
+# 2. 앱 작업 디렉토리 생성
+WORKDIR /app
+
+# 3. 패키지 복사 및 설치
+COPY package*.json ./
+RUN npm install
+
+# 4. 필요한 소스만 복사
+COPY public ./public
+COPY src ./src
+
+# 5. React 앱 빌드
+RUN npm run build
+
+# 6. serve 설치 (빌드된 앱을 제공하기 위해)
+RUN npm install -g serve
+
+# 7. 컨테이너 실행 시 serve로 build 폴더 제공
+CMD ["serve", "-s", "build", "-l", "3000"]
