@@ -60,6 +60,13 @@ router.put('/:id', authenticate, itemController.updateItem);
 router.post('/:id/operator', authenticate, authorize(['admin']), itemController.assignOperatorToItem);
 
 /**
+ * @route   PUT /api/items/:id/operator
+ * @desc    품목의 진행자 재배정
+ * @access  Private (Admin only)
+ */
+router.put('/:id/operator', authenticate, authorize(['admin']), itemController.reassignOperatorToItem);
+
+/**
  * @route   DELETE /api/items/:id/operator/:operatorId
  * @desc    품목에서 진행자 배정 해제
  * @access  Private (Admin only)

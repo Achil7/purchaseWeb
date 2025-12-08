@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Box, Typography, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
-  Link, Breadcrumbs, Dialog, DialogContent, IconButton, CircularProgress, Alert
+  Box, Typography, Button, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
+  Link, Breadcrumbs, Chip, CircularProgress, Alert, Dialog, DialogContent, IconButton, Switch
 } from '@mui/material';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
-import { Button } from '@mui/material';
 import { buyerService, itemService } from '../../services';
 
-function BrandBuyerTable() {
+function AdminBuyerTable() {
   const { campaignId, itemId } = useParams();
   const navigate = useNavigate();
 
@@ -22,6 +21,9 @@ function BrandBuyerTable() {
   // 이미지 확대 다이얼로그 state
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
+
+  // 입금확인 처리 중 상태
+  const [processingPayment, setProcessingPayment] = useState({});
 
   useEffect(() => {
     loadItem();
@@ -62,14 +64,48 @@ function BrandBuyerTable() {
     setSelectedImage(null);
   };
 
-  // 브랜드사는 제한된 컬럼만 조회 가능
-  // 주문번호, 구매자, 수취인, 아이디, 리뷰샷만 표시
+  // 입금확인 토글 핸들러
+  const handlePaymentToggle = async (buyerId, currentStatus) => {
+    const newStatus = currentStatus === 'completed' ? 'pending' : 'completed';
+
+    setProcessingPayment(prev => ({ ...prev, [buyerId]: true }));
+
+    try {
+      await buyerService.confirmPayment(buyerId, newStatus);
+      // 목록 새로고침
+      await loadBuyers();
+    } catch (err) {
+      console.error('Failed to update payment status:', err);
+      alert('입금 상태 변경에 실패했습니다.');
+    } finally {
+      setProcessingPayment(prev => ({ ...prev, [buyerId]: false }));
+    }
+  };
+
+  const totalAmount = buyers.reduce((acc, curr) => {
+    const value = curr.amount ? parseInt(curr.amount.toString().replace(/,/g, ''), 10) : 0;
+    return acc + (isNaN(value) ? 0 : value);
+  }, 0);
+
+  // 입금완료 금액 합계
+  const completedAmount = buyers
+    .filter(b => b.payment_status === 'completed')
+    .reduce((acc, curr) => {
+      const value = curr.amount ? parseInt(curr.amount.toString().replace(/,/g, ''), 10) : 0;
+      return acc + (isNaN(value) ? 0 : value);
+    }, 0);
+
   const columns = [
-    { id: 'orderNum', label: '주문번호', width: 150 },
-    { id: 'buyer', label: '구매자', width: 100 },
-    { id: 'recipient', label: '수취인', width: 100 },
-    { id: 'userId', label: '아이디', width: 200 },
-    { id: 'image', label: '리뷰샷', width: 100 },
+    { id: 'orderNum', label: '주문번호', width: 120 },
+    { id: 'buyer', label: '구매자', width: 80 },
+    { id: 'recipient', label: '수취인', width: 80 },
+    { id: 'userId', label: '아이디', width: 100 },
+    { id: 'contact', label: '연락처', width: 130 },
+    { id: 'address', label: '주소', width: 300 },
+    { id: 'bankAccount', label: '계좌정보', width: 250 },
+    { id: 'amount', label: '금액', width: 100 },
+    { id: 'deposit', label: '입금확인', width: 120 },
+    { id: 'image', label: '리뷰샷', width: 80 },
   ];
 
   if (loading) {
@@ -92,41 +128,58 @@ function BrandBuyerTable() {
     <>
       <Box sx={{ mb: 2 }}>
         <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />}>
-          <Link underline="hover" color="inherit" onClick={() => navigate('/brand')} sx={{ cursor: 'pointer' }}>
+          <Link underline="hover" color="inherit" onClick={() => navigate('/admin/campaigns')} sx={{ cursor: 'pointer' }}>
             캠페인 목록
           </Link>
-          <Link underline="hover" color="inherit" onClick={() => navigate(`/brand/campaign/${campaignId}`)} sx={{ cursor: 'pointer' }}>
+          <Link underline="hover" color="inherit" onClick={() => navigate(`/admin/campaigns/${campaignId}`)} sx={{ cursor: 'pointer' }}>
             품목 목록
           </Link>
-          <Typography color="text.primary">리뷰 현황</Typography>
+          <Typography color="text.primary">구매자 관리</Typography>
         </Breadcrumbs>
       </Box>
 
-      <Box sx={{ mb: 3 }}>
-        <Button startIcon={<ArrowBackIcon/>} onClick={() => navigate(-1)} sx={{ mb:1 }}>뒤로가기</Button>
-        <Typography variant="h5" fontWeight="bold">구매자 리뷰 현황</Typography>
-        <Typography variant="body2" color="text.secondary">
-          품목: {item?.product_name || itemId} | 총 {buyers.length}명
-        </Typography>
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box>
+           <Button startIcon={<ArrowBackIcon/>} onClick={() => navigate(-1)} sx={{ mb:1 }}>뒤로가기</Button>
+           <Typography variant="h5" fontWeight="bold">구매자 리뷰 리스트 (입금관리)</Typography>
+           <Typography variant="body2" color="text.secondary">
+             품목: {item?.product_name || itemId} | 총 {buyers.length}명
+           </Typography>
+        </Box>
+        <Box sx={{ textAlign: 'right' }}>
+          <Typography variant="body2" color="text.secondary">
+            입금완료: <strong style={{ color: '#2e7d32' }}>{completedAmount.toLocaleString()}원</strong> / {totalAmount.toLocaleString()}원
+          </Typography>
+        </Box>
       </Box>
 
       <Paper sx={{ width: '100%', overflow: 'hidden', borderRadius: 3, boxShadow: 3 }}>
         <TableContainer sx={{ maxHeight: '75vh' }}>
-          <Table stickyHeader size="small">
+          <Table stickyHeader size="small" sx={{ minWidth: 1400 }}>
             <TableHead>
               <TableRow>
                 {columns.map((col) => (
                   <TableCell
                     key={col.id}
-                    align={col.id === 'image' ? 'center' : 'left'}
+                    align={col.id === 'image' || col.id === 'deposit' ? 'center' : 'left'}
                     sx={{
                         fontWeight: 'bold',
-                        bgcolor: '#fff8e1',
+                        bgcolor: '#e8eaf6',
                         whiteSpace: 'nowrap',
-                        minWidth: col.width
+                        minWidth: col.width,
+                        verticalAlign: 'bottom'
                     }}
                   >
-                    {col.label}
+                    {col.id === 'amount' ? (
+                        <Box sx={{ lineHeight: 1 }}>
+                            <Typography variant="subtitle2" display="block" color="success.main" fontWeight="bold" sx={{ mb: 0.5 }}>
+                                Total: {totalAmount.toLocaleString()}
+                            </Typography>
+                            {col.label}
+                        </Box>
+                    ) : (
+                        col.label
+                    )}
                   </TableCell>
                 ))}
               </TableRow>
@@ -139,6 +192,35 @@ function BrandBuyerTable() {
                     <TableCell sx={{ whiteSpace: 'nowrap' }}>{buyer.buyer_name}</TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap' }}>{buyer.recipient_name}</TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap' }}>{buyer.user_id}</TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap' }}>{buyer.contact}</TableCell>
+                    <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'keep-all', minWidth: 300, lineHeight: 1.5 }}>
+                        {buyer.address}
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'keep-all', minWidth: 250, lineHeight: 1.5 }}>
+                        {buyer.account_info}
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', color: '#1b5e20' }}>
+                        {buyer.amount ? buyer.amount.toLocaleString() : '0'}
+                    </TableCell>
+
+                    {/* 입금확인 토글 (Admin 전용) */}
+                    <TableCell align="center">
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                        <Switch
+                          checked={buyer.payment_status === 'completed'}
+                          onChange={() => handlePaymentToggle(buyer.id, buyer.payment_status)}
+                          disabled={processingPayment[buyer.id]}
+                          color="primary"
+                          size="small"
+                        />
+                        {buyer.payment_status === 'completed' ? (
+                            <Chip label="완료" color="primary" size="small" sx={{ fontWeight: 'bold', minWidth: 50 }} />
+                        ) : (
+                            <Chip label="대기" size="small" variant="outlined" sx={{ color: '#999', borderColor: '#ddd', minWidth: 50 }} />
+                        )}
+                      </Box>
+                    </TableCell>
+
                     <TableCell align="center">
                         {buyer.images && buyer.images.length > 0 ? (
                             <Box
@@ -164,7 +246,7 @@ function BrandBuyerTable() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ py: 6, color: '#999' }}>
+                  <TableCell colSpan={10} align="center" sx={{ py: 6, color: '#999' }}>
                     등록된 데이터가 없습니다.
                   </TableCell>
                 </TableRow>
@@ -221,4 +303,4 @@ function BrandBuyerTable() {
   );
 }
 
-export default BrandBuyerTable;
+export default AdminBuyerTable;

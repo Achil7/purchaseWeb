@@ -9,6 +9,10 @@ import Login from './components/Login';
 
 // --- 페이지들 ---
 import AdminDashboard from './components/admin/AdminDashboard';
+import AdminLayout from './components/admin/AdminLayout';
+import AdminCampaignTable from './components/admin/AdminCampaignTable';
+import AdminItemTable from './components/admin/AdminItemTable';
+import AdminBuyerTable from './components/admin/AdminBuyerTable';
 
 // --- 영업사 관련 페이지 ---
 import SalesLayout from './components/sales/SalesLayout';
@@ -46,7 +50,7 @@ function App() {
           {/* 기본 경로는 로그인으로 리다이렉트 */}
           <Route path="/" element={<Navigate to="/login" replace />} />
 
-          {/* 총관리자 페이지 */}
+          {/* 총관리자 대시보드 (진행자 배정) */}
           <Route
             path="/admin"
             element={
@@ -56,11 +60,25 @@ function App() {
             }
           />
 
+          {/* 총관리자 캠페인/품목/구매자 드릴다운 (입금확인) */}
+          <Route
+            path="/admin/campaigns"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AdminLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<AdminCampaignTable />} />
+            <Route path=":campaignId" element={<AdminItemTable />} />
+            <Route path=":campaignId/item/:itemId" element={<AdminBuyerTable />} />
+          </Route>
+
           {/* 영업사 드릴다운 구조 */}
           <Route
             path="/sales"
             element={
-              <ProtectedRoute allowedRoles={['admin', 'sales']}>
+              <ProtectedRoute allowedRoles={['sales']}>
                 <SalesLayout />
               </ProtectedRoute>
             }
@@ -74,7 +92,7 @@ function App() {
           <Route
             path="/operator"
             element={
-              <ProtectedRoute allowedRoles={['admin', 'operator']}>
+              <ProtectedRoute allowedRoles={['operator']}>
                 <OperatorLayout />
               </ProtectedRoute>
             }
@@ -88,7 +106,7 @@ function App() {
           <Route
             path="/brand"
             element={
-              <ProtectedRoute allowedRoles={['admin', 'brand']}>
+              <ProtectedRoute allowedRoles={['brand']}>
                 <BrandLayout />
               </ProtectedRoute>
             }

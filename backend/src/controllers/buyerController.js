@@ -1,4 +1,4 @@
-const { Buyer, Item, Image, User } = require('../models');
+const { Buyer, Item, Image, User, Campaign } = require('../models');
 const { sequelize } = require('../models');
 
 /**
@@ -14,7 +14,7 @@ exports.getBuyersByItem = async (req, res) => {
         {
           model: Image,
           as: 'images',
-          attributes: ['id', 's3_url', 'title', 'created_at']
+          attributes: ['id', 's3_url', 'file_name', 'order_number', 'created_at']
         },
         {
           model: User,
@@ -115,8 +115,8 @@ exports.createBuyer = async (req, res) => {
       });
     }
 
-    // TODO: JWT에서 사용자 ID
-    const created_by = req.body.created_by || 1;
+    // JWT에서 사용자 ID 가져오기
+    const created_by = req.user?.id || null;
 
     const buyer = await Buyer.create({
       item_id: itemId,
@@ -192,8 +192,8 @@ exports.parseBuyer = async (req, res) => {
       });
     }
 
-    // TODO: JWT에서 사용자 ID
-    const created_by = req.body.created_by || 1;
+    // JWT에서 사용자 ID 가져오기
+    const created_by = req.user?.id || null;
 
     const buyer = await Buyer.create({
       item_id: itemId,
@@ -294,8 +294,8 @@ exports.confirmPayment = async (req, res) => {
     const { id } = req.params;
     const { payment_status } = req.body; // 'pending' or 'completed'
 
-    // TODO: JWT에서 관리자 확인
-    const confirmed_by = req.body.confirmed_by || 1;
+    // JWT에서 관리자 ID 가져오기
+    const confirmed_by = req.user?.id || null;
 
     const buyer = await Buyer.findByPk(id);
     if (!buyer) {

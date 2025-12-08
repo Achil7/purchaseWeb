@@ -105,6 +105,11 @@ function UploadPage() {
 
   // 업로드 처리
   const handleUpload = async () => {
+    if (!orderNumber.trim()) {
+      setUploadError('주문번호를 입력해주세요.');
+      return;
+    }
+
     if (!selectedFile) {
       setUploadError('이미지를 선택해주세요.');
       return;
@@ -122,7 +127,9 @@ function UploadPage() {
       setOrderNumber('');
     } catch (err) {
       console.error('Upload failed:', err);
-      setUploadError('이미지 업로드에 실패했습니다. 다시 시도해주세요.');
+      // 서버에서 반환한 에러 메시지 표시
+      const errorMessage = err.response?.data?.message || '이미지 업로드에 실패했습니다. 다시 시도해주세요.';
+      setUploadError(errorMessage);
     } finally {
       setUploading(false);
     }
@@ -183,9 +190,11 @@ function UploadPage() {
           <TextField
             label="주문번호"
             fullWidth
+            required
             value={orderNumber}
             onChange={(e) => setOrderNumber(e.target.value)}
             placeholder="주문번호를 입력하세요"
+            helperText="구매자 등록 시 사용한 주문번호를 입력하세요"
             sx={{ mb: 3 }}
           />
 

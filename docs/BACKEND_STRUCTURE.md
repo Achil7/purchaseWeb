@@ -128,18 +128,17 @@ DELETE /api/campaigns/:id        # 캠페인 삭제
 
 ### 품목 (Items)
 ```
-GET    /api/campaigns/:campaignId/items     # 품목 목록
-POST   /api/campaigns/:campaignId/items     # 품목 생성
+GET    /api/items                           # 전체 품목 (Admin - 진행자 배정용)
+GET    /api/items/my-assigned               # 내게 배정된 품목 (Operator)
+GET    /api/items/campaign/:campaignId      # 캠페인별 품목
+GET    /api/items/token/:token              # 토큰으로 품목 조회 (Public)
+POST   /api/items/campaign/:campaignId      # 품목 생성 (Sales, Admin)
 GET    /api/items/:id                       # 품목 조회
 PUT    /api/items/:id                       # 품목 수정
 DELETE /api/items/:id                       # 품목 삭제
-```
-
-### 진행자 배정 (Campaign Operators) - 총관리자만
-```
-POST   /api/campaigns/:campaignId/operators # 진행자 배정
-DELETE /api/campaigns/:campaignId/operators/:operatorId # 배정 해제
-GET    /api/campaigns/:campaignId/operators # 배정된 진행자 목록
+POST   /api/items/:id/operator              # 진행자 배정 (Admin)
+PUT    /api/items/:id/operator              # 진행자 재배정 (Admin)
+DELETE /api/items/:id/operator/:operatorId  # 배정 해제 (Admin)
 ```
 
 ### 구매자/리뷰어 (Buyers)
@@ -155,8 +154,8 @@ PATCH  /api/buyers/:id/payment              # 입금 확인 (총관리자만)
 
 ### 이미지 (Images)
 ```
-POST   /api/upload/:token                   # 토큰 기반 이미지 업로드
-GET    /api/items/:itemId/images            # 이미지 목록
+POST   /api/images/upload/:token            # 토큰 기반 이미지 업로드 (Public)
+GET    /api/images/item/:itemId             # 이미지 목록
 DELETE /api/images/:id                      # 이미지 삭제
 ```
 

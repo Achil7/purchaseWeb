@@ -9,7 +9,18 @@ const path = require('path');
 const app = express();
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "blob:", "https://kwad-image.s3.ap-northeast-2.amazonaws.com"],
+      connectSrc: ["'self'", "https://kwad-image.s3.ap-northeast-2.amazonaws.com"],
+    },
+  },
+}));
 
 // CORS 설정
 app.use(cors({

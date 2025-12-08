@@ -204,6 +204,63 @@ exports.getMyAssignedItems = async (req, res) => {
 };
 
 /**
+ * 품목의 진행자 재배정 (기존 배정 삭제 후 새로 배정)
+ */
+exports.reassignOperatorToItem = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { operator_id } = req.body;
+    const assigned_by = req.user?.id;
+
+    // 품목 존재 확인
+    const item = await Item.findByPk(id, {
+      include: [{ model: Campaign, as: 'campaign' }]
+    });
+
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: '품목을 찾을 수 없습니다'
+      });
+    }
+
+    // 진행자 존재 및 역할 확인
+    const operator = await User.findByPk(operator_id);
+    if (!operator || operator.role !== 'operator') {
+      return res.status(400).json({
+        success: false,
+        message: '유효한 진행자가 아닙니다'
+      });
+    }
+
+    // 기존 배정 삭제
+    await CampaignOperator.destroy({
+      where: { item_id: id }
+    });
+
+    // 새 진행자 배정
+    await CampaignOperator.create({
+      campaign_id: item.campaign_id,
+      item_id: id,
+      operator_id,
+      assigned_by
+    });
+
+    res.json({
+      success: true,
+      message: '진행자가 재배정되었습니다'
+    });
+  } catch (error) {
+    console.error('Reassign operator error:', error);
+    res.status(500).json({
+      success: false,
+      message: '진행자 재배정 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
  * 품목에서 진행자 배정 해제
  */
 exports.unassignOperatorFromItem = async (req, res) => {

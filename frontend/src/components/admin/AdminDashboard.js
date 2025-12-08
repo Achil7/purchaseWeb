@@ -12,6 +12,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import SaveIcon from '@mui/icons-material/Save';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useAuth } from '../../context/AuthContext';
 import AdminUserCreate from './AdminUserCreate';
 import ProfileEditDialog from '../common/ProfileEditDialog';
@@ -30,7 +31,11 @@ function AdminDashboard() {
   const [saving, setSaving] = useState(false);
 
   // [상태] 로컬 배정 변경 사항 추적 (아직 저장 안 된 변경)
+  // { itemId: { operatorId, isReassign: boolean } }
   const [pendingAssignments, setPendingAssignments] = useState({});
+
+  // [상태] 재배정 모드 (배정 완료된 품목 수정 활성화)
+  const [reassignMode, setReassignMode] = useState({});
 
   // [상태] 사용자 등록 다이얼로그
   const [userDialogOpen, setUserDialogOpen] = useState(false);
@@ -57,6 +62,7 @@ function AdminDashboard() {
       setItems(itemsResponse.data || []);
       setOperators(operatorsResponse.data || []);
       setPendingAssignments({});
+      setReassignMode({});
     } catch (err) {
       console.error('Failed to load data:', err);
       setError('데이터를 불러오는데 실패했습니다.');
@@ -72,17 +78,34 @@ function AdminDashboard() {
   };
 
   // [핸들러] 특정 품목의 진행자 변경 시 실행 (로컬 상태만 변경)
-  const handleOperatorChange = (itemId, newOperatorId) => {
+  const handleOperatorChange = (itemId, newOperatorId, isReassign = false) => {
     setPendingAssignments(prev => ({
       ...prev,
-      [itemId]: newOperatorId
+      [itemId]: { operatorId: newOperatorId, isReassign }
     }));
+  };
+
+  // [핸들러] 재배정 모드 활성화 (경고 후)
+  const handleEnableReassign = (itemId, currentOperatorName) => {
+    const confirmed = window.confirm(
+      `⚠️ 진행자 재배정 경고\n\n` +
+      `현재 배정된 진행자: ${currentOperatorName}\n\n` +
+      `진행자를 변경하면 해당 품목의 배정 정보가 변경됩니다.\n` +
+      `정말 진행자를 재배정하시겠습니까?`
+    );
+
+    if (confirmed) {
+      setReassignMode(prev => ({
+        ...prev,
+        [itemId]: true
+      }));
+    }
   };
 
   // [핸들러] 저장 버튼 클릭 시 - 실제 API 호출
   const handleSaveAssignments = async () => {
     const assignmentsToSave = Object.entries(pendingAssignments).filter(
-      ([_, operatorId]) => operatorId
+      ([_, data]) => data.operatorId
     );
 
     if (assignmentsToSave.length === 0) {
@@ -90,12 +113,30 @@ function AdminDashboard() {
       return;
     }
 
+    // 재배정이 포함된 경우 최종 확인
+    const hasReassignments = assignmentsToSave.some(([_, data]) => data.isReassign);
+    if (hasReassignments) {
+      const confirmed = window.confirm(
+        `⚠️ 재배정 포함 알림\n\n` +
+        `${assignmentsToSave.filter(([_, d]) => d.isReassign).length}건의 재배정이 포함되어 있습니다.\n` +
+        `기존 진행자의 배정이 해제되고 새 진행자로 변경됩니다.\n\n` +
+        `계속하시겠습니까?`
+      );
+      if (!confirmed) return;
+    }
+
     try {
       setSaving(true);
 
-      // 각 배정을 순차적으로 처리
-      for (const [itemId, operatorId] of assignmentsToSave) {
-        await itemService.assignOperator(parseInt(itemId), parseInt(operatorId));
+      // 각 배정을 순차적으로 처리 (신규 배정 vs 재배정 분기)
+      for (const [itemId, data] of assignmentsToSave) {
+        if (data.isReassign) {
+          // 재배정 API 호출
+          await itemService.reassignOperator(parseInt(itemId), parseInt(data.operatorId));
+        } else {
+          // 신규 배정 API 호출
+          await itemService.assignOperator(parseInt(itemId), parseInt(data.operatorId));
+        }
       }
 
       alert(`${assignmentsToSave.length}건의 진행자 배정이 저장되었습니다.`);
@@ -257,6 +298,7 @@ function AdminDashboard() {
                       진행자 배정 (필수)
                     </TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa' }}>상태</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#fff3e0' }}>입금관리</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -289,19 +331,34 @@ function AdminDashboard() {
                           </TableCell>
                           {/* 핵심 기능: 진행자 선택 드롭다운 */}
                           <TableCell sx={{ bgcolor: (isAssigned || hasPendingChange) ? '#f1f8e9' : 'inherit' }}>
-                            {isAssigned && !hasPendingChange ? (
-                              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                                배정 완료 ({assignedOperator.operator?.name})
-                              </Typography>
+                            {isAssigned && !hasPendingChange && !reassignMode[item.id] ? (
+                              // 배정 완료 상태 - 재배정 버튼 표시
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2" color="text.secondary">
+                                  {assignedOperator.operator?.name}
+                                </Typography>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  color="warning"
+                                  onClick={() => handleEnableReassign(item.id, assignedOperator.operator?.name)}
+                                  sx={{ minWidth: 'auto', px: 1, py: 0.5, fontSize: '0.75rem' }}
+                                >
+                                  변경
+                                </Button>
+                              </Box>
                             ) : (
+                              // 미배정 또는 재배정 모드 - 드롭다운 표시
                               <FormControl fullWidth size="small">
-                                <InputLabel id={`select-operator-label-${item.id}`}>선택하세요</InputLabel>
+                                <InputLabel id={`select-operator-label-${item.id}`}>
+                                  {reassignMode[item.id] ? '새 진행자 선택' : '선택하세요'}
+                                </InputLabel>
                                 <Select
                                   labelId={`select-operator-label-${item.id}`}
-                                  value={pendingOperatorId || ''}
-                                  label="선택하세요"
-                                  onChange={(e) => handleOperatorChange(item.id, e.target.value)}
-                                  sx={{ bgcolor: 'white' }}
+                                  value={pendingOperatorId?.operatorId || ''}
+                                  label={reassignMode[item.id] ? '새 진행자 선택' : '선택하세요'}
+                                  onChange={(e) => handleOperatorChange(item.id, e.target.value, reassignMode[item.id] || false)}
+                                  sx={{ bgcolor: reassignMode[item.id] ? '#fff3e0' : 'white' }}
                                 >
                                   <MenuItem value="">
                                     <em>선택 안 함</em>
@@ -322,12 +379,29 @@ function AdminDashboard() {
                               <Chip label="미배정" color="default" size="small" variant="outlined" />
                             )}
                           </TableCell>
+                          {/* 입금관리 버튼 - 배정 완료된 품목만 활성화 */}
+                          <TableCell align="center">
+                            {isAssigned && !hasPendingChange ? (
+                              <Button
+                                variant="contained"
+                                size="small"
+                                color="warning"
+                                startIcon={<OpenInNewIcon />}
+                                onClick={() => navigate(`/admin/campaigns/${item.campaign?.id}/item/${item.id}`)}
+                                sx={{ fontWeight: 'bold' }}
+                              >
+                                입금관리
+                              </Button>
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">-</Typography>
+                            )}
+                          </TableCell>
                         </TableRow>
                       );
                     })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 5, color: '#999' }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 5, color: '#999' }}>
                         등록된 품목이 없습니다. 영업사가 캠페인에서 품목을 등록하면 여기에 표시됩니다.
                       </TableCell>
                     </TableRow>

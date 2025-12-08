@@ -1,4 +1,4 @@
-const { Item, Image, Campaign } = require('../models');
+const { Item, Image, Campaign, Buyer } = require('../models');
 const { uploadToS3, deleteFromS3 } = require('../config/s3');
 const multer = require('multer');
 
@@ -43,6 +43,30 @@ exports.uploadImage = async (req, res) => {
       });
     }
 
+    // 주문번호 필수 검증
+    if (!order_number) {
+      return res.status(400).json({
+        success: false,
+        message: '주문번호를 입력해주세요'
+      });
+    }
+
+    // 해당 품목에서 order_number로 구매자 찾기
+    const buyer = await Buyer.findOne({
+      where: {
+        item_id: item.id,
+        order_number: order_number
+      }
+    });
+
+    // 구매자가 없으면 업로드 거부
+    if (!buyer) {
+      return res.status(400).json({
+        success: false,
+        message: '해당 주문번호의 구매자를 찾을 수 없습니다'
+      });
+    }
+
     // 파일 확인
     if (!req.file) {
       return res.status(400).json({
@@ -53,16 +77,16 @@ exports.uploadImage = async (req, res) => {
 
     const file = req.file;
     const timestamp = Date.now();
-    const fileExtension = file.originalname.split('.').pop();
     const s3Key = `uploads/${item.id}/${timestamp}_${file.originalname}`;
 
     // S3에 업로드
     const s3Url = await uploadToS3(file.buffer, s3Key, file.mimetype);
 
-    // DB에 이미지 레코드 생성
+    // DB에 이미지 레코드 생성 (buyer_id 연결)
     const image = await Image.create({
       item_id: item.id,
-      order_number: order_number || null,
+      buyer_id: buyer.id,
+      order_number: order_number,
       file_name: file.originalname,
       file_path: s3Key,
       s3_key: s3Key,

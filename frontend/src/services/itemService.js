@@ -81,6 +81,16 @@ const itemService = {
     }
   },
 
+  // 품목의 진행자 재배정
+  reassignOperator: async (itemId, operatorId) => {
+    try {
+      const response = await apiClient.put(`/items/${itemId}/operator`, { operator_id: operatorId });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
   // 품목에서 진행자 배정 해제
   unassignOperator: async (itemId, operatorId) => {
     try {

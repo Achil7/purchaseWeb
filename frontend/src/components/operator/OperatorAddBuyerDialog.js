@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Dialog, DialogTitle, DialogContent, DialogActions, Box, Typography, 
-  TextField, Grid, Divider, Button, Alert 
+import {
+  Dialog, DialogTitle, DialogContent, DialogActions, Box, Typography,
+  TextField, Grid, Button, Alert
 } from '@mui/material';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
-import EditIcon from '@mui/icons-material/Edit'; // 수정 아이콘
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import EditIcon from '@mui/icons-material/Edit';
 
 // [수정] props에 editData 추가
 function OperatorAddBuyerDialog({ open, onClose, onSave, editData = null }) {
@@ -16,9 +15,8 @@ function OperatorAddBuyerDialog({ open, onClose, onSave, editData = null }) {
     user_id: '',
     contact: '',
     address: '',
-    bank_account: '',
-    amount: '',
-    review_image_url: null
+    account_info: '',
+    amount: ''
   };
 
   const [pasteInput, setPasteInput] = useState('');
@@ -36,9 +34,8 @@ function OperatorAddBuyerDialog({ open, onClose, onSave, editData = null }) {
             user_id: editData.user_id || '',
             contact: editData.contact || '',
             address: editData.address || '',
-            bank_account: editData.bank_account || '',
-            amount: editData.amount || '',
-            review_image_url: editData.review_image_url || null
+            account_info: editData.account_info || '',
+            amount: editData.amount || ''
         });
         setPasteInput(''); // 수정 때는 붙여넣기 창 비움
       } else {
@@ -67,7 +64,7 @@ function OperatorAddBuyerDialog({ open, onClose, onSave, editData = null }) {
       user_id: parts[3]?.trim() || '',
       contact: parts[4]?.trim() || '',
       address: parts[5]?.trim() || '',
-      bank_account: parts[6]?.trim() || '',
+      account_info: parts[6]?.trim() || '',
       amount: parts[7]?.trim() || '',
     }));
   };
@@ -75,15 +72,6 @@ function OperatorAddBuyerDialog({ open, onClose, onSave, editData = null }) {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setInfoForm({ ...infoForm, [name]: value });
-  };
-
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // TODO: Implement actual S3 upload here
-      // For now, just store file object
-      setInfoForm({ ...infoForm, review_image_url: file });
-    }
   };
 
   const handleSave = () => {
@@ -124,7 +112,7 @@ function OperatorAddBuyerDialog({ open, onClose, onSave, editData = null }) {
         )}
         
         <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
-            {isEditMode ? "데이터 수정" : "데이터 확인 및 이미지 업로드"}
+            {isEditMode ? "데이터 수정" : "데이터 확인"}
         </Typography>
 
         <Grid container spacing={2}>
@@ -135,22 +123,8 @@ function OperatorAddBuyerDialog({ open, onClose, onSave, editData = null }) {
           <Grid item xs={6} sm={4}><TextField label="5. 연락처" name="contact" fullWidth size="small" value={infoForm.contact} onChange={handleInputChange} focused={!!infoForm.contact}/></Grid>
 
           <Grid item xs={12} sm={5}><TextField label="6. 주소" name="address" fullWidth size="small" value={infoForm.address} onChange={handleInputChange} focused={!!infoForm.address}/></Grid>
-          <Grid item xs={12} sm={5}><TextField label="7. 계좌정보" name="bank_account" fullWidth size="small" value={infoForm.bank_account} onChange={handleInputChange} focused={!!infoForm.bank_account}/></Grid>
+          <Grid item xs={12} sm={5}><TextField label="7. 계좌정보" name="account_info" fullWidth size="small" value={infoForm.account_info} onChange={handleInputChange} focused={!!infoForm.account_info}/></Grid>
           <Grid item xs={6} sm={2}><TextField label="8. 금액" name="amount" fullWidth size="small" value={infoForm.amount} onChange={handleInputChange} focused={!!infoForm.amount}/></Grid>
-          
-          <Grid item xs={12}>
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="subtitle2" gutterBottom>리뷰 캡처 이미지 {isEditMode ? "(변경 시에만 선택)" : "(필수)"}</Typography>
-              <Button
-                  component="label" variant="outlined" fullWidth startIcon={<CloudUploadIcon />}
-                  sx={{ height: 50, borderStyle: 'dashed', borderColor: infoForm.review_image_url ? 'green' : '#bbb', color: infoForm.review_image_url ? 'green' : '#666', bgcolor: infoForm.review_image_url ? '#f0fdf4' : 'transparent' }}
-              >
-                  {infoForm.review_image_url
-                    ? `파일 선택됨: ${infoForm.review_image_url.name || '기존 이미지 유지'}`
-                    : "이미지 파일 선택 (변경하려면 클릭)"}
-                  <input type="file" hidden accept="image/*" onChange={handleImageChange} />
-              </Button>
-          </Grid>
         </Grid>
       </DialogContent>
       <DialogActions sx={{ p: 3, borderTop: '1px solid #eee' }}>

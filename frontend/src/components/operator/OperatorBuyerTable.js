@@ -2,15 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Button, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
-  Link, Breadcrumbs, Chip, CircularProgress, Alert, Divider, Dialog, DialogContent, IconButton
+  Link, Breadcrumbs, Chip, CircularProgress, Alert, Dialog, DialogContent, IconButton
 } from '@mui/material';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
-import ImageIcon from '@mui/icons-material/Image';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import { buyerService, imageService, itemService } from '../../services';
+import { buyerService, itemService } from '../../services';
 
 // 파일명: OperatorAddBuyerDialog
 import OperatorAddBuyerDialog from './OperatorAddBuyerDialog';
@@ -28,15 +27,13 @@ function OperatorBuyerTable() {
   // [수정] 수정할 대상을 저장하는 state (null이면 추가 모드)
   const [editingBuyer, setEditingBuyer] = useState(null);
 
-  // 이미지 관련 state
-  const [images, setImages] = useState([]);
+  // 이미지 확대 다이얼로그 state
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
 
   useEffect(() => {
     loadItem();
     loadBuyers();
-    loadImages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
 
@@ -53,6 +50,8 @@ function OperatorBuyerTable() {
     try {
       setLoading(true);
       const response = await buyerService.getBuyersByItem(itemId);
+      console.log('Buyers response:', response); // 디버깅
+      console.log('Buyers data:', response.data); // 디버깅
       setBuyers(response.data || []);
       setError(null);
     } catch (err) {
@@ -60,15 +59,6 @@ function OperatorBuyerTable() {
       setError('구매자 목록을 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadImages = async () => {
-    try {
-      const response = await imageService.getImagesByItem(itemId);
-      setImages(response.data || []);
-    } catch (err) {
-      console.error('Failed to load images:', err);
     }
   };
 
@@ -253,7 +243,7 @@ function OperatorBuyerTable() {
                         {buyer.address}
                     </TableCell>
                     <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'keep-all', minWidth: 250, lineHeight: 1.5 }}>
-                        {buyer.bank_account}
+                        {buyer.account_info}
                     </TableCell>
                     <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', color: '#1b5e20' }}>
                         {buyer.amount ? buyer.amount.toLocaleString() : '0'}
@@ -268,13 +258,24 @@ function OperatorBuyerTable() {
                     </TableCell>
 
                     <TableCell align="center">
-                        {buyer.review_image_url ? (
-                            <Link
-                                href={buyer.review_image_url}
-                                target="_blank"
+                        {buyer.images && buyer.images.length > 0 ? (
+                            <Box
+                                onClick={() => handleImageClick(buyer.images[0])}
+                                sx={{ cursor: 'pointer', display: 'inline-block' }}
                             >
-                                <ImageIcon color="primary" />
-                            </Link>
+                                <Box
+                                    component="img"
+                                    src={buyer.images[0].s3_url}
+                                    alt="리뷰이미지"
+                                    sx={{
+                                        width: 40,
+                                        height: 40,
+                                        objectFit: 'cover',
+                                        borderRadius: 1,
+                                        border: '1px solid #eee'
+                                    }}
+                                />
+                            </Box>
                         ) : <Typography variant="caption" color="text.disabled">-</Typography>}
                     </TableCell>
                     
@@ -313,50 +314,6 @@ function OperatorBuyerTable() {
           </Table>
         </TableContainer>
       </Paper>
-
-      {/* 업로드된 이미지 */}
-      {images.length > 0 && (
-        <Paper sx={{ p: 3, mt: 4, borderRadius: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <ImageIcon color="primary" />
-            <Typography variant="h6" fontWeight="bold">
-              업로드된 이미지 ({images.length}개)
-            </Typography>
-          </Box>
-          <Divider sx={{ mb: 2 }} />
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-            {images.map((image) => (
-              <Box
-                key={image.id}
-                onClick={() => handleImageClick(image)}
-                sx={{
-                  width: 120,
-                  cursor: 'pointer',
-                  '&:hover': { opacity: 0.8 }
-                }}
-              >
-                <Box
-                  component="img"
-                  src={image.s3_url}
-                  alt={image.file_name}
-                  sx={{
-                    width: 120,
-                    height: 120,
-                    objectFit: 'cover',
-                    borderRadius: 1,
-                    border: '1px solid #eee'
-                  }}
-                />
-                {image.order_number && (
-                  <Typography variant="caption" display="block" align="center" color="text.secondary" noWrap>
-                    {image.order_number}
-                  </Typography>
-                )}
-              </Box>
-            ))}
-          </Box>
-        </Paper>
-      )}
 
       {/* 이미지 확대 Dialog */}
       <Dialog
