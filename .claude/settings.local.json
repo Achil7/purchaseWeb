@@ -18,7 +18,8 @@
       "Bash(find:*)",
       "Bash(cat:*)",
       "Bash(make push:*)",
-      "Bash(docker push:*)"
+      "Bash(docker push:*)",
+      "Bash(if not exist \"c:\\Users\\achil\\Desktop\\purchaseweb\\frontend\\src\\components\\upload\" mkdir \"c:\\Users\\achil\\Desktop\\purchaseweb\\frontend\\src\\components\\upload\")"
     ],
     "deny": [],
     "ask": []

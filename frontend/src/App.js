@@ -14,6 +14,7 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import SalesLayout from './components/sales/SalesLayout';
 import SalesCampaignTable from './components/sales/SalesCampaignTable';
 import SalesItemTable from './components/sales/SalesItemTable';
+import SalesItemDetail from './components/sales/SalesItemDetail';
 
 // --- 진행자 관련 페이지 ---
 import OperatorLayout from './components/operator/OperatorLayout';
@@ -27,6 +28,9 @@ import BrandCampaignTable from './components/brand/BrandCampaignTable';
 import BrandItemTable from './components/brand/BrandItemTable';
 import BrandBuyerTable from './components/brand/BrandBuyerTable';
 
+// --- 이미지 업로드 페이지 (Public) ---
+import UploadPage from './components/upload/UploadPage';
+
 function App() {
   return (
     <AuthProvider>
@@ -35,6 +39,9 @@ function App() {
         <Routes>
           {/* 로그인 페이지 */}
           <Route path="/login" element={<Login />} />
+
+          {/* 이미지 업로드 페이지 (Public - 인증 불필요) */}
+          <Route path="/upload/:token" element={<UploadPage />} />
 
           {/* 기본 경로는 로그인으로 리다이렉트 */}
           <Route path="/" element={<Navigate to="/login" replace />} />
@@ -60,6 +67,7 @@ function App() {
           >
             <Route index element={<SalesCampaignTable />} />
             <Route path="campaign/:campaignId" element={<SalesItemTable />} />
+            <Route path="campaign/:campaignId/item/:itemId" element={<SalesItemDetail />} />
           </Route>
 
           {/* 진행자 드릴다운 구조 */}

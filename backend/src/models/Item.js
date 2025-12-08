@@ -44,9 +44,9 @@ module.exports = (sequelize, DataTypes) => {
     product_price: {
       type: DataTypes.DECIMAL(10, 2)
     },
-    // 일정
+    // 일정 (시간 문자열, 예: "18:00")
     shipping_deadline: {
-      type: DataTypes.DATE
+      type: DataTypes.STRING(20)
     },
     // 리뷰 가이드
     review_guide: {

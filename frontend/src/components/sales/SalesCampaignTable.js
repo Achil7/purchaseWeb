@@ -2,15 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
-  Chip, Button, CircularProgress, Alert
+  Chip, Button, CircularProgress, Alert, IconButton, Tooltip,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions
 } from '@mui/material';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import FolderIcon from '@mui/icons-material/Folder';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { campaignService } from '../../services';
 import { useAuth } from '../../context/AuthContext';
 
-// 캠페인 생성 다이얼로그
-import SalesAddCampaignDialog from './SalesAddCampaignDialog';
+// 캠페인 생성/수정 다이얼로그
+import SalesCampaignDialog from './SalesAddCampaignDialog';
 
 function SalesCampaignTable() {
   const navigate = useNavigate();
@@ -18,7 +21,13 @@ function SalesCampaignTable() {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Dialog states
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState('create');
+  const [selectedCampaign, setSelectedCampaign] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [campaignToDelete, setCampaignToDelete] = useState(null);
 
   useEffect(() => {
     loadCampaigns();
@@ -58,23 +67,68 @@ function SalesCampaignTable() {
     return colorMap[status] || 'default';
   };
 
+  // 캠페인 추가 Dialog 열기
   const handleOpenAddDialog = () => {
+    setModalMode('create');
+    setSelectedCampaign(null);
     setIsModalOpen(true);
   };
 
-  const handleCloseDialog = () => {
-    setIsModalOpen(false);
+  // 캠페인 수정 Dialog 열기
+  const handleOpenEditDialog = (campaign, e) => {
+    e.stopPropagation();
+    setModalMode('edit');
+    setSelectedCampaign(campaign);
+    setIsModalOpen(true);
   };
 
+  // Dialog 닫기
+  const handleCloseDialog = () => {
+    setIsModalOpen(false);
+    setSelectedCampaign(null);
+  };
+
+  // 캠페인 저장 (추가/수정)
   const handleSaveCampaign = async (campaignData) => {
     try {
-      await campaignService.createCampaign(campaignData);
+      if (modalMode === 'edit' && selectedCampaign) {
+        await campaignService.updateCampaign(selectedCampaign.id, campaignData);
+      } else {
+        await campaignService.createCampaign(campaignData);
+      }
       await loadCampaigns();
       setIsModalOpen(false);
+      setSelectedCampaign(null);
     } catch (err) {
-      console.error('Failed to create campaign:', err);
-      const errorMessage = err.response?.data?.message || err.message || '캠페인 생성에 실패했습니다.';
-      alert(`캠페인 생성 실패: ${errorMessage}`);
+      console.error('Failed to save campaign:', err);
+      const errorMessage = err.response?.data?.message || err.message || '캠페인 저장에 실패했습니다.';
+      alert(`캠페인 저장 실패: ${errorMessage}`);
+    }
+  };
+
+  // 삭제 Dialog 열기
+  const handleOpenDeleteDialog = (campaign, e) => {
+    e.stopPropagation();
+    setCampaignToDelete(campaign);
+    setDeleteDialogOpen(true);
+  };
+
+  // 삭제 Dialog 닫기
+  const handleCloseDeleteDialog = () => {
+    setDeleteDialogOpen(false);
+    setCampaignToDelete(null);
+  };
+
+  // 캠페인 삭제
+  const handleDeleteCampaign = async () => {
+    if (!campaignToDelete) return;
+    try {
+      await campaignService.deleteCampaign(campaignToDelete.id);
+      await loadCampaigns();
+      handleCloseDeleteDialog();
+    } catch (err) {
+      console.error('Failed to delete campaign:', err);
+      alert('캠페인 삭제에 실패했습니다.');
     }
   };
 
@@ -116,9 +170,10 @@ function SalesCampaignTable() {
 
       <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
         <TableContainer>
-          <Table hover>
+          <Table>
             <TableHead sx={{ bgcolor: '#e3f2fd' }}>
               <TableRow>
+                <TableCell>브랜드명</TableCell>
                 <TableCell>캠페인명</TableCell>
                 <TableCell>설명</TableCell>
                 <TableCell align="center">상태</TableCell>
@@ -136,8 +191,13 @@ function SalesCampaignTable() {
                     onClick={() => navigate(`/sales/campaign/${campaign.id}`)}
                     sx={{ cursor: 'pointer' }}
                   >
-                    <TableCell sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <FolderIcon color="primary" /> {campaign.name}
+                    <TableCell sx={{ fontWeight: 'bold' }}>
+                      {campaign.brand?.name || '-'}
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <FolderIcon color="primary" fontSize="small" /> {campaign.name}
+                      </Box>
                     </TableCell>
                     <TableCell>{campaign.description || '-'}</TableCell>
                     <TableCell align="center">
@@ -154,15 +214,43 @@ function SalesCampaignTable() {
                       {campaign.end_date ? new Date(campaign.end_date).toLocaleDateString('ko-KR') : '-'}
                     </TableCell>
                     <TableCell align="right">
-                      <Button variant="contained" size="small" color="primary">
-                        품목 관리
-                      </Button>
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
+                        <Tooltip title="수정">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={(e) => handleOpenEditDialog(campaign, e)}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="삭제">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={(e) => handleOpenDeleteDialog(campaign, e)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Button
+                          variant="contained"
+                          size="small"
+                          color="primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/sales/campaign/${campaign.id}`);
+                          }}
+                        >
+                          품목 관리
+                        </Button>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 3, color: '#999' }}>
+                  <TableCell colSpan={7} align="center" sx={{ py: 3, color: '#999' }}>
                     등록된 캠페인이 없습니다. 우측 상단 버튼을 눌러 추가하세요.
                   </TableCell>
                 </TableRow>
@@ -172,11 +260,34 @@ function SalesCampaignTable() {
         </TableContainer>
       </Paper>
 
-      <SalesAddCampaignDialog
+      {/* 캠페인 추가/수정 Dialog */}
+      <SalesCampaignDialog
         open={isModalOpen}
         onClose={handleCloseDialog}
         onSave={handleSaveCampaign}
+        mode={modalMode}
+        initialData={selectedCampaign}
       />
+
+      {/* 삭제 확인 Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={handleCloseDeleteDialog}>
+        <DialogTitle>캠페인 삭제</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            "{campaignToDelete?.name}" 캠페인을 삭제하시겠습니까?
+            <br />
+            삭제 시 해당 캠페인의 모든 품목도 함께 삭제됩니다.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDeleteDialog} color="inherit">
+            취소
+          </Button>
+          <Button onClick={handleDeleteCampaign} color="error" variant="contained">
+            삭제
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

@@ -241,6 +241,50 @@ exports.unassignOperatorFromItem = async (req, res) => {
 };
 
 /**
+ * 토큰으로 품목 조회 (Public - 이미지 업로드 페이지용)
+ */
+exports.getItemByToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const item = await Item.findOne({
+      where: { upload_link_token: token },
+      attributes: ['id', 'product_name', 'campaign_id'],
+      include: [
+        {
+          model: Campaign,
+          as: 'campaign',
+          attributes: ['id', 'name']
+        }
+      ]
+    });
+
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: '유효하지 않은 업로드 링크입니다'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        item_id: item.id,
+        product_name: item.product_name,
+        campaign_name: item.campaign?.name || '캠페인'
+      }
+    });
+  } catch (error) {
+    console.error('Get item by token error:', error);
+    res.status(500).json({
+      success: false,
+      message: '품목 조회 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
  * 캠페인의 품목 목록 조회
  */
 exports.getItemsByCampaign = async (req, res) => {

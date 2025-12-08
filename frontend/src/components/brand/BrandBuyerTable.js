@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  Box, Typography, Button, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody, 
-  Link, Breadcrumbs, Chip 
+import {
+  Box, Typography, Button, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
+  Link, Breadcrumbs, Chip, Divider, Dialog, DialogContent, IconButton
 } from '@mui/material';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import ImageIcon from '@mui/icons-material/Image';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CloseIcon from '@mui/icons-material/Close';
+import { imageService } from '../../services';
 
 const initialBuyers = [
   { 
@@ -30,6 +32,35 @@ function BrandBuyerTable() {
   const navigate = useNavigate();
 
   const [buyers, setBuyers] = useState(initialBuyers);
+
+  // 이미지 관련 state
+  const [images, setImages] = useState([]);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+
+  useEffect(() => {
+    loadImages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemId]);
+
+  const loadImages = async () => {
+    try {
+      const response = await imageService.getImagesByItem(itemId);
+      setImages(response.data || []);
+    } catch (err) {
+      console.error('Failed to load images:', err);
+    }
+  };
+
+  const handleImageClick = (image) => {
+    setSelectedImage(image);
+    setImageDialogOpen(true);
+  };
+
+  const handleCloseImageDialog = () => {
+    setImageDialogOpen(false);
+    setSelectedImage(null);
+  };
 
   const filteredBuyers = buyers.filter(b => b.itemId === parseInt(itemId));
 
@@ -205,6 +236,94 @@ function BrandBuyerTable() {
           </Table>
         </TableContainer>
       </Paper>
+
+      {/* 업로드된 이미지 */}
+      {images.length > 0 && (
+        <Paper sx={{ p: 3, mt: 4, borderRadius: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <ImageIcon color="primary" />
+            <Typography variant="h6" fontWeight="bold">
+              업로드된 이미지 ({images.length}개)
+            </Typography>
+          </Box>
+          <Divider sx={{ mb: 2 }} />
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+            {images.map((image) => (
+              <Box
+                key={image.id}
+                onClick={() => handleImageClick(image)}
+                sx={{
+                  width: 120,
+                  cursor: 'pointer',
+                  '&:hover': { opacity: 0.8 }
+                }}
+              >
+                <Box
+                  component="img"
+                  src={image.s3_url}
+                  alt={image.file_name}
+                  sx={{
+                    width: 120,
+                    height: 120,
+                    objectFit: 'cover',
+                    borderRadius: 1,
+                    border: '1px solid #eee'
+                  }}
+                />
+                {image.order_number && (
+                  <Typography variant="caption" display="block" align="center" color="text.secondary" noWrap>
+                    {image.order_number}
+                  </Typography>
+                )}
+              </Box>
+            ))}
+          </Box>
+        </Paper>
+      )}
+
+      {/* 이미지 확대 Dialog */}
+      <Dialog
+        open={imageDialogOpen}
+        onClose={handleCloseImageDialog}
+        maxWidth="lg"
+      >
+        <DialogContent sx={{ p: 0, position: 'relative' }}>
+          <IconButton
+            onClick={handleCloseImageDialog}
+            sx={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              bgcolor: 'rgba(0,0,0,0.5)',
+              color: 'white',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' }
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+          {selectedImage && (
+            <Box>
+              <Box
+                component="img"
+                src={selectedImage.s3_url}
+                alt={selectedImage.file_name}
+                sx={{
+                  maxWidth: '90vw',
+                  maxHeight: '80vh',
+                  objectFit: 'contain'
+                }}
+              />
+              {selectedImage.order_number && (
+                <Box sx={{ p: 2, bgcolor: '#f5f5f5' }}>
+                  <Typography variant="body2">
+                    <strong>주문번호:</strong> {selectedImage.order_number}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

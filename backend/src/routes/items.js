@@ -4,6 +4,13 @@ const itemController = require('../controllers/itemController');
 const { authenticate, authorize } = require('../middleware/auth');
 
 /**
+ * @route   GET /api/items/token/:token
+ * @desc    토큰으로 품목 조회 (이미지 업로드 페이지용)
+ * @access  Public
+ */
+router.get('/token/:token', itemController.getItemByToken);
+
+/**
  * @route   GET /api/items
  * @desc    전체 품목 목록 (Admin용 - 진행자 배정)
  * @access  Private (Admin)

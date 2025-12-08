@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Box, Typography,
-  TextField, Button, MenuItem, CircularProgress, FormControl, InputLabel, Select
+  TextField, Button, MenuItem, CircularProgress, FormControl, InputLabel, Select, Alert
 } from '@mui/material';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
+import EditIcon from '@mui/icons-material/Edit';
 import { getBrandUsers } from '../../services/userService';
 import { useAuth } from '../../context/AuthContext';
 
-function SalesAddCampaignDialog({ open, onClose, onSave }) {
+function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialData = null }) {
   const { user } = useAuth();
 
-  const initialFormState = {
+  const emptyFormState = {
     name: '',
     description: '',
     status: 'active',
@@ -19,18 +20,31 @@ function SalesAddCampaignDialog({ open, onClose, onSave }) {
     brand_id: ''
   };
 
-  const [formData, setFormData] = useState(initialFormState);
+  const [formData, setFormData] = useState(emptyFormState);
   const [brandList, setBrandList] = useState([]);
   const [loadingBrands, setLoadingBrands] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (open) {
-      // 다이얼로그가 열릴 때 폼 초기화 및 브랜드사 목록 조회
-      setFormData(initialFormState);
+      setError('');
       fetchBrandUsers();
+
+      if (mode === 'edit' && initialData) {
+        setFormData({
+          name: initialData.name || '',
+          description: initialData.description || '',
+          status: initialData.status || 'active',
+          start_date: initialData.start_date ? initialData.start_date.split('T')[0] : '',
+          end_date: initialData.end_date ? initialData.end_date.split('T')[0] : '',
+          brand_id: initialData.brand_id || ''
+        });
+      } else {
+        setFormData(emptyFormState);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, mode, initialData]);
 
   const fetchBrandUsers = async () => {
     setLoadingBrands(true);
@@ -52,12 +66,12 @@ function SalesAddCampaignDialog({ open, onClose, onSave }) {
 
   const handleSave = () => {
     if (!formData.name) {
-      alert("캠페인명을 입력해주세요.");
+      setError('캠페인명을 입력해주세요.');
       return;
     }
 
     if (!formData.brand_id) {
-      alert("브랜드사를 선택해주세요.");
+      setError('브랜드사를 선택해주세요.');
       return;
     }
 
@@ -70,17 +84,25 @@ function SalesAddCampaignDialog({ open, onClose, onSave }) {
     onSave(campaignData);
   };
 
+  const isEdit = mode === 'edit';
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle sx={{ fontWeight: 'bold', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: 1 }}>
-        <AddCircleIcon color="primary" />
-        캠페인 추가
+        {isEdit ? <EditIcon color="primary" /> : <AddCircleIcon color="primary" />}
+        {isEdit ? '캠페인 수정' : '캠페인 추가'}
       </DialogTitle>
 
       <DialogContent sx={{ mt: 2 }}>
-        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
-          새로운 캠페인을 생성합니다. 생성 후 품목을 추가할 수 있습니다.
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {isEdit ? '캠페인 정보를 수정합니다.' : '새로운 캠페인을 생성합니다. 생성 후 품목을 추가할 수 있습니다.'}
         </Typography>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
 
         {/* 캠페인명 */}
         <Box sx={{ mb: 2 }}>
@@ -174,11 +196,11 @@ function SalesAddCampaignDialog({ open, onClose, onSave }) {
           취소
         </Button>
         <Button onClick={handleSave} variant="contained" color="primary" size="large" disableElevation>
-          추가하기
+          {isEdit ? '수정하기' : '추가하기'}
         </Button>
       </DialogActions>
     </Dialog>
   );
 }
 
-export default SalesAddCampaignDialog;
+export default SalesCampaignDialog;

@@ -49,6 +49,9 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING(50)
     },
     // 업로드 정보
+    order_number: {
+      type: DataTypes.STRING(100)
+    },
     upload_token: {
       type: DataTypes.STRING(100)
     },

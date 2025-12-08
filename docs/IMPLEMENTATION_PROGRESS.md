@@ -1,11 +1,102 @@
 # 구현 진행 상황
 
-**최종 업데이트**: 2025-12-06 (Session 3)
+**최종 업데이트**: 2025-12-08 (Session 4)
 **프로젝트**: CampManager (purchaseWeb)
+**배포 URL**: https://kwad.co.kr
 
 ---
 
-## 2025-12-06 (Session 3) 업데이트 내역 🆕
+## 2025-12-08 (Session 5) 업데이트 내역 🆕
+
+### 이미지 업로드 링크 기능 구현 (S3 연동)
+
+#### 1. 백엔드 API 추가
+| Method | Endpoint | 설명 | 권한 |
+|--------|----------|------|------|
+| GET | `/api/items/token/:token` | 토큰으로 품목 조회 | Public |
+| POST | `/api/images/upload/:token` | 이미지 업로드 (S3) | Public |
+| GET | `/api/images/item/:itemId` | 품목 이미지 목록 | Private |
+| DELETE | `/api/images/:id` | 이미지 삭제 | Private |
+
+#### 2. 신규 파일 생성
+- `backend/src/config/s3.js` - S3 클라이언트 설정
+- `backend/src/controllers/imageController.js` - 이미지 업로드/조회/삭제 API
+- `frontend/src/components/upload/UploadPage.js` - 이미지 업로드 페이지 (Public)
+- `frontend/src/services/imageService.js` - 이미지 API 서비스
+
+#### 3. 마이그레이션 추가
+- `20251208000001-alter-items-shipping-deadline.js` - shipping_deadline 타입 변경 (DATE → STRING)
+- `20251208000002-add-order-number-to-images.js` - images 테이블에 order_number 컬럼 추가
+
+#### 4. 기능 설명
+- **업로드 페이지** (`/upload/:token`): 로그인 불필요, 캠페인명/품목명 표시, 주문번호 입력, 이미지 선택/붙여넣기(Ctrl+V)
+- **이미지 저장**: AWS S3 (`kwad-image` 버킷) → DB에 URL 저장
+- **썸네일 표시**: 품목 상세에서 업로드된 이미지를 썸네일로 표시 (클릭 시 확대)
+
+#### 5. 수정된 파일
+- `frontend/src/components/sales/SalesItemTable.js` - "업로드 링크" → "이미지 업로드 링크"
+- `frontend/src/components/sales/SalesItemDetail.js` - 이미지 썸네일 섹션 추가
+- `frontend/src/components/operator/OperatorBuyerTable.js` - 이미지 썸네일 섹션 추가
+- `frontend/src/components/brand/BrandBuyerTable.js` - 이미지 썸네일 섹션 추가
+- `frontend/src/App.js` - `/upload/:token` 라우트 추가
+- `frontend/src/services/index.js` - imageService export 추가
+- `backend/src/models/Image.js` - order_number 필드 추가
+- `backend/src/routes/items.js` - 토큰 조회 API 라우트 추가
+- `backend/src/routes/images.js` - 이미지 API 라우트 구현
+- `backend/src/controllers/itemController.js` - getItemByToken 함수 추가
+
+---
+
+## 2025-12-08 (Session 4) 업데이트 내역
+
+### Sales 품목/캠페인 CRUD 기능 구현
+
+#### 1. 품목 생성 버그 수정
+**문제**: 품목 추가 시 필드명 불일치로 생성 실패
+| 프론트엔드 (기존) | 백엔드 (필요) |
+|------------------|---------------|
+| `name` | `product_name` |
+| `target_keyword` | `keyword` |
+| `delivery_service` | `courier_service_yn` |
+
+**해결**: `SalesAddItemDialog.js` 필드명 수정
+
+#### 2. 품목 다이얼로그 개선
+- `SalesAddItemDialog.js` → `SalesItemDialog.js` (create/edit 모드 지원)
+- Box + flex 레이아웃으로 변경 (AdminUserCreate 스타일)
+- 수정 모드에서 기존 데이터 로드
+
+#### 3. 품목 테이블 CRUD 추가
+- 수정/삭제 버튼 (IconButton) 추가
+- 삭제 확인 Dialog 추가
+- 상세보기 버튼 추가
+
+#### 4. 품목 상세보기 페이지 생성
+- **신규 파일**: `SalesItemDetail.js`
+- 품목 기본 정보 표시
+- 구매자(Buyer) 목록 테이블
+- **라우트**: `/sales/campaign/:campaignId/item/:itemId`
+
+#### 5. 캠페인 테이블 개선
+- 브랜드명 컬럼 추가 (첫 번째 컬럼)
+- 수정/삭제 버튼 추가
+- 삭제 확인 Dialog 추가
+
+#### 6. 캠페인 다이얼로그 개선
+- `SalesAddCampaignDialog.js` → `SalesCampaignDialog.js`
+- create/edit 모드 지원
+
+#### 수정된 파일
+- `frontend/src/components/sales/SalesAddItemDialog.js` (리네임 + 수정)
+- `frontend/src/components/sales/SalesItemTable.js`
+- `frontend/src/components/sales/SalesItemDetail.js` (신규)
+- `frontend/src/components/sales/SalesAddCampaignDialog.js` (수정)
+- `frontend/src/components/sales/SalesCampaignTable.js`
+- `frontend/src/App.js` (라우트 추가)
+
+---
+
+## 2025-12-06 (Session 3) 업데이트 내역
 
 ### MUI v7 Grid 호환성 수정
 
@@ -20,23 +111,6 @@
 #### 수정된 파일
 - `frontend/src/components/admin/AdminUserCreate.js`
 - `frontend/src/components/sales/SalesAddCampaignDialog.js`
-
-#### 변경 예시
-```jsx
-// 이전 (MUI v5/v6)
-<Grid container spacing={2}>
-  <Grid item xs={12} sm={4}>...</Grid>
-</Grid>
-
-// 변경 후 (MUI v7)
-<Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-  <TextField fullWidth ... />
-  <FormControl fullWidth>
-    <InputLabel>역할 *</InputLabel>
-    <Select ...>...</Select>
-  </FormControl>
-</Box>
-```
 
 ---
 
@@ -200,10 +274,10 @@
 
 ## 다음 단계 📋
 
-### 단계 3: AWS S3 연동 (⏳ 예정)
-1. S3 설정 및 연결
-2. 이미지 업로드 API
-3. 토큰 기반 업로드 링크 생성
+### 단계 3: AWS S3 연동 (✅ 완료)
+1. ✅ S3 설정 및 연결 (`backend/src/config/s3.js`)
+2. ✅ 이미지 업로드 API (`POST /api/images/upload/:token`)
+3. ✅ 토큰 기반 업로드 링크 생성
 
 ### 단계 6: API 레벨 권한 강화 (⏳ 예정)
 1. 소유권 확인 (영업사는 자신의 캠페인만)
@@ -225,36 +299,37 @@ purchaseweb/
 │   │   │   ├── buyers.js     ✅ 구매자 CRUD
 │   │   │   └── images.js     ✅ 이미지 업로드
 │   │   ├── controllers/      ✅ 완료
-│   │   │   └── authController.js ✅ 프로필수정 API 추가
 │   │   ├── middleware/       ✅ 완료 (JWT, 권한 체크)
 │   │   ├── config/           ✅ 완료
 │   │   └── app.js            ✅ 완료
 │   ├── migrations/           ✅ 완료 (6개)
 │   ├── seeders/              ✅ 완료 (관리자 + 마스터 계정)
-│   ├── .env                  ✅ 완료
-│   ├── server.js             ✅ 완료
-│   └── package.json          ✅ 완료
+│   └── server.js             ✅ 완료
 │
 ├── frontend/                 ✅ React 프론트엔드
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── common/
-│   │   │   │   └── ProfileEditDialog.js  🆕 프로필 수정
+│   │   │   │   └── ProfileEditDialog.js  ✅ 프로필 수정
 │   │   │   ├── admin/
-│   │   │   │   ├── AdminDashboard.js     ✅ 사용자등록 버튼 추가
-│   │   │   │   └── AdminUserCreate.js    🆕 사용자 등록
+│   │   │   │   ├── AdminDashboard.js     ✅ 사용자등록 버튼
+│   │   │   │   └── AdminUserCreate.js    ✅ 사용자 등록
 │   │   │   ├── sales/
-│   │   │   │   ├── SalesLayout.js        ✅ 프로필수정 추가
-│   │   │   │   └── SalesAddCampaignDialog.js ✅ 브랜드 드롭다운
+│   │   │   │   ├── SalesLayout.js        ✅ 레이아웃
+│   │   │   │   ├── SalesCampaignTable.js ✅ 캠페인 CRUD
+│   │   │   │   ├── SalesCampaignDialog.js ✅ 캠페인 생성/수정
+│   │   │   │   ├── SalesItemTable.js     ✅ 품목 CRUD
+│   │   │   │   ├── SalesItemDialog.js    ✅ 품목 생성/수정
+│   │   │   │   └── SalesItemDetail.js    ✅ 품목 상세/구매자 목록
 │   │   │   ├── operator/
-│   │   │   │   └── OperatorLayout.js     ✅ 프로필수정 추가
+│   │   │   │   └── OperatorLayout.js     ✅ 레이아웃
 │   │   │   └── brand/
-│   │   │       └── BrandLayout.js        ✅ 프로필수정 추가
+│   │   │       └── BrandLayout.js        ✅ 레이아웃
 │   │   ├── context/          ✅ AuthContext
 │   │   ├── services/
 │   │   │   ├── api.js        ✅ axios 클라이언트
 │   │   │   ├── authService.js ✅ 인증 서비스
-│   │   │   └── userService.js 🆕 사용자 API 서비스
+│   │   │   └── userService.js ✅ 사용자 API 서비스
 │   │   └── App.js            ✅ 라우팅
 │   └── package.json          ✅ 완료
 │
@@ -264,10 +339,11 @@ purchaseweb/
 │   └── deploy.sh
 │
 └── docs/                     ✅ 문서화 완료
-    ├── CLAUDE.md
-    ├── DATABASE_SCHEMA.md
-    ├── BACKEND_STRUCTURE.md
-    ├── FINAL_STATUS.md
+    ├── CLAUDE.md             - AI 작업 가이드
+    ├── DATABASE_SCHEMA.md    - DB 스키마 문서
+    ├── BACKEND_STRUCTURE.md  - 백엔드 구조 문서
+    ├── DEPLOYMENT_GUIDE.md   - EC2 배포 가이드
+    ├── LOCAL_TESTING.md      - 로컬 테스트 가이드
     └── IMPLEMENTATION_PROGRESS.md (이 파일)
 ```
 

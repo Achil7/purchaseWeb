@@ -101,7 +101,7 @@ function OperatorItemTable() {
                     sx={{ cursor: 'pointer' }}
                   >
                     <TableCell sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <InsertDriveFileIcon color="action" /> {item.name}
+                        <InsertDriveFileIcon color="action" /> {item.product_name}
                     </TableCell>
                     <TableCell align="center">
                       <Chip

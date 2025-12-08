@@ -2,13 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
-  Chip, Button, Breadcrumbs, Link, CircularProgress, Alert
+  Chip, Button, Breadcrumbs, Link, CircularProgress, Alert, IconButton, Tooltip,
+  Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions
 } from '@mui/material';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import { itemService } from '../../services';
-import SalesAddItemDialog from './SalesAddItemDialog';
+import SalesItemDialog from './SalesAddItemDialog';
 
 function SalesItemTable() {
   const { campaignId } = useParams();
@@ -16,7 +20,13 @@ function SalesItemTable() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Dialog states
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState('create');
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
 
   useEffect(() => {
     loadItems();
@@ -55,23 +65,73 @@ function SalesItemTable() {
     return colorMap[status] || 'default';
   };
 
+  // 품목 추가 Dialog 열기
   const handleOpenAddDialog = () => {
+    setModalMode('create');
+    setSelectedItem(null);
     setIsModalOpen(true);
   };
 
-  const handleCloseDialog = () => {
-    setIsModalOpen(false);
+  // 품목 수정 Dialog 열기
+  const handleOpenEditDialog = (item, e) => {
+    e.stopPropagation();
+    setModalMode('edit');
+    setSelectedItem(item);
+    setIsModalOpen(true);
   };
 
+  // Dialog 닫기
+  const handleCloseDialog = () => {
+    setIsModalOpen(false);
+    setSelectedItem(null);
+  };
+
+  // 품목 저장 (추가/수정)
   const handleSaveItem = async (itemData) => {
     try {
-      await itemService.createItem(campaignId, itemData);
+      if (modalMode === 'edit' && selectedItem) {
+        await itemService.updateItem(selectedItem.id, itemData);
+      } else {
+        await itemService.createItem(campaignId, itemData);
+      }
       await loadItems();
       setIsModalOpen(false);
+      setSelectedItem(null);
     } catch (err) {
-      console.error('Failed to create item:', err);
-      alert('품목 생성에 실패했습니다.');
+      console.error('Failed to save item:', err);
+      alert(modalMode === 'edit' ? '품목 수정에 실패했습니다.' : '품목 생성에 실패했습니다.');
     }
+  };
+
+  // 삭제 Dialog 열기
+  const handleOpenDeleteDialog = (item, e) => {
+    e.stopPropagation();
+    setItemToDelete(item);
+    setDeleteDialogOpen(true);
+  };
+
+  // 삭제 Dialog 닫기
+  const handleCloseDeleteDialog = () => {
+    setDeleteDialogOpen(false);
+    setItemToDelete(null);
+  };
+
+  // 품목 삭제
+  const handleDeleteItem = async () => {
+    if (!itemToDelete) return;
+    try {
+      await itemService.deleteItem(itemToDelete.id);
+      await loadItems();
+      handleCloseDeleteDialog();
+    } catch (err) {
+      console.error('Failed to delete item:', err);
+      alert('품목 삭제에 실패했습니다.');
+    }
+  };
+
+  // 품목 상세보기
+  const handleViewItem = (itemId) => {
+    navigate(`/sales/campaign/${campaignId}/item/${itemId}`);
   };
 
   if (loading) {
@@ -121,7 +181,7 @@ function SalesItemTable() {
 
       <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
         <TableContainer>
-          <Table hover>
+          <Table>
             <TableHead sx={{ bgcolor: '#e0f2f1' }}>
               <TableRow>
                 <TableCell>품목명</TableCell>
@@ -129,7 +189,7 @@ function SalesItemTable() {
                 <TableCell align="center">출고타입</TableCell>
                 <TableCell align="center">가격</TableCell>
                 <TableCell align="center">상태</TableCell>
-                <TableCell align="right">이미지 업로드 링크</TableCell>
+                <TableCell align="center">관리</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -139,9 +199,12 @@ function SalesItemTable() {
                     key={item.id}
                     hover
                     sx={{ cursor: 'pointer' }}
+                    onClick={() => handleViewItem(item.id)}
                   >
-                    <TableCell sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <InsertDriveFileIcon color="action" /> {item.name}
+                    <TableCell sx={{ fontWeight: 'bold' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <InsertDriveFileIcon color="action" /> {item.product_name}
+                      </Box>
                     </TableCell>
                     <TableCell>{item.description || '-'}</TableCell>
                     <TableCell align="center">
@@ -152,7 +215,7 @@ function SalesItemTable() {
                       />
                     </TableCell>
                     <TableCell align="center">
-                      {item.product_price ? `${item.product_price.toLocaleString()}원` : '-'}
+                      {item.product_price ? `${Number(item.product_price).toLocaleString()}원` : '-'}
                     </TableCell>
                     <TableCell align="center">
                       <Chip
@@ -161,20 +224,39 @@ function SalesItemTable() {
                         size="small"
                       />
                     </TableCell>
-                    <TableCell align="right">
-                      {item.upload_link_token ? (
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigator.clipboard.writeText(`/upload/${item.upload_link_token}`);
-                            alert('업로드 링크가 클립보드에 복사되었습니다!');
-                          }}
-                        >
-                          링크 복사
-                        </Button>
-                      ) : '-'}
+                    <TableCell align="center">
+                      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+                        <Tooltip title="상세보기">
+                          <IconButton
+                            size="small"
+                            color="info"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewItem(item.id);
+                            }}
+                          >
+                            <VisibilityIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="수정">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={(e) => handleOpenEditDialog(item, e)}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="삭제">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={(e) => handleOpenDeleteDialog(item, e)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))
@@ -190,12 +272,34 @@ function SalesItemTable() {
         </TableContainer>
       </Paper>
 
-      <SalesAddItemDialog
+      {/* 품목 추가/수정 Dialog */}
+      <SalesItemDialog
         open={isModalOpen}
         onClose={handleCloseDialog}
         onSave={handleSaveItem}
-        campaignId={campaignId}
+        mode={modalMode}
+        initialData={selectedItem}
       />
+
+      {/* 삭제 확인 Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={handleCloseDeleteDialog}>
+        <DialogTitle>품목 삭제</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            "{itemToDelete?.product_name}" 품목을 삭제하시겠습니까?
+            <br />
+            삭제된 품목은 복구할 수 없습니다.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDeleteDialog} color="inherit">
+            취소
+          </Button>
+          <Button onClick={handleDeleteItem} color="error" variant="contained">
+            삭제
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }
