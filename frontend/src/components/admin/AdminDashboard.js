@@ -11,7 +11,6 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import SaveIcon from '@mui/icons-material/Save';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useAuth } from '../../context/AuthContext';
 import AdminUserCreate from './AdminUserCreate';
@@ -205,29 +204,6 @@ function AdminDashboard() {
             사용자 등록
           </Button>
 
-          {/* 새로고침 버튼 */}
-          <Button
-            variant="outlined"
-            color="inherit"
-            startIcon={<RefreshIcon />}
-            onClick={loadData}
-            sx={{ mr: 2 }}
-          >
-            새로고침
-          </Button>
-
-          {/* 우측 상단 저장 버튼 (핵심 기능) */}
-          <Button
-            variant="contained"
-            color="error"
-            startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
-            onClick={handleSaveAssignments}
-            disabled={saving || Object.keys(pendingAssignments).length === 0}
-            sx={{ mr: 2, fontWeight: 'bold' }}
-          >
-            배정 내용 저장
-          </Button>
-
           {/* 오른쪽: 알림 아이콘 */}
           <IconButton color="inherit">
             <NotificationsIcon />
@@ -263,21 +239,34 @@ function AdminDashboard() {
       <Container maxWidth={false} sx={{ mt: 4, mb: 4, px: 3 }}>
 
         {/* 타이틀 영역 */}
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h5" fontWeight="bold" color="text.primary" gutterBottom>
-            등록된 품목 및 진행자 배정
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            영업사가 등록한 품목을 확인하고, 담당 진행자를 지정해주세요. 배정 후 반드시 우측 상단의 '저장' 버튼을 눌러야 합니다.
-            {Object.keys(pendingAssignments).length > 0 && (
-              <Chip
-                label={`${Object.keys(pendingAssignments).length}건 변경 중`}
-                color="warning"
-                size="small"
-                sx={{ ml: 2 }}
-              />
-            )}
-          </Typography>
+        <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Box>
+            <Typography variant="h5" fontWeight="bold" color="text.primary" gutterBottom>
+              등록된 품목 및 진행자 배정
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              영업사가 등록한 품목을 확인하고, 담당 진행자를 지정해주세요.
+              {Object.keys(pendingAssignments).length > 0 && (
+                <Chip
+                  label={`${Object.keys(pendingAssignments).length}건 변경 중`}
+                  color="warning"
+                  size="small"
+                  sx={{ ml: 2 }}
+                />
+              )}
+            </Typography>
+          </Box>
+          {/* 배정 저장 버튼 */}
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
+            onClick={handleSaveAssignments}
+            disabled={saving || Object.keys(pendingAssignments).length === 0}
+            sx={{ fontWeight: 'bold', px: 3, py: 1.5 }}
+          >
+            배정 내용 저장
+          </Button>
         </Box>
 
         {error && (

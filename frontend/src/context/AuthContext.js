@@ -16,12 +16,47 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 초기 로딩 시 저장된 사용자 정보 확인
-    const savedUser = authService.getUser();
-    if (savedUser && authService.isAuthenticated()) {
-      setUser(savedUser);
-    }
-    setLoading(false);
+    const initAuth = async () => {
+      try {
+        const savedUser = authService.getUser();
+
+        if (savedUser && authService.isAuthenticated()) {
+          // 모바일 모드인 경우: 토큰 유효성 확인 및 갱신 시도
+          if (authService.isMobileAuth() && authService.getRefreshToken()) {
+            try {
+              // 서버에 현재 토큰으로 사용자 정보 요청
+              const response = await authService.getMe();
+              if (response.success) {
+                setUser(response.data);
+              } else {
+                // 토큰 만료 시 갱신 시도
+                await authService.refreshToken();
+                setUser(savedUser);
+              }
+            } catch (error) {
+              // 토큰 갱신 시도
+              try {
+                await authService.refreshToken();
+                setUser(savedUser);
+              } catch (refreshError) {
+                // 갱신 실패 시 로그아웃 처리
+                console.log('Token refresh failed, clearing auth');
+                authService.clearLocalAuth();
+              }
+            }
+          } else {
+            // 웹 모드: 기존 방식
+            setUser(savedUser);
+          }
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
   }, []);
 
   const login = async (username, password) => {

@@ -60,6 +60,11 @@ module.exports = (sequelize, DataTypes) => {
     notes: {
       type: DataTypes.TEXT
     },
+    // 등록시간 (사용자 지정)
+    registered_at: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW
+    },
     // 이미지 업로드 링크 토큰
     upload_link_token: {
       type: DataTypes.STRING(100),

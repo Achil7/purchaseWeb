@@ -9,6 +9,12 @@ sequelize
   .then(() => {
     console.log('✅ Database connection established successfully');
 
+    // 새 테이블 자동 생성 (기존 테이블은 변경하지 않음)
+    return sequelize.sync({ alter: false });
+  })
+  .then(() => {
+    console.log('✅ Database models synchronized');
+
     // 서버 시작
     app.listen(PORT, () => {
       console.log(`🚀 Server is running on port ${PORT}`);

@@ -167,25 +167,41 @@ function OperatorBuyerTable() {
       <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
            <Button startIcon={<ArrowBackIcon/>} onClick={() => navigate(-1)} sx={{ mb:1 }}>뒤로가기</Button>
-           <Typography variant="h5" fontWeight="bold">구매자 리뷰 리스트</Typography>
+           <Typography variant="h5" fontWeight="bold">
+             {item?.product_name || '구매자 리뷰 리스트'}
+           </Typography>
            <Typography variant="body2" color="text.secondary">
-             Item ID: {itemId} | 총 {buyers.length}명
+             총 {buyers.length}명
            </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
           {item?.upload_link_token && (
-            <Button
-              variant="outlined"
-              color="primary"
-              startIcon={<ContentCopyIcon />}
-              onClick={() => {
-                navigator.clipboard.writeText(`${window.location.origin}/upload/${item.upload_link_token}`);
-                alert('이미지 업로드 링크가 클립보드에 복사되었습니다!');
-              }}
-              sx={{ px: 3, py: 1.5, fontWeight: 'bold' }}
-            >
-              이미지 업로드 링크 복사
-            </Button>
+            <Box sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              bgcolor: '#fff3e0',
+              border: '2px solid #ff9800',
+              borderRadius: 2,
+              px: 2,
+              py: 1
+            }}>
+              <Typography variant="body2" sx={{ color: '#e65100', fontWeight: 'bold' }}>
+                구매자에게 이 링크를 전달하세요!
+              </Typography>
+              <Button
+                variant="contained"
+                color="warning"
+                startIcon={<ContentCopyIcon />}
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/upload/${item.upload_link_token}`);
+                  alert('이미지 업로드 링크가 클립보드에 복사되었습니다!');
+                }}
+                sx={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}
+              >
+                이미지 업로드 링크 복사
+              </Button>
+            </Box>
           )}
           <Button
             variant="contained"
@@ -342,8 +358,8 @@ function OperatorBuyerTable() {
                 src={selectedImage.s3_url}
                 alt={selectedImage.file_name}
                 sx={{
-                  maxWidth: '90vw',
-                  maxHeight: '80vh',
+                  maxWidth: '95vw',
+                  maxHeight: '90vh',
                   objectFit: 'contain'
                 }}
               />

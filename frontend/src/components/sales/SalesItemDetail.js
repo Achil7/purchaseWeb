@@ -8,9 +8,8 @@ import {
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import InventoryIcon from '@mui/icons-material/Inventory';
-import ImageIcon from '@mui/icons-material/Image';
 import CloseIcon from '@mui/icons-material/Close';
-import { itemService, imageService } from '../../services';
+import { itemService, buyerService } from '../../services';
 
 function SalesItemDetail() {
   const { campaignId, itemId } = useParams();
@@ -19,14 +18,14 @@ function SalesItemDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // 이미지 관련 state
-  const [images, setImages] = useState([]);
+  // 구매자 관련 state
+  const [buyers, setBuyers] = useState([]);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
 
   useEffect(() => {
     loadItemDetail();
-    loadImages();
+    loadBuyers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
 
@@ -44,14 +43,20 @@ function SalesItemDetail() {
     }
   };
 
-  const loadImages = async () => {
+  const loadBuyers = async () => {
     try {
-      const response = await imageService.getImagesByItem(itemId);
-      setImages(response.data || []);
+      const response = await buyerService.getBuyersByItem(itemId);
+      setBuyers(response.data || []);
     } catch (err) {
-      console.error('Failed to load images:', err);
+      console.error('Failed to load buyers:', err);
     }
   };
+
+  // 금액 합산 계산
+  const totalAmount = buyers.reduce((acc, curr) => {
+    const value = curr.amount ? parseFloat(curr.amount) : 0;
+    return acc + (isNaN(value) ? 0 : value);
+  }, 0);
 
   const handleImageClick = (image) => {
     setSelectedImage(image);
@@ -225,50 +230,6 @@ function SalesItemDetail() {
         </Grid>
       </Paper>
 
-      {/* 업로드된 이미지 */}
-      {images.length > 0 && (
-        <Paper sx={{ p: 3, mb: 4, borderRadius: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <ImageIcon color="primary" />
-            <Typography variant="h6" fontWeight="bold">
-              업로드된 이미지 ({images.length}개)
-            </Typography>
-          </Box>
-          <Divider sx={{ mb: 2 }} />
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-            {images.map((image) => (
-              <Box
-                key={image.id}
-                onClick={() => handleImageClick(image)}
-                sx={{
-                  width: 120,
-                  cursor: 'pointer',
-                  '&:hover': { opacity: 0.8 }
-                }}
-              >
-                <Box
-                  component="img"
-                  src={image.s3_url}
-                  alt={image.file_name}
-                  sx={{
-                    width: 120,
-                    height: 120,
-                    objectFit: 'cover',
-                    borderRadius: 1,
-                    border: '1px solid #eee'
-                  }}
-                />
-                {image.order_number && (
-                  <Typography variant="caption" display="block" align="center" color="text.secondary" noWrap>
-                    {image.order_number}
-                  </Typography>
-                )}
-              </Box>
-            ))}
-          </Box>
-        </Paper>
-      )}
-
       {/* 이미지 확대 Dialog */}
       <Dialog
         open={imageDialogOpen}
@@ -296,8 +257,8 @@ function SalesItemDetail() {
                 src={selectedImage.s3_url}
                 alt={selectedImage.file_name}
                 sx={{
-                  maxWidth: '90vw',
-                  maxHeight: '80vh',
+                  maxWidth: '95vw',
+                  maxHeight: '90vh',
                   objectFit: 'contain'
                 }}
               />
@@ -317,31 +278,34 @@ function SalesItemDetail() {
       <Paper sx={{ p: 3, borderRadius: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6" fontWeight="bold">
-            구매자 목록 ({item.buyers?.length || 0}명)
+            구매자 목록 ({buyers.length}명)
+          </Typography>
+          <Typography variant="h6" color="success.main" fontWeight="bold">
+            총 금액: {totalAmount.toLocaleString()}원
           </Typography>
         </Box>
         <Divider sx={{ mb: 2 }} />
 
         <TableContainer>
-          <Table>
+          <Table size="small">
             <TableHead sx={{ bgcolor: '#f5f5f5' }}>
               <TableRow>
-                <TableCell>주문번호</TableCell>
-                <TableCell>구매자명</TableCell>
-                <TableCell>수령인</TableCell>
-                <TableCell align="center">금액</TableCell>
-                <TableCell align="center">입금상태</TableCell>
-                <TableCell>비고</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>주문번호</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>구매자명</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>수령인</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold' }}>금액</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold' }}>입금상태</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold' }}>리뷰샷</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {item.buyers && item.buyers.length > 0 ? (
-                item.buyers.map((buyer) => (
+              {buyers.length > 0 ? (
+                buyers.map((buyer) => (
                   <TableRow key={buyer.id} hover>
                     <TableCell>{buyer.order_number}</TableCell>
                     <TableCell>{buyer.buyer_name}</TableCell>
                     <TableCell>{buyer.recipient_name}</TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ fontWeight: 'bold', color: '#1b5e20' }}>
                       {buyer.amount ? `${Number(buyer.amount).toLocaleString()}원` : '-'}
                     </TableCell>
                     <TableCell align="center">
@@ -351,7 +315,29 @@ function SalesItemDetail() {
                         size="small"
                       />
                     </TableCell>
-                    <TableCell>{buyer.notes || '-'}</TableCell>
+                    <TableCell align="center">
+                      {buyer.images && buyer.images.length > 0 ? (
+                        <Box
+                          onClick={() => handleImageClick(buyer.images[0])}
+                          sx={{ cursor: 'pointer', display: 'inline-block' }}
+                        >
+                          <Box
+                            component="img"
+                            src={buyer.images[0].s3_url}
+                            alt="리뷰이미지"
+                            sx={{
+                              width: 40,
+                              height: 40,
+                              objectFit: 'cover',
+                              borderRadius: 1,
+                              border: '1px solid #eee'
+                            }}
+                          />
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" color="text.disabled">-</Typography>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))
               ) : (

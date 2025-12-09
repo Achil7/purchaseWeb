@@ -201,8 +201,8 @@ function BrandBuyerTable() {
                 src={selectedImage.s3_url}
                 alt={selectedImage.file_name}
                 sx={{
-                  maxWidth: '90vw',
-                  maxHeight: '80vh',
+                  maxWidth: '95vw',
+                  maxHeight: '90vh',
                   objectFit: 'contain'
                 }}
               />

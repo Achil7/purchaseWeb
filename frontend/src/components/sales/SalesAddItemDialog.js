@@ -6,6 +6,22 @@ import {
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import EditIcon from '@mui/icons-material/Edit';
 
+// UTC+9 현재 시간을 YYYY-MM-DDTHH:mm 형식으로 반환
+const getKoreanDateTime = () => {
+  const now = new Date();
+  // UTC+9 시간 계산
+  const kstOffset = 9 * 60; // 분 단위
+  const kstTime = new Date(now.getTime() + (kstOffset + now.getTimezoneOffset()) * 60000);
+
+  const year = kstTime.getFullYear();
+  const month = String(kstTime.getMonth() + 1).padStart(2, '0');
+  const day = String(kstTime.getDate()).padStart(2, '0');
+  const hours = String(kstTime.getHours()).padStart(2, '0');
+  const minutes = String(kstTime.getMinutes()).padStart(2, '0');
+
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 function SalesItemDialog({ open, onClose, onSave, mode = 'create', initialData = null }) {
   const emptyFormState = {
     product_name: '',
@@ -21,7 +37,8 @@ function SalesItemDialog({ open, onClose, onSave, mode = 'create', initialData =
     shipping_deadline: '18:00',
     review_guide: '',
     courier_service_yn: true,
-    notes: ''
+    notes: '',
+    registered_at: getKoreanDateTime()
   };
 
   const [formData, setFormData] = useState(emptyFormState);
@@ -31,6 +48,12 @@ function SalesItemDialog({ open, onClose, onSave, mode = 'create', initialData =
     if (open) {
       setError('');
       if (mode === 'edit' && initialData) {
+        // 수정 모드: 기존 등록시간 유지
+        let registeredAt = initialData.registered_at || getKoreanDateTime();
+        // ISO 형식을 datetime-local 형식으로 변환
+        if (registeredAt && registeredAt.includes('T')) {
+          registeredAt = registeredAt.slice(0, 16); // YYYY-MM-DDTHH:mm
+        }
         setFormData({
           product_name: initialData.product_name || '',
           description: initialData.description || '',
@@ -45,10 +68,12 @@ function SalesItemDialog({ open, onClose, onSave, mode = 'create', initialData =
           shipping_deadline: initialData.shipping_deadline || '18:00',
           review_guide: initialData.review_guide || '',
           courier_service_yn: initialData.courier_service_yn ?? true,
-          notes: initialData.notes || ''
+          notes: initialData.notes || '',
+          registered_at: registeredAt
         });
       } else {
-        setFormData(emptyFormState);
+        // 생성 모드: 현재 시간으로 초기화
+        setFormData({ ...emptyFormState, registered_at: getKoreanDateTime() });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,7 +108,8 @@ function SalesItemDialog({ open, onClose, onSave, mode = 'create', initialData =
       shipping_deadline: formData.shipping_deadline || null,
       review_guide: formData.review_guide || null,
       courier_service_yn: formData.courier_service_yn,
-      notes: formData.notes || null
+      notes: formData.notes || null,
+      registered_at: formData.registered_at ? new Date(formData.registered_at).toISOString() : new Date().toISOString()
     };
 
     onSave(itemData);
@@ -111,7 +137,7 @@ function SalesItemDialog({ open, onClose, onSave, mode = 'create', initialData =
           </Alert>
         )}
 
-        {/* 1행: 기본 정보 - 품목명, 상태, 설명 */}
+        {/* 1행: 기본 정보 - 품목명, 상태, 등록시간 */}
         <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'flex-start' }}>
           <Typography fontWeight="bold" sx={{ minWidth: 80, pt: 2 }}>기본 정보</Typography>
           <TextField
@@ -135,6 +161,19 @@ function SalesItemDialog({ open, onClose, onSave, mode = 'create', initialData =
             <MenuItem value="completed">완료</MenuItem>
             <MenuItem value="cancelled">취소</MenuItem>
           </TextField>
+          <TextField
+            label="등록시간"
+            name="registered_at"
+            type="datetime-local"
+            value={formData.registered_at}
+            onChange={handleInputChange}
+            sx={{ minWidth: 250, flexShrink: 0 }}
+            InputLabelProps={{ shrink: true }}
+          />
+        </Box>
+
+        {/* 1-2행: 설명 */}
+        <Box sx={{ display: 'flex', gap: 2, mb: 2, pl: '96px' }}>
           <TextField
             label="설명"
             name="description"

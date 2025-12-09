@@ -21,7 +21,13 @@ function OperatorItemTable() {
     try {
       setLoading(true);
       const response = await itemService.getItemsByCampaign(campaignId);
-      setItems(response.data || []);
+      // 등록시간(registered_at) 순으로 정렬 (최신순)
+      const sortedItems = (response.data || []).sort((a, b) => {
+        const dateA = new Date(a.registered_at || a.created_at);
+        const dateB = new Date(b.registered_at || b.created_at);
+        return dateB - dateA; // 최신순
+      });
+      setItems(sortedItems);
       setError(null);
     } catch (err) {
       console.error('Failed to load items:', err);
@@ -29,6 +35,18 @@ function OperatorItemTable() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 등록시간 포맷팅 함수
+  const formatDateTime = (dateString) => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
   };
 
   const getStatusLabel = (status) => {
@@ -86,9 +104,10 @@ function OperatorItemTable() {
           <Table hover>
             <TableHead sx={{ bgcolor: '#e0f2f1' }}>
               <TableRow>
-                <TableCell>품목명</TableCell>
-                <TableCell align="center">상태</TableCell>
-                <TableCell align="right">작업하기</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>등록시간</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>품목명</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold' }}>상태</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold' }}>작업하기</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -100,6 +119,9 @@ function OperatorItemTable() {
                     onClick={() => navigate(`/operator/campaign/${campaignId}/item/${item.id}`)}
                     sx={{ cursor: 'pointer' }}
                   >
+                    <TableCell sx={{ whiteSpace: 'nowrap', color: '#666' }}>
+                      {formatDateTime(item.registered_at || item.created_at)}
+                    </TableCell>
                     <TableCell sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 1 }}>
                         <InsertDriveFileIcon color="action" /> {item.product_name}
                     </TableCell>
@@ -119,7 +141,7 @@ function OperatorItemTable() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={3} align="center" sx={{ py: 3, color: '#999' }}>
+                  <TableCell colSpan={4} align="center" sx={{ py: 3, color: '#999' }}>
                     등록된 품목이 없습니다.
                   </TableCell>
                 </TableRow>

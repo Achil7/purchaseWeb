@@ -1,5 +1,12 @@
 const { User } = require('../models');
-const { generateToken } = require('../middleware/auth');
+const {
+  generateToken,
+  generateAccessToken,
+  createRefreshToken,
+  refreshAccessToken,
+  revokeRefreshToken,
+  revokeAllUserTokens
+} = require('../middleware/auth');
 
 /**
  * 로그인
@@ -199,10 +206,143 @@ const updateProfile = async (req, res) => {
   }
 };
 
+/**
+ * 모바일 로그인 (Access Token + Refresh Token 발급)
+ * POST /api/auth/mobile-login
+ */
+const mobileLogin = async (req, res) => {
+  try {
+    const { username, password, deviceInfo } = req.body;
+
+    // 입력값 검증
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: '아이디와 비밀번호를 입력해주세요'
+      });
+    }
+
+    // 사용자 조회
+    const user = await User.findOne({ where: { username } });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: '아이디 또는 비밀번호가 올바르지 않습니다'
+      });
+    }
+
+    // 계정 활성화 여부 확인
+    if (!user.is_active) {
+      return res.status(401).json({
+        success: false,
+        message: '비활성화된 계정입니다. 관리자에게 문의하세요'
+      });
+    }
+
+    // 비밀번호 검증
+    const isPasswordValid = await user.comparePassword(password);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: '아이디 또는 비밀번호가 올바르지 않습니다'
+      });
+    }
+
+    // 마지막 로그인 시간 업데이트
+    await user.update({ last_login: new Date() });
+
+    // Access Token (15분) 생성
+    const accessToken = generateAccessToken(user);
+
+    // Refresh Token (30일) 생성 및 저장
+    const refreshToken = await createRefreshToken(user, deviceInfo);
+
+    res.json({
+      success: true,
+      message: '로그인 성공',
+      data: {
+        accessToken,
+        refreshToken,
+        user: user.toJSON()
+      }
+    });
+  } catch (error) {
+    console.error('Mobile login error:', error);
+    res.status(500).json({
+      success: false,
+      message: '로그인 처리 중 오류가 발생했습니다'
+    });
+  }
+};
+
+/**
+ * Access Token 갱신
+ * POST /api/auth/refresh
+ */
+const refresh = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({
+        success: false,
+        message: '리프레시 토큰이 필요합니다'
+      });
+    }
+
+    const result = await refreshAccessToken(refreshToken);
+
+    res.json({
+      success: true,
+      message: '토큰 갱신 성공',
+      data: {
+        accessToken: result.accessToken,
+        user: result.user
+      }
+    });
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    res.status(401).json({
+      success: false,
+      message: error.message || '토큰 갱신에 실패했습니다'
+    });
+  }
+};
+
+/**
+ * 모바일 로그아웃 (Refresh Token 폐기)
+ * POST /api/auth/mobile-logout
+ */
+const mobileLogout = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (refreshToken) {
+      await revokeRefreshToken(refreshToken);
+    }
+
+    res.json({
+      success: true,
+      message: '로그아웃 성공'
+    });
+  } catch (error) {
+    console.error('Mobile logout error:', error);
+    res.status(500).json({
+      success: false,
+      message: '로그아웃 처리 중 오류가 발생했습니다'
+    });
+  }
+};
+
 module.exports = {
   login,
   logout,
   getMe,
   verifyPassword,
-  updateProfile
+  updateProfile,
+  mobileLogin,
+  refresh,
+  mobileLogout
 };

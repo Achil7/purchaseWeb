@@ -37,7 +37,13 @@ function SalesItemTable() {
     try {
       setLoading(true);
       const response = await itemService.getItemsByCampaign(campaignId);
-      setItems(response.data || []);
+      // 등록시간(registered_at) 순으로 정렬 (최신순)
+      const sortedItems = (response.data || []).sort((a, b) => {
+        const dateA = new Date(a.registered_at || a.created_at);
+        const dateB = new Date(b.registered_at || b.created_at);
+        return dateB - dateA;
+      });
+      setItems(sortedItems);
       setError(null);
     } catch (err) {
       console.error('Failed to load items:', err);
@@ -45,6 +51,18 @@ function SalesItemTable() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 등록시간 포맷팅 함수
+  const formatDateTime = (dateString) => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
   };
 
   const getStatusLabel = (status) => {
@@ -184,12 +202,13 @@ function SalesItemTable() {
           <Table>
             <TableHead sx={{ bgcolor: '#e0f2f1' }}>
               <TableRow>
-                <TableCell>품목명</TableCell>
-                <TableCell>설명</TableCell>
-                <TableCell align="center">출고타입</TableCell>
-                <TableCell align="center">가격</TableCell>
-                <TableCell align="center">상태</TableCell>
-                <TableCell align="center">관리</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>등록시간</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>품목명</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>설명</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold' }}>출고타입</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold' }}>가격</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold' }}>상태</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold' }}>관리</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -201,6 +220,9 @@ function SalesItemTable() {
                     sx={{ cursor: 'pointer' }}
                     onClick={() => handleViewItem(item.id)}
                   >
+                    <TableCell sx={{ whiteSpace: 'nowrap', color: '#666' }}>
+                      {formatDateTime(item.registered_at || item.created_at)}
+                    </TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <InsertDriveFileIcon color="action" /> {item.product_name}
@@ -262,7 +284,7 @@ function SalesItemTable() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 3, color: '#999' }}>
+                  <TableCell colSpan={7} align="center" sx={{ py: 3, color: '#999' }}>
                     등록된 품목이 없습니다. 우측 상단 버튼을 눌러 추가하세요.
                   </TableCell>
                 </TableRow>

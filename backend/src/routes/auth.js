@@ -38,4 +38,25 @@ router.post('/verify-password', authenticate, authController.verifyPassword);
  */
 router.put('/profile', authenticate, authController.updateProfile);
 
+/**
+ * @route   POST /api/auth/mobile-login
+ * @desc    모바일 로그인 (Access Token + Refresh Token 발급)
+ * @access  Public
+ */
+router.post('/mobile-login', authController.mobileLogin);
+
+/**
+ * @route   POST /api/auth/refresh
+ * @desc    Access Token 갱신
+ * @access  Public
+ */
+router.post('/refresh', authController.refresh);
+
+/**
+ * @route   POST /api/auth/mobile-logout
+ * @desc    모바일 로그아웃 (Refresh Token 폐기)
+ * @access  Public
+ */
+router.post('/mobile-logout', authController.mobileLogout);
+
 module.exports = router;

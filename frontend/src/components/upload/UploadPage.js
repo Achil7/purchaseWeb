@@ -194,7 +194,6 @@ function UploadPage() {
             value={orderNumber}
             onChange={(e) => setOrderNumber(e.target.value)}
             placeholder="주문번호를 입력하세요"
-            helperText="구매자 등록 시 사용한 주문번호를 입력하세요"
             sx={{ mb: 3 }}
           />
 
@@ -266,7 +265,12 @@ function UploadPage() {
               icon={<CheckCircleIcon />}
               sx={{ mt: 3 }}
             >
-              이미지가 성공적으로 업로드되었습니다!
+              <Typography variant="body1" fontWeight="bold">
+                이미지가 성공적으로 업로드되었습니다!
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                이미지를 잘못 업로드하셨다면 진행자에게 문의해주세요.
+              </Typography>
             </Alert>
           )}
 

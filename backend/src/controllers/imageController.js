@@ -67,6 +67,18 @@ exports.uploadImage = async (req, res) => {
       });
     }
 
+    // 해당 구매자에게 이미 이미지가 있는지 확인 (주문번호당 이미지 1개 제한)
+    const existingImage = await Image.findOne({
+      where: { buyer_id: buyer.id }
+    });
+
+    if (existingImage) {
+      return res.status(400).json({
+        success: false,
+        message: '이미 해당 주문번호로 이미지가 업로드되어 있습니다. 수정이 필요하시면 진행자에게 문의해주세요.'
+      });
+    }
+
     // 파일 확인
     if (!req.file) {
       return res.status(400).json({

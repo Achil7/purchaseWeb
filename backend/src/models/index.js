@@ -27,6 +27,7 @@ db.Item = require('./Item')(sequelize, Sequelize.DataTypes);
 db.CampaignOperator = require('./CampaignOperator')(sequelize, Sequelize.DataTypes);
 db.Buyer = require('./Buyer')(sequelize, Sequelize.DataTypes);
 db.Image = require('./Image')(sequelize, Sequelize.DataTypes);
+db.RefreshToken = require('./RefreshToken')(sequelize, Sequelize.DataTypes);
 
 // 모델 관계 설정
 Object.keys(db).forEach((modelName) => {
