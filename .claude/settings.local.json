@@ -1,0 +1,67 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude --version:*)",
+      "Bash(npm install)",
+      "Bash(node -e:*)",
+      "Bash(curl:*)",
+      "Bash(npm install:*)",
+      "Bash(npm start)",
+      "Bash(dir:*)",
+      "Bash(taskkill:*)",
+      "Bash(if not exist \"c:\\Users\\achil\\Desktop\\purchaseweb\\backend\\src\\middleware\" mkdir \"c:\\Users\\achil\\Desktop\\purchaseweb\\backend\\src\\middleware\")",
+      "Bash(npm run db:seed:*)",
+      "Bash(npm run build:*)",
+      "Bash(make deploy:*)",
+      "Bash(ssh:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(make push:*)",
+      "Bash(docker push:*)",
+      "Bash(if not exist \"c:\\Users\\achil\\Desktop\\purchaseweb\\frontend\\src\\components\\upload\" mkdir \"c:\\Users\\achil\\Desktop\\purchaseweb\\frontend\\src\\components\\upload\")",
+      "Bash(findstr:*)",
+      "Bash(npx sequelize-cli:*)",
+      "Bash(grep:*)",
+      "Bash(wait:*)",
+      "Bash(del \"c:\\\\Users\\\\achil\\\\Desktop\\\\purchaseweb\\\\frontend\\\\src\\\\components\\\\admin\\\\AdminItemTable.js\")",
+      "Bash(del \"c:\\\\Users\\\\achil\\\\Desktop\\\\purchaseweb\\\\backend\\\\migrations\\\\20251223000002-fix-monthly-brands.js\")",
+      "Bash(del \"c:\\\\Users\\\\achil\\\\Desktop\\\\purchaseweb\\\\backend\\\\migrations\\\\20251224000002-fix-item-slots-indexes.js\")",
+      "Bash(del:*)",
+      "Bash(node -c:*)",
+      "Bash(wc -l \"c:\\\\Users\\\\achil\\\\Desktop\\\\purchaseweb\\\\backend\\\\src\"/**/*.js)",
+      "Bash(tasklist:*)",
+      "Bash(docker compose logs:*)",
+      "Bash(echo:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -c \"[System.Media.SystemSounds]::Beep.Play()\""
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -c \"[System.Media.SystemSounds]::Beep.Play()\""
+          }
+        ]
+      }
+    ]
+  }
+}

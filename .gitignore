@@ -1,0 +1,29 @@
+node_modules
+
+# Environment variables (keep .env.example for reference)
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# SSH keys
+*.pem
+server_rsa_key.pem
+
+.nul
+nul
