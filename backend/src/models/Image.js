@@ -67,11 +67,14 @@ module.exports = (sequelize, DataTypes) => {
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: false,
+    paranoid: true,
+    deletedAt: 'deleted_at',
     indexes: [
       { fields: ['buyer_id'] },
       { fields: ['item_id'] },
       { fields: ['upload_token'] },
-      { fields: ['account_normalized'] }
+      { fields: ['account_normalized'] },
+      { fields: ['deleted_at'] }
     ]
   });
 

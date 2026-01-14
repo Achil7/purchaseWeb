@@ -17,8 +17,14 @@ import AddCircleIcon from '@mui/icons-material/AddCircle';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import RestoreIcon from '@mui/icons-material/Restore';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
+import CheckBoxIcon from '@mui/icons-material/CheckBox';
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import SalesBrandCreateDialog from './SalesBrandCreateDialog';
@@ -50,14 +56,26 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const [monthlyBrands, setMonthlyBrands] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 확장된 연월브랜드 상태
-  const [expandedMonthlyBrands, setExpandedMonthlyBrands] = useState({});
+  // 확장된 연월브랜드 상태 - localStorage에서 복원
+  const EXPANDED_MB_KEY = 'sales_expanded_monthly_brands';
+  const [expandedMonthlyBrands, setExpandedMonthlyBrands] = useState(() => {
+    try {
+      const saved = localStorage.getItem(EXPANDED_MB_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   // 선택된 캠페인 (오른쪽에 시트 표시)
   const [selectedCampaign, setSelectedCampaign] = useState(null);
 
   // 숨김 항목 표시 모드
   const [showHidden, setShowHidden] = useState(false);
+
+  // 일괄 삭제용 선택 상태
+  const [selectedForBulkDelete, setSelectedForBulkDelete] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -124,17 +142,54 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 연월브랜드 확장/축소 토글
   const handleMonthlyBrandToggle = (monthlyBrandId) => {
-    setExpandedMonthlyBrands(prev => ({
-      ...prev,
-      [monthlyBrandId]: !prev[monthlyBrandId]
-    }));
+    setExpandedMonthlyBrands(prev => {
+      const newState = {
+        ...prev,
+        [monthlyBrandId]: !prev[monthlyBrandId]
+      };
+      // localStorage에 저장
+      try {
+        localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+      } catch (e) {
+        console.error('Failed to save expanded state:', e);
+      }
+      return newState;
+    });
+  };
+
+  // 모든 연월브랜드 펼치기
+  const handleExpandAllMonthlyBrands = () => {
+    const newState = {};
+    monthlyBrands.forEach(mb => {
+      newState[mb.id] = true;
+    });
+    setExpandedMonthlyBrands(newState);
+    try {
+      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+    } catch (e) {
+      console.error('Failed to save expanded state:', e);
+    }
+  };
+
+  // 모든 연월브랜드 접기
+  const handleCollapseAllMonthlyBrands = () => {
+    const newState = {};
+    monthlyBrands.forEach(mb => {
+      newState[mb.id] = false;
+    });
+    setExpandedMonthlyBrands(newState);
+    try {
+      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+    } catch (e) {
+      console.error('Failed to save expanded state:', e);
+    }
   };
 
   // 캠페인 클릭 - 오른쪽에 시트 표시
   const handleCampaignClick = (campaign) => {
     setSelectedCampaign(campaign);
-    // 다른 페이지에 있을 때 기본 라우트로 이동
-    if (location.pathname !== basePathOnly && location.pathname !== `${basePathOnly}/`) {
+    // Embedded 모드가 아닐 때만 네비게이션 처리
+    if (!isEmbedded && location.pathname !== basePathOnly && location.pathname !== `${basePathOnly}/`) {
       navigate(basePath);
     }
   };
@@ -306,18 +361,27 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   // 연월브랜드 삭제
   const handleDeleteMonthlyBrand = async (monthlyBrand, e) => {
     e.stopPropagation();
-    const campaignCount = monthlyBrand.campaigns?.length || 0;
+    const campaigns = monthlyBrand.campaigns || [];
+    const campaignCount = campaigns.length;
     const confirmMsg = campaignCount > 0
-      ? `"${monthlyBrand.name}" 연월브랜드에 ${campaignCount}개의 캠페인이 있습니다.\n정말 삭제하시겠습니까? (캠페인은 삭제되지 않습니다)`
+      ? `"${monthlyBrand.name}" 연월브랜드에 ${campaignCount}개의 캠페인이 있습니다.\n정말 삭제하시겠습니까? (모든 캠페인과 품목, 구매자 데이터가 삭제됩니다)`
       : `"${monthlyBrand.name}" 연월브랜드를 삭제하시겠습니까?`;
 
     if (window.confirm(confirmMsg)) {
       try {
+        // 캠페인이 있으면 먼저 삭제
+        for (const campaign of campaigns) {
+          await campaignService.deleteCampaign(campaign.id);
+        }
+        // 캠페인 삭제 후 연월브랜드 삭제
         await monthlyBrandService.deleteMonthlyBrand(monthlyBrand.id);
+        if (selectedCampaign && campaigns.some(c => c.id === selectedCampaign.id)) {
+          setSelectedCampaign(null);
+        }
         loadMonthlyBrands();
       } catch (err) {
         console.error('Failed to delete monthly brand:', err);
-        alert('삭제에 실패했습니다.');
+        alert('삭제에 실패했습니다: ' + (err.response?.data?.message || err.message));
       }
     }
   };
@@ -341,6 +405,66 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         console.error('Failed to delete campaign:', err);
         alert('삭제에 실패했습니다.');
       }
+    }
+  };
+
+  // 일괄 삭제용 선택 토글
+  const toggleBulkDeleteSelection = (type, id, e) => {
+    e.stopPropagation();
+    const key = `${type}_${id}`;
+    setSelectedForBulkDelete(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  // 일괄 삭제 실행
+  const handleBulkDelete = async () => {
+    if (selectedForBulkDelete.size === 0) {
+      alert('삭제할 항목을 선택해주세요.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `⚠️ 일괄 삭제 경고\n\n` +
+      `선택된 ${selectedForBulkDelete.size}개 항목을 삭제하시겠습니까?\n\n` +
+      `이 작업은 되돌릴 수 없습니다!\n` +
+      `연월브랜드 삭제 시 하위 모든 캠페인/품목/구매자도 함께 삭제됩니다.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setBulkDeleting(true);
+      let deletedCount = 0;
+
+      for (const key of selectedForBulkDelete) {
+        const [type, id] = key.split('_');
+        try {
+          if (type === 'monthlyBrand') {
+            await monthlyBrandService.deleteMonthlyBrandCascade(parseInt(id));
+          } else if (type === 'campaign') {
+            await campaignService.deleteCampaignCascade(parseInt(id));
+          }
+          deletedCount++;
+        } catch (err) {
+          console.error(`Failed to delete ${type} ${id}:`, err);
+        }
+      }
+
+      alert(`${deletedCount}개 항목이 삭제되었습니다.`);
+      setSelectedForBulkDelete(new Set());
+      loadMonthlyBrands();
+    } catch (err) {
+      console.error('Bulk delete failed:', err);
+      alert('일괄 삭제 중 오류가 발생했습니다.');
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -375,10 +499,10 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const isDefaultRoute = isEmbedded ? true : (location.pathname === basePathOnly || location.pathname === `${basePathOnly}/`);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: '#f5f5f5' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: isEmbedded ? '100%' : '100vh', minHeight: isEmbedded ? 0 : '100vh', bgcolor: '#f5f5f5', overflow: 'hidden' }}>
 
       {/* 헤더 - isEmbedded일 때는 relative 포지션 */}
-      <AppBar position={isEmbedded ? "relative" : "fixed"} sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, bgcolor: isAdminMode ? '#2c387e' : '#1976d2', flexShrink: 0 }}>
+      <AppBar position={isEmbedded ? "relative" : "fixed"} sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, bgcolor: '#2c387e', flexShrink: 0 }}>
         <Toolbar>
           {/* 왼쪽: 아이콘 및 타이틀 */}
           <AssignmentIcon sx={{ mr: 2 }} />
@@ -444,7 +568,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' }
             }}
           >
-            <Avatar sx={{ width: 32, height: 32, bgcolor: 'orange' }}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: '#2c387e' }}>
               {user?.username?.charAt(0)?.toUpperCase() || 'S'}
             </Avatar>
             <Typography variant="subtitle2">{user?.name || '영업사'}</Typography>
@@ -458,13 +582,13 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       </AppBar>
 
       {/* 메인 컨테이너 - 사이드바 + 콘텐츠 */}
-      <Box sx={{ display: 'flex', flex: 1, pt: isEmbedded ? 0 : 8 }}>
+      <Box sx={{ display: 'flex', flex: 1, pt: isEmbedded ? 0 : 8, overflow: 'hidden', minHeight: 0 }}>
       {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록 */}
       <Paper
         sx={{
           width: sidebarCollapsed ? 40 : DRAWER_WIDTH,
           flexShrink: 0,
-          height: 'calc(100vh - 64px)',
+          height: isEmbedded ? '100%' : 'calc(100vh - 64px)',
           display: 'flex',
           flexDirection: 'column',
           borderRadius: 0,
@@ -474,23 +598,60 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       >
         {!sidebarCollapsed && (
           <Box sx={{ flex: 1, overflow: 'auto', pb: 1 }}>
-            <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#e3f2fd', borderBottom: '1px solid #e0e0e0' }}>
+            <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#e8eaf6', borderBottom: '1px solid #e0e0e0' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <DateRangeIcon fontSize="small" />
                   {showHidden ? '숨긴 항목' : '연월브랜드'}
                 </Typography>
-                <Tooltip title={showHidden ? '일반 목록 보기' : '숨긴 항목 보기'}>
-                  <IconButton
-                    size="small"
-                    onClick={() => setShowHidden(!showHidden)}
-                    sx={{ p: 0.5 }}
-                    color={showHidden ? 'warning' : 'default'}
-                  >
-                    {showHidden ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  {!showHidden && (
+                    <>
+                      <Tooltip title="모두 펼치기">
+                        <IconButton size="small" onClick={handleExpandAllMonthlyBrands} sx={{ p: 0.5 }}>
+                          <UnfoldMoreIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="모두 접기">
+                        <IconButton size="small" onClick={handleCollapseAllMonthlyBrands} sx={{ p: 0.5 }}>
+                          <UnfoldLessIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  )}
+                  {showHidden && selectedForBulkDelete.size > 0 && (
+                    <Tooltip title="선택 항목 일괄 삭제">
+                      <IconButton
+                        size="small"
+                        onClick={handleBulkDelete}
+                        disabled={bulkDeleting}
+                        sx={{ p: 0.5 }}
+                        color="error"
+                      >
+                        {bulkDeleting ? <CircularProgress size={16} /> : <DeleteSweepIcon fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  <Tooltip title={showHidden ? '일반 목록 보기' : '숨긴 항목 보기'}>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setShowHidden(!showHidden);
+                        setSelectedForBulkDelete(new Set());
+                      }}
+                      sx={{ p: 0.5 }}
+                      color={showHidden ? 'warning' : 'default'}
+                    >
+                      {showHidden ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </Box>
+              {showHidden && selectedForBulkDelete.size > 0 && (
+                <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                  {selectedForBulkDelete.size}개 선택됨
+                </Typography>
+              )}
             </Box>
 
             {loading ? (
@@ -531,7 +692,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                         <ListItemButton
                           onClick={() => handleMonthlyBrandToggle(monthlyBrand.id)}
                           sx={{
-                            bgcolor: monthlyBrand.is_hidden ? '#fff3e0' : expandedMonthlyBrands[monthlyBrand.id] ? '#e3f2fd' : 'inherit',
+                            bgcolor: monthlyBrand.is_hidden ? '#fff3e0' : expandedMonthlyBrands[monthlyBrand.id] ? '#e8eaf6' : 'inherit',
                             borderBottom: '1px solid #f0f0f0',
                             py: 0.5
                           }}
@@ -547,6 +708,18 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                 </Typography>
                                 {showHidden && monthlyBrand.is_hidden ? (
                                   <>
+                                    <Tooltip title="선택">
+                                      <IconButton
+                                        size="small"
+                                        color={selectedForBulkDelete.has(`monthlyBrand_${monthlyBrand.id}`) ? 'primary' : 'default'}
+                                        onClick={(e) => toggleBulkDeleteSelection('monthlyBrand', monthlyBrand.id, e)}
+                                        sx={{ p: 0.3 }}
+                                      >
+                                        {selectedForBulkDelete.has(`monthlyBrand_${monthlyBrand.id}`)
+                                          ? <CheckBoxIcon sx={{ fontSize: 18 }} />
+                                          : <CheckBoxOutlineBlankIcon sx={{ fontSize: 18 }} />}
+                                      </IconButton>
+                                    </Tooltip>
                                     <Tooltip title="복구">
                                       <IconButton size="small" color="success" onClick={(e) => handleRestoreMonthlyBrand(monthlyBrand, e)} sx={{ p: 0.3 }}>
                                         <RestoreIcon sx={{ fontSize: 18 }} />
@@ -584,15 +757,19 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                             {filteredCampaigns.length > 0 ? (
                               filteredCampaigns.map((campaign) => {
                                 const isSelected = selectedCampaign?.id === campaign.id;
+                                // 택배대행 Y인 품목 개수 계산
+                                const courierCount = (campaign.items || []).filter(item =>
+                                  item.courier_service_yn === 'Y' || item.courier_service_yn === true
+                                ).length;
                                 return (
                                   <ListItemButton
                                     key={campaign.id}
                                     onClick={() => handleCampaignClick(campaign)}
                                     sx={{
                                       pl: 4, py: 0.3,
-                                      bgcolor: campaign.is_hidden ? '#fff8e1' : isSelected ? '#bbdefb' : 'inherit',
-                                      borderLeft: isSelected ? '3px solid #1976d2' : '3px solid transparent',
-                                      '&:hover': { bgcolor: campaign.is_hidden ? '#fff8e1' : isSelected ? '#bbdefb' : '#f5f5f5' }
+                                      bgcolor: campaign.is_hidden ? '#fff8e1' : isSelected ? '#c5cae9' : 'inherit',
+                                      borderLeft: isSelected ? '3px solid #2c387e' : '3px solid transparent',
+                                      '&:hover': { bgcolor: campaign.is_hidden ? '#fff8e1' : isSelected ? '#c5cae9' : '#f5f5f5' }
                                     }}
                                   >
                                     <ListItemIcon sx={{ minWidth: 24 }}>
@@ -606,6 +783,18 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                           </Typography>
                                           {showHidden && campaign.is_hidden ? (
                                             <>
+                                              <Tooltip title="선택">
+                                                <IconButton
+                                                  size="small"
+                                                  color={selectedForBulkDelete.has(`campaign_${campaign.id}`) ? 'primary' : 'default'}
+                                                  onClick={(e) => toggleBulkDeleteSelection('campaign', campaign.id, e)}
+                                                  sx={{ p: 0.2 }}
+                                                >
+                                                  {selectedForBulkDelete.has(`campaign_${campaign.id}`)
+                                                    ? <CheckBoxIcon sx={{ fontSize: 14 }} />
+                                                    : <CheckBoxOutlineBlankIcon sx={{ fontSize: 14 }} />}
+                                                </IconButton>
+                                              </Tooltip>
                                               <Tooltip title="복구">
                                                 <IconButton size="small" color="success" onClick={(e) => handleRestoreCampaign(campaign, e)} sx={{ p: 0.2 }}>
                                                   <RestoreIcon sx={{ fontSize: 14 }} />
@@ -618,11 +807,29 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                               </Tooltip>
                                             </>
                                           ) : !showHidden ? (
-                                            <Tooltip title="숨기기">
-                                              <IconButton size="small" color="default" onClick={(e) => handleHideCampaign(campaign, e)} sx={{ p: 0.2 }}>
-                                                <VisibilityOffIcon sx={{ fontSize: 14, color: '#ccc' }} />
-                                              </IconButton>
-                                            </Tooltip>
+                                            <>
+                                              {courierCount > 0 && (
+                                                <Tooltip title={`택배대행 ${courierCount}건`}>
+                                                  <Chip
+                                                    icon={<LocalShippingIcon sx={{ fontSize: '0.7rem !important' }} />}
+                                                    label={courierCount}
+                                                    size="small"
+                                                    sx={{
+                                                      height: 16,
+                                                      fontSize: '0.6rem',
+                                                      bgcolor: '#e3f2fd',
+                                                      color: '#1565c0',
+                                                      '& .MuiChip-icon': { color: '#1565c0' }
+                                                    }}
+                                                  />
+                                                </Tooltip>
+                                              )}
+                                              <Tooltip title="숨기기">
+                                                <IconButton size="small" color="default" onClick={(e) => handleHideCampaign(campaign, e)} sx={{ p: 0.2 }}>
+                                                  <VisibilityOffIcon sx={{ fontSize: 14, color: '#ccc' }} />
+                                                </IconButton>
+                                              </Tooltip>
+                                            </>
                                           ) : null}
                                           <Chip label={campaign.items?.length || 0} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
                                         </Box>
@@ -654,14 +861,14 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           sx={{
             flexShrink: 0,
-            bgcolor: '#1976d2',
+            bgcolor: '#2c387e',
             color: 'white',
             height: 36,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            '&:hover': { bgcolor: '#1565c0' }
+            '&:hover': { bgcolor: '#3f51b5' }
           }}
         >
           {sidebarCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
@@ -673,12 +880,12 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       <Box
         component="main"
         sx={{
-          flexGrow: 1,
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
           bgcolor: '#fafafa',
-          height: isEmbedded ? 'calc(100vh - 64px)' : 'calc(100vh - 64px)'
+          minHeight: 0
         }}
       >
         {/* 캠페인이 선택되었고 기본 라우트일 때 시트 표시 */}
@@ -731,6 +938,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               ) : (
                 <SalesItemSheet
                   campaignId={selectedCampaign.id}
+                  campaignName={selectedCampaign.name}
                   items={selectedCampaign.items || []}
                   onDeleteItem={handleDeleteItem}
                   onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
@@ -800,6 +1008,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         onSave={handleSaveCampaign}
         mode="create"
         preSelectedMonthlyBrandId={selectedMonthlyBrandForCampaign}
+        viewAsUserId={viewAsUserId}
       />
 
       {/* 품목 추가/수정 다이얼로그 */}

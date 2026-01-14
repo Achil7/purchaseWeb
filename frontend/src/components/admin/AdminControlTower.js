@@ -5,7 +5,6 @@ import {
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
   FormControl, InputLabel, Select, MenuItem, Chip, TableContainer, Divider
 } from '@mui/material';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -14,7 +13,6 @@ import CircleIcon from '@mui/icons-material/Circle';
 import SearchIcon from '@mui/icons-material/Search';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import InfoIcon from '@mui/icons-material/Info';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import SaveIcon from '@mui/icons-material/Save';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -56,7 +54,15 @@ function AdminControlTower() {
 
   // === 진행자 배정 탭 상태 ===
   const [monthlyBrands, setMonthlyBrands] = useState([]);
-  const [expandedMonthlyBrands, setExpandedMonthlyBrands] = useState({});
+  const EXPANDED_MB_KEY = 'admin_expanded_monthly_brands';
+  const [expandedMonthlyBrands, setExpandedMonthlyBrands] = useState(() => {
+    try {
+      const saved = localStorage.getItem(EXPANDED_MB_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
   const [assignmentLoading, setAssignmentLoading] = useState(false);
 
   // === 사용자 관리 탭 상태 ===
@@ -75,10 +81,19 @@ function AdminControlTower() {
 
   // 연월브랜드 펼치기/접기 토글
   const toggleMonthlyBrand = (monthlyBrandId) => {
-    setExpandedMonthlyBrands(prev => ({
-      ...prev,
-      [monthlyBrandId]: !prev[monthlyBrandId]
-    }));
+    setExpandedMonthlyBrands(prev => {
+      const newState = {
+        ...prev,
+        [monthlyBrandId]: !prev[monthlyBrandId]
+      };
+      // localStorage에 저장
+      try {
+        localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+      } catch (e) {
+        console.error('Failed to save expanded state:', e);
+      }
+      return newState;
+    });
   };
 
   // 영업사 변경 다이얼로그 상태
@@ -191,6 +206,7 @@ function AdminControlTower() {
       setDeleting(false);
     }
   };
+
 
   // 진행자 배정용 연월브랜드 데이터 로드
   const loadAssignmentData = useCallback(async () => {
@@ -390,26 +406,21 @@ function AdminControlTower() {
 
   // 진행자 배정 탭 렌더링 - 연월브랜드 > 캠페인 목록
   const renderAssignmentTab = () => {
+    // 숨겨지지 않은 연월브랜드만 표시
+    const filteredMonthlyBrands = monthlyBrands.filter(mb => !mb.is_hidden);
+
     return (
       <Box>
         {/* 타이틀 영역 */}
         <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Box>
-            <Typography variant="h6" fontWeight="bold" color="text.primary" gutterBottom>
+            <Typography variant="h6" fontWeight="bold" gutterBottom>
               연월브랜드 및 캠페인 관리
             </Typography>
             <Typography variant="body2" color="text.secondary">
               연월브랜드를 선택하고 캠페인을 클릭하여 진행자를 배정하세요.
             </Typography>
           </Box>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={loadAssignmentData}
-            disabled={assignmentLoading}
-          >
-            새로고침
-          </Button>
         </Box>
 
         {assignmentLoading ? (
@@ -433,11 +444,14 @@ function AdminControlTower() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {monthlyBrands.length > 0 ? (
-                    monthlyBrands.map((mb) => {
+                  {filteredMonthlyBrands.length > 0 ? (
+                    filteredMonthlyBrands.map((mb) => {
                       const isExpanded = expandedMonthlyBrands[mb.id] || false;
                       const campaigns = mb.campaigns || [];
-                      const totalCampaigns = campaigns.length;
+
+                      // 숨겨지지 않은 캠페인만 표시
+                      const filteredCampaigns = campaigns.filter(c => !c.is_hidden);
+                      const displayCampaignCount = filteredCampaigns.length;
 
                       return (
                         <React.Fragment key={mb.id}>
@@ -479,7 +493,7 @@ function AdminControlTower() {
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" color="text.secondary">
-                                {totalCampaigns}개 캠페인
+                                {displayCampaignCount}개 캠페인
                               </Typography>
                             </TableCell>
                             <TableCell align="center">
@@ -509,7 +523,7 @@ function AdminControlTower() {
                           </TableRow>
 
                           {/* 캠페인 행들 (펼쳐졌을 때만 표시) */}
-                          {isExpanded && campaigns.map((campaign) => {
+                          {isExpanded && filteredCampaigns.map((campaign) => {
                             const itemCount = campaign.items?.length || 0;
 
                             return (
@@ -626,7 +640,7 @@ function AdminControlTower() {
 
   // 사용자 관리 탭 렌더링
   const renderUserManagementTab = () => (
-    <Box sx={{ display: 'flex', gap: 0, minHeight: 600, position: 'relative' }}>
+    <Box sx={{ display: 'flex', gap: 0, flex: 1, overflow: 'hidden', position: 'relative' }}>
       {/* 왼쪽: 사용자 목록 (접기 가능) */}
       <Paper
         sx={{
@@ -634,7 +648,6 @@ function AdminControlTower() {
           minWidth: sidebarCollapsed ? 40 : 200,
           p: sidebarCollapsed ? 0 : 2,
           overflow: 'hidden',
-          maxHeight: 700,
           transition: 'width 0.2s ease, min-width 0.2s ease, padding 0.2s ease',
           display: 'flex',
           flexDirection: 'column',
@@ -664,29 +677,6 @@ function AdminControlTower() {
             </IconButton>
           </Tooltip>
         </Box>
-
-        {/* 접혔을 때 선택된 사용자 이름 세로로 표시 */}
-        {sidebarCollapsed && selectedUser && (
-          <Box
-            sx={{
-              writingMode: 'vertical-rl',
-              textOrientation: 'mixed',
-              transform: 'rotate(180deg)',
-              py: 2,
-              px: 0.5,
-              fontSize: '0.75rem',
-              fontWeight: 'bold',
-              color: 'primary.main',
-              textAlign: 'center',
-              overflow: 'hidden',
-              whiteSpace: 'nowrap',
-              textOverflow: 'ellipsis',
-              maxHeight: 200
-            }}
-          >
-            {selectedUser.name}
-          </Box>
-        )}
 
         {/* 펼쳐졌을 때 내용 표시 */}
         {!sidebarCollapsed && (
@@ -798,102 +788,65 @@ function AdminControlTower() {
       </Paper>
 
       {/* 오른쪽: 대시보드 (나머지 공간) */}
-      <Paper sx={{ flex: 1, p: 0, overflow: 'hidden', height: 700, ml: 1, borderRadius: '0 4px 4px 0', display: 'flex', flexDirection: 'column' }}>
-        {/* 전체 화면 보기 버튼 */}
-        {selectedUser && (
-          <Box sx={{ p: 1, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'flex-end', bgcolor: '#f5f5f5' }}>
-            <Tooltip title="새 창에서 전체 화면으로 보기">
-              <Button
-                size="small"
-                variant="contained"
-                color="primary"
-                startIcon={<OpenInNewIcon />}
-                onClick={() => {
-                  const roleViewPath = {
-                    operator: '/admin/view-operator',
-                    sales: '/admin/view-sales',
-                    brand: '/admin/view-brand'
-                  };
-                  const path = roleViewPath[selectedUser.role];
-                  if (path) {
-                    navigate(`${path}?userId=${selectedUser.id}`);
-                  }
-                }}
-                sx={{ fontSize: '0.75rem' }}
-              >
-                {roleLabels[selectedUser.role]} 전체 화면 보기
-              </Button>
-            </Tooltip>
-          </Box>
-        )}
-
-        {/* 브랜드사 탭일 때 담당 영업사 관리 패널 표시 */}
+      <Paper sx={{ flex: 1, p: 0, overflow: 'hidden', ml: 1, borderRadius: '0 4px 4px 0', display: 'flex', flexDirection: 'column' }}>
+        {/* 브랜드사 탭일 때 담당 영업사 관리 패널 - 한 줄로 컴팩트하게 */}
         {tabValue === 3 && selectedUser && (
-          <Box sx={{ p: 2, borderBottom: '1px solid #eee', bgcolor: '#fafafa' }}>
-            <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+          <Box sx={{ px: 2, py: 1, borderBottom: '1px solid #eee', bgcolor: '#fafafa', display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            <Typography variant="body2" fontWeight="bold" sx={{ whiteSpace: 'nowrap' }}>
               담당 영업사 관리
             </Typography>
 
             {brandSalesLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-                <CircularProgress size={24} />
-              </Box>
+              <CircularProgress size={18} />
             ) : (
               <>
                 {/* 현재 담당 영업사 목록 */}
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2, minHeight: 32 }}>
-                  {brandSalesList.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      담당 영업사가 없습니다
-                    </Typography>
-                  ) : (
-                    brandSalesList.map((sales) => (
-                      <Chip
-                        key={sales.id}
-                        label={sales.name}
-                        onDelete={() => handleRemoveSalesFromBrand(sales.id)}
-                        deleteIcon={
-                          <Tooltip title="담당 해제">
-                            <PersonRemoveIcon sx={{ fontSize: 16 }} />
-                          </Tooltip>
-                        }
-                        color="primary"
-                        variant="outlined"
-                        size="small"
-                      />
-                    ))
-                  )}
-                </Box>
+                {brandSalesList.map((sales) => (
+                  <Chip
+                    key={sales.id}
+                    label={sales.name}
+                    onDelete={() => handleRemoveSalesFromBrand(sales.id)}
+                    deleteIcon={
+                      <Tooltip title="담당 해제">
+                        <PersonRemoveIcon sx={{ fontSize: 14 }} />
+                      </Tooltip>
+                    }
+                    color="primary"
+                    variant="outlined"
+                    size="small"
+                    sx={{ height: 24 }}
+                  />
+                ))}
 
                 {/* 영업사 추가 */}
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <FormControl size="small" sx={{ minWidth: 200 }}>
-                    <InputLabel id="add-sales-select-label">영업사 추가</InputLabel>
-                    <Select
-                      labelId="add-sales-select-label"
-                      value={selectedSalesToAdd}
-                      label="영업사 추가"
-                      onChange={(e) => setSelectedSalesToAdd(e.target.value)}
-                    >
-                      {allSalesUsers
-                        .filter((s) => !brandSalesList.some((bs) => bs.id === s.id))
-                        .map((sales) => (
-                          <MenuItem key={sales.id} value={sales.id}>
-                            {sales.name} ({sales.username})
-                          </MenuItem>
-                        ))}
-                    </Select>
-                  </FormControl>
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={addingSales ? <CircularProgress size={16} /> : <PersonAddIcon />}
-                    onClick={handleAddSalesToBrand}
-                    disabled={!selectedSalesToAdd || addingSales}
+                <FormControl size="small" sx={{ minWidth: 150 }}>
+                  <InputLabel id="add-sales-select-label">영업사 추가</InputLabel>
+                  <Select
+                    labelId="add-sales-select-label"
+                    value={selectedSalesToAdd}
+                    label="영업사 추가"
+                    onChange={(e) => setSelectedSalesToAdd(e.target.value)}
+                    sx={{ height: 32 }}
                   >
-                    추가
-                  </Button>
-                </Box>
+                    {allSalesUsers
+                      .filter((s) => !brandSalesList.some((bs) => bs.id === s.id))
+                      .map((sales) => (
+                        <MenuItem key={sales.id} value={sales.id}>
+                          {sales.name} ({sales.username})
+                        </MenuItem>
+                      ))}
+                  </Select>
+                </FormControl>
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={addingSales ? <CircularProgress size={14} /> : <PersonAddIcon />}
+                  onClick={handleAddSalesToBrand}
+                  disabled={!selectedSalesToAdd || addingSales}
+                  sx={{ height: 32 }}
+                >
+                  추가
+                </Button>
               </>
             )}
           </Box>
@@ -906,31 +859,13 @@ function AdminControlTower() {
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* 헤더 - 작게 */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, px: 1 }}>
-        <Typography variant="subtitle1" fontWeight="bold" color="text.secondary">
-          컨트롤 타워
-        </Typography>
-        {tabValue !== 0 && (
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<RefreshIcon />}
-            onClick={loadUsers}
-            disabled={loading}
-          >
-            새로고침
-          </Button>
-        )}
-      </Box>
-
       {error && (
         <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
           {error}
         </Alert>
       )}
 
-      {/* 탭 - 더 크게 */}
+      {/* 탭 */}
       <Paper sx={{ mb: 1 }}>
         <Tabs
           value={tabValue}
@@ -953,7 +888,7 @@ function AdminControlTower() {
       </Paper>
 
       {/* 탭 내용 - 남은 공간 모두 사용 */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
         {tabValue === 0 ? renderAssignmentTab() : renderUserManagementTab()}
       </Box>
 

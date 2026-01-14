@@ -1,12 +1,16 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Snackbar, Alert, IconButton } from '@mui/material';
+import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Snackbar, Alert, IconButton, Tooltip } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import DownloadIcon from '@mui/icons-material/Download';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
 import itemSlotService from '../../services/itemSlotService';
 import itemService from '../../services/itemService';
+import { downloadExcel, convertSlotsToExcelData } from '../../utils/excelExport';
 
 // Handsontable 모든 모듈 등록
 registerAllModules();
@@ -21,6 +25,8 @@ const ROW_TYPES = {
   BUYER_DATA: 'buyer_data',              // 구매자 데이터 행
 };
 
+// 기본 컬럼 너비 - 19개 컬럼
+const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 60, 60, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 80, 80];
 
 /**
  * 품목별 시트 컴포넌트 (Handsontable - 진짜 엑셀)
@@ -29,6 +35,7 @@ const ROW_TYPES = {
  */
 function SalesItemSheet({
   campaignId,
+  campaignName = '',
   items,
   onDeleteItem,
   onRefresh,
@@ -42,6 +49,11 @@ function SalesItemSheet({
   const [slots, setSlots] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // 컬럼 너비 상태
+  const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
+
+  // 접기 상태 초기화 완료 플래그 (캠페인ID 추적용)
+  const lastCampaignId = useRef(null);
 
   // 스낵바 상태
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
@@ -79,11 +91,17 @@ function SalesItemSheet({
   // const SPARE_ROWS = 20;
   // const SPARE_COLS = 3;
 
-  // 컬럼 크기 저장 키
-  const COLUMN_WIDTHS_KEY = 'sales_itemsheet_column_widths';
+  // 컬럼 크기 저장 키 (캠페인별로 구분)
+  const COLUMN_WIDTHS_KEY = `sales_itemsheet_column_widths_${campaignId}`;
 
-  // 접기 상태 저장 키
-  const COLLAPSED_ITEMS_KEY = 'sales_itemsheet_collapsed_items';
+  // 접기 상태 저장 키 (캠페인별로 구분)
+  const COLLAPSED_ITEMS_KEY = `sales_itemsheet_collapsed_items_${campaignId}`;
+
+  // 컬럼 정렬 저장 키 (캠페인별로 구분)
+  const COLUMN_ALIGNMENTS_KEY = `sales_itemsheet_column_alignments_${campaignId}`;
+
+  // 컬럼별 정렬 상태 (left, center, right)
+  const [columnAlignments, setColumnAlignments] = useState({});
 
   // localStorage에서 컬럼 크기 로드
   const getSavedColumnWidths = useCallback(() => {
@@ -93,7 +111,7 @@ function SalesItemSheet({
     } catch {
       return null;
     }
-  }, []);
+  }, [COLUMN_WIDTHS_KEY]);
 
   // localStorage에서 접기 상태 로드
   const getSavedCollapsedItems = useCallback(() => {
@@ -103,16 +121,55 @@ function SalesItemSheet({
     } catch {
       return null;
     }
-  }, []);
+  }, [COLLAPSED_ITEMS_KEY]);
 
   // 접기 상태 저장
   const saveCollapsedItems = useCallback((items) => {
     try {
-      localStorage.setItem(COLLAPSED_ITEMS_KEY, JSON.stringify([...items]));
+      const value = JSON.stringify([...items]);
+      localStorage.setItem(COLLAPSED_ITEMS_KEY, value);
+      console.log('[SalesItemSheet] Saved collapsed items:', {
+        key: COLLAPSED_ITEMS_KEY,
+        count: items.size,
+        ids: [...items]
+      });
     } catch (e) {
       console.error('Failed to save collapsed items:', e);
     }
-  }, []);
+  }, [COLLAPSED_ITEMS_KEY]);
+
+  // 컬럼 정렬 로드
+  const getSavedColumnAlignments = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(COLUMN_ALIGNMENTS_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  }, [COLUMN_ALIGNMENTS_KEY]);
+
+  // 컬럼 정렬 저장
+  const saveColumnAlignments = useCallback((alignments) => {
+    try {
+      localStorage.setItem(COLUMN_ALIGNMENTS_KEY, JSON.stringify(alignments));
+    } catch (e) {
+      console.error('Failed to save column alignments:', e);
+    }
+  }, [COLUMN_ALIGNMENTS_KEY]);
+
+  // 컬럼 정렬 변경 핸들러
+  const handleAlignmentChange = useCallback((col, alignment) => {
+    setColumnAlignments(prev => {
+      const newAlignments = { ...prev, [col]: alignment };
+      saveColumnAlignments(newAlignments);
+      // Handsontable 리렌더
+      const hot = hotRef.current?.hotInstance;
+      if (hot) {
+        hot.render();
+      }
+      return newAlignments;
+    });
+  }, [saveColumnAlignments]);
 
   // 컬럼 크기 변경 시 저장
   const handleColumnResize = useCallback(() => {
@@ -125,13 +182,16 @@ function SalesItemSheet({
       widths.push(hot.getColWidth(i));
     }
 
+    // state 업데이트
+    setColumnWidths(widths);
+
     // localStorage에 저장
     try {
       localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(widths));
     } catch (e) {
       console.error('Failed to save column widths:', e);
     }
-  }, []);
+  }, [COLUMN_WIDTHS_KEY]);
 
   // 캠페인별 슬롯 데이터 로드
   const loadSlots = useCallback(async () => {
@@ -141,7 +201,37 @@ function SalesItemSheet({
     try {
       const response = await itemSlotService.getSlotsByCampaign(campaignId);
       if (response.success) {
-        setSlots(response.data || []);
+        const newSlots = response.data || [];
+        setSlots(newSlots);
+
+        // API 응답 직후 localStorage에서 접기 상태 복원
+        const allItemIds = [...new Set(newSlots.map(s => s.item_id))];
+        const collapsedKey = `sales_itemsheet_collapsed_items_${campaignId}`;
+        try {
+          const saved = localStorage.getItem(collapsedKey);
+          if (saved) {
+            const savedIds = JSON.parse(saved);
+            const validIds = savedIds.filter(id => allItemIds.includes(id));
+            setCollapsedItems(new Set(validIds));
+          } else {
+            setCollapsedItems(new Set(allItemIds));
+          }
+        } catch (e) {
+          setCollapsedItems(new Set(allItemIds));
+        }
+
+        // API 응답 직후 localStorage에서 컬럼 너비 복원
+        const widthKey = `sales_itemsheet_column_widths_${campaignId}`;
+        try {
+          const savedWidths = localStorage.getItem(widthKey);
+          if (savedWidths) {
+            setColumnWidths(JSON.parse(savedWidths));
+          } else {
+            setColumnWidths(DEFAULT_COLUMN_WIDTHS);
+          }
+        } catch (e) {
+          setColumnWidths(DEFAULT_COLUMN_WIDTHS);
+        }
       }
     } catch (error) {
       console.error('Failed to load slots:', error);
@@ -172,6 +262,8 @@ function SalesItemSheet({
 
   useEffect(() => {
     if (campaignId) {
+      // 캠페인 변경 시 이전 slots 데이터를 즉시 초기화
+      setSlots([]);
       loadSlots();
       // loadMemos(); // 메모 기능 비활성화
     }
@@ -180,29 +272,22 @@ function SalesItemSheet({
   // items 변경 시 (품목 추가/삭제 후) 슬롯 리로드
   useEffect(() => {
     if (campaignId && items.length > 0) {
+      // items 변경 시 이전 slots 데이터를 즉시 초기화하여 잘못된 데이터로 useEffect 실행 방지
+      setSlots([]);
       loadSlots();
     }
-  }, [items.length]);
+  }, [items.length, campaignId, loadSlots]);
 
-  // slots 로드 후 접기 상태 초기화 (localStorage 복원 또는 기본값=모두 접기)
+  // 접기 상태 복원은 loadSlots 함수 내에서 API 응답 직후 처리됨
+
+  // 컬럼 정렬 상태 초기화 (최초 1회만)
   useEffect(() => {
-    if (slots.length === 0) return;
-
-    // 모든 품목 ID 추출
-    const allItemIds = [...new Set(slots.map(s => s.item_id))];
-
-    // localStorage에서 저장된 상태 복원
-    const savedCollapsed = getSavedCollapsedItems();
-
-    if (savedCollapsed !== null && savedCollapsed.size > 0) {
-      // 저장된 상태가 있으면 복원 (현재 데이터에 있는 품목만)
-      const validCollapsed = new Set([...savedCollapsed].filter(id => allItemIds.includes(id)));
-      setCollapsedItems(validCollapsed);
-    } else {
-      // 저장된 상태가 없으면 모두 접기 (기본값)
-      setCollapsedItems(new Set(allItemIds));
+    const savedAlignments = getSavedColumnAlignments();
+    if (savedAlignments && Object.keys(savedAlignments).length > 0) {
+      setColumnAlignments(savedAlignments);
     }
-  }, [slots, getSavedCollapsedItems]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // 최초 마운트 시에만 실행
 
   // 저장 핸들러 - DB 저장 + 스크롤 위치 유지
   const handleSaveChanges = useCallback(async () => {
@@ -233,6 +318,38 @@ function SalesItemSheet({
         await itemSlotService.updateSlotsBulk(slotsToUpdate);
       }
 
+      // 로컬 slots 상태 업데이트 (DB 재조회 대신 직접 업데이트)
+      // buyer 필드 목록 (slot이 아닌 buyer 객체에 속하는 필드들)
+      const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'tracking_number', 'deposit_name', 'payment_confirmed'];
+
+      setSlots(prevSlots => {
+        return prevSlots.map(slot => {
+          const changes = changedSlots[slot.id];
+          if (changes) {
+            // slot 필드와 buyer 필드 분리
+            const slotChanges = {};
+            const buyerChanges = {};
+
+            Object.entries(changes).forEach(([key, value]) => {
+              if (key === 'id') return; // id는 제외
+              if (buyerFields.includes(key)) {
+                buyerChanges[key] = value;
+              } else {
+                slotChanges[key] = value;
+              }
+            });
+
+            // buyer 객체 업데이트
+            const updatedBuyer = slot.buyer
+              ? { ...slot.buyer, ...buyerChanges }
+              : Object.keys(buyerChanges).length > 0 ? buyerChanges : null;
+
+            return { ...slot, ...slotChanges, buyer: updatedBuyer };
+          }
+          return slot;
+        });
+      });
+
       // 상태 초기화
       setChangedSlots({});
       setChangedItems({});
@@ -253,7 +370,7 @@ function SalesItemSheet({
     } finally {
       setSaving(false);
     }
-  }, [changedSlots, changedItems]);
+  }, [changedSlots, changedItems, loadSlots]);
 
   // Ctrl+S 키보드 단축키로 저장
   useEffect(() => {
@@ -345,7 +462,7 @@ function SalesItemSheet({
       }
       isFirstItem = false;
 
-      // 제품 헤더 행 (19개 컬럼)
+      // 제품 헤더 행 (19개 컬럼) - 영업사는 리뷰비 컬럼 제외
       // 순서: 토글, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
       data.push({
         _rowType: ROW_TYPES.PRODUCT_HEADER,
@@ -354,7 +471,7 @@ function SalesItemSheet({
         col14: '', col15: '', col16: '', col17: '', col18: ''
       });
 
-      // 제품 데이터 행 (19개 컬럼)
+      // 제품 데이터 행 (19개 컬럼) - 영업사는 리뷰비 컬럼 제외
       data.push({
         _rowType: ROW_TYPES.PRODUCT_DATA,
         _itemId: parseInt(itemId),
@@ -366,7 +483,7 @@ function SalesItemSheet({
         col4: item.purchase_option || '',  // 옵션
         col5: item.shipping_type || '',     // 출고
         col6: item.keyword || '',           // 키워드
-        col7: item.product_price ? Number(item.product_price).toLocaleString() : '',  // 가격
+        col7: item.product_price || '',  // 가격 (합쳐진 제품은 텍스트 그대로 표시)
         col8: item.total_purchase_count || '',   // 총건수
         col9: item.daily_purchase_count || '',   // 일건수
         col10: item.courier_service_yn ? 'Y' : 'N',  // 택배대행
@@ -387,7 +504,7 @@ function SalesItemSheet({
           const groupData = itemGroup.dayGroups[dayGroup];
           const uploadToken = groupData.uploadToken;
 
-          // 업로드 링크 바 (19개 컬럼)
+          // 업로드 링크 바 (19개 컬럼) - 영업사는 리뷰비 컬럼 제외
           data.push({
             _rowType: ROW_TYPES.UPLOAD_LINK_BAR,
             _itemId: parseInt(itemId),
@@ -399,22 +516,25 @@ function SalesItemSheet({
             col10: '', col11: '', col12: '', col13: '', col14: '', col15: '', col16: '', col17: '', col18: ''
           });
 
-          // 구매자 헤더 행 (19개 컬럼)
+          // 구매자 헤더 행 (19개 컬럼) - 영업사는 리뷰비 컬럼 제외
           // col0: 접기, col1: 날짜, col2: 순번, col3: 제품명, col4: 옵션, col5: 예상구매자,
           // col6: 주문번호, col7: 구매자, col8: 수취인, col9: 아이디, col10: 연락처, col11: 주소, col12: 계좌, col13: 금액,
-          // col14: 리뷰샷, col15: 상태, col16: (영업사는 리뷰비 숨김), col17: 입금명, col18: 입금여부
+          // col14: 송장번호, col15: 리뷰샷, col16: 상태, col17: 입금명, col18: 입금여부
           data.push({
             _rowType: ROW_TYPES.BUYER_HEADER,
             _itemId: parseInt(itemId),
             _dayGroup: parseInt(dayGroup),
             col0: '', col1: '날짜', col2: '순번', col3: '제품명', col4: '옵션', col5: '예상구매자',
             col6: '주문번호', col7: '구매자', col8: '수취인', col9: '아이디', col10: '연락처', col11: '주소', col12: '계좌', col13: '금액',
-            col14: '리뷰샷', col15: '상태', col16: '', col17: '입금명', col18: '입금여부'
+            col14: '송장번호', col15: '리뷰샷', col16: '상태', col17: '입금명', col18: '입금여부'
           });
 
-          // 구매자 데이터 행 (슬롯별) - 19개 컬럼
+          // 구매자 데이터 행 (슬롯별) - 19개 컬럼 (영업사는 리뷰비 컬럼 제외)
           groupData.slots.forEach((slot, slotIndex) => {
-            const buyer = slot.buyer || {};
+            // changedSlots에 변경사항이 있으면 적용
+            const slotChanges = changedSlots[slot.id] || {};
+            const mergedSlot = { ...slot, ...slotChanges };
+            const buyer = mergedSlot.buyer || {};
             const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
 
             // 상태 계산: 구매자 정보 없음 → "-", 구매자 정보 있음 → "active", 리뷰샷 있음 → "completed"
@@ -426,21 +546,23 @@ function SalesItemSheet({
 
             data.push({
               _rowType: ROW_TYPES.BUYER_DATA,
-              _slotId: slot.id,
+              _slotId: mergedSlot.id,
               _itemId: parseInt(itemId),
               _buyerId: buyer.id || null,
               _dayGroup: parseInt(dayGroup),
               _uploadToken: uploadToken,
+              _reviewImages: buyer.images || [],  // 전체 이미지 배열
               _reviewImageUrl: reviewImage?.s3_url || '',
               _reviewImageName: reviewImage?.file_name || '',
+              _buyer: buyer,  // 구매자 정보 전체
               _hasBuyerData: !!hasBuyerData,
-              // 19개 컬럼 구조
+              // 19개 컬럼 구조 (영업사는 리뷰비 컬럼 제외)
               col0: '',  // 접기 (빈칸)
-              col1: slot.date || '',  // 날짜 (Sales가 입력한 날짜, slot.date에서 가져옴)
+              col1: mergedSlot.date || '',  // 날짜 (Sales가 입력한 날짜, slot.date에서 가져옴)
               col2: slotIndex + 1,  // 순번 (1부터 시작)
-              col3: slot.product_name || '',  // 제품명 (Slot 테이블 값 - Item과 독립)
-              col4: slot.purchase_option || '',  // 옵션 (Slot 테이블 값 - Item과 독립)
-              col5: slot.expected_buyer || '',  // 예상 구매자
+              col3: mergedSlot.product_name || '',  // 제품명 (Slot 테이블 값 - Item과 독립)
+              col4: mergedSlot.purchase_option || '',  // 옵션 (Slot 테이블 값 - Item과 독립)
+              col5: mergedSlot.expected_buyer || '',  // 예상 구매자
               col6: buyer.order_number || '',  // 주문번호
               col7: buyer.buyer_name || '',  // 구매자
               col8: buyer.recipient_name || '',  // 수취인
@@ -449,11 +571,11 @@ function SalesItemSheet({
               col11: buyer.address || '',  // 주소
               col12: buyer.account_info || '',  // 계좌
               col13: buyer.amount || '',  // 금액
-              col14: reviewImage?.s3_url || '',  // 리뷰샷
-              col15: calculatedStatus,  // 상태
-              col16: '',  // 리뷰비 (영업사는 숨김)
+              col14: buyer.tracking_number || '',  // 송장번호
+              col15: reviewImage?.s3_url || '',  // 리뷰샷
+              col16: calculatedStatus,  // 상태
               col17: buyer.deposit_name || '',  // 입금명
-              col18: buyer.payment_confirmed ? 'Y' : ''  // 입금여부
+              col18: buyer.payment_confirmed_at || ''  // 입금여부 (날짜 또는 빈값)
             });
           });
         });
@@ -461,7 +583,7 @@ function SalesItemSheet({
     });
 
     return { tableData: data };
-  }, [slots, items, collapsedItems]);
+  }, [slots, items, collapsedItems, changedSlots]);
 
   // 상태 옵션 및 라벨 (드롭다운 + 조회용)
   const statusOptions = ['active', 'completed', 'cancelled'];
@@ -492,6 +614,52 @@ function SalesItemSheet({
       console.error('Failed to copy:', err);
     });
   }, []);
+
+  // 엑셀 다운로드 핸들러
+  const handleDownloadExcel = useCallback(() => {
+    // items 객체 생성 (item_id → item 매핑)
+    const itemsMap = {};
+    slots.forEach(slot => {
+      if (!itemsMap[slot.item_id] && slot.item) {
+        itemsMap[slot.item_id] = slot.item;
+      }
+    });
+
+    const excelData = convertSlotsToExcelData(slots, itemsMap, 'sales');
+    const fileName = campaignName || 'campaign';
+    downloadExcel(excelData, `${fileName}_sales`, '영업사시트');
+    setSnackbar({ open: true, message: '엑셀 파일이 다운로드되었습니다' });
+  }, [slots, campaignName]);
+
+  // 변경사항 저장 및 새로고침 헬퍼 함수
+  const saveAndRefresh = useCallback(async () => {
+    const hasSlotChanges = Object.keys(changedSlots).length > 0;
+    const hasItemChanges = Object.keys(changedItems).length > 0;
+
+    try {
+      // 제품 정보 저장
+      if (hasItemChanges) {
+        for (const [itemId, itemData] of Object.entries(changedItems)) {
+          await itemService.updateItem(parseInt(itemId), itemData);
+        }
+      }
+      // 슬롯 데이터 저장
+      if (hasSlotChanges) {
+        const slotsToUpdate = Object.entries(changedSlots).map(([slotId, slotData]) => ({
+          id: parseInt(slotId),
+          ...slotData
+        }));
+        await itemSlotService.updateSlotsBulk(slotsToUpdate);
+      }
+      // 상태 초기화
+      setChangedSlots({});
+      setChangedItems({});
+      // 데이터 새로고침 (변경사항 유무와 관계없이 항상 최신 데이터 로드)
+      await loadSlots();
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+    }
+  }, [changedSlots, changedItems, loadSlots]);
 
   // 개별 품목 접기/펼치기 토글
   const toggleItemCollapse = useCallback((itemId) => {
@@ -567,30 +735,46 @@ function SalesItemSheet({
     }
   };
 
-  // 이미지 확대 팝업 상태
-  const [imagePopup, setImagePopup] = useState({ open: false, url: '', fileName: '' });
+  // 이미지 갤러리 팝업 상태
+  const [imagePopup, setImagePopup] = useState({
+    open: false,
+    images: [],      // 전체 이미지 배열
+    currentIndex: 0, // 현재 보고 있는 이미지 인덱스
+    buyer: null      // 구매자 정보
+  });
 
-  // 기본 컬럼 너비 - 19개 컬럼
+  // 이미지 갤러리 네비게이션
+  const prevImage = () => {
+    setImagePopup(prev => ({
+      ...prev,
+      currentIndex: Math.max(0, prev.currentIndex - 1)
+    }));
+  };
+
+  const nextImage = () => {
+    setImagePopup(prev => ({
+      ...prev,
+      currentIndex: Math.min(prev.images.length - 1, prev.currentIndex + 1)
+    }));
+  };
+
+  // 기본 컬럼 너비 - 19개 컬럼 (영업사는 리뷰비 컬럼 제외)
   // col0: 접기(20), col1: 날짜(60), col2: 플랫폼(70), col3: 제품명(120), col4: 옵션(80), col5: 예상구매자(80),
-  // col6: 주문번호(110), col7: 구매자(70), col8: 수취인(70), col9: 아이디(100), col10: 연락처(100), col11: 주소(150),
-  // col12: 계좌(120), col13: 금액(70), col14: 리뷰샷(55), col15: 상태(55), col16: (영업사 숨김)(60), col17: 입금명(70), col18: 입금여부(55)
-  const defaultColumnWidths = [20, 60, 70, 120, 80, 80, 110, 70, 70, 100, 100, 150, 120, 70, 55, 55, 60, 70, 55];
-
-  // 컬럼 정의: 통합 컬럼 (행 타입에 따라 다른 데이터 표시) - 19개
+  // 컬럼 정의: 통합 컬럼 (행 타입에 따라 다른 데이터 표시) - 19개 (영업사는 리뷰비 컬럼 제외)
   const columns = useMemo(() => {
-    const savedWidths = getSavedColumnWidths();
     const baseColumns = [];
 
     for (let i = 0; i < 19; i++) {
       baseColumns.push({
         data: `col${i}`,
         type: 'text',
-        width: savedWidths?.[i] || defaultColumnWidths[i]
+        width: columnWidths[i] || DEFAULT_COLUMN_WIDTHS[i],
+        className: 'htCenter htMiddle'
       });
     }
 
     return baseColumns;
-  }, [getSavedColumnWidths]);
+  }, [columnWidths]); // columnWidths 변경 시 컬럼 재생성
 
   // 컬럼 헤더는 빈 배열 (manualColumnResize를 위해 헤더 행 필요)
   // 빈 문자열 배열이면 헤더는 비어있지만 리사이즈 핸들 동작
@@ -682,6 +866,12 @@ function SalesItemSheet({
           } else {
             td.textContent = value ?? '';
           }
+
+          // 사용자 정의 정렬 적용 (기존 정렬 스타일이 없는 경우에만)
+          if (columnAlignments[c] && !td.style.textAlign) {
+            td.style.textAlign = columnAlignments[c];
+          }
+
           return td;
         };
         break;
@@ -722,20 +912,20 @@ function SalesItemSheet({
         break;
 
       case ROW_TYPES.BUYER_DATA:
-        // 구매자 데이터 행 - 모든 컬럼 편집 가능 (col14 리뷰샷만 readOnly)
+        // 구매자 데이터 행 - 모든 컬럼 편집 가능 (col15 리뷰샷만 readOnly)
         const dayGroup = rowData._dayGroup || 1;
         const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
         cellProperties.className = dayClass;
 
-        // col14(리뷰샷)만 readOnly, 나머지는 모두 편집 가능
-        if (col === 14) {
+        // col15(리뷰샷)만 readOnly, 나머지는 모두 편집 가능
+        if (col === 15) {
           cellProperties.readOnly = true; // 이미지 컬럼만 readOnly
         } else {
           cellProperties.readOnly = false;
         }
 
-        // 상태 컬럼 (col15) - 드롭다운
-        if (col === 15) {
+        // 상태 컬럼 (col16) - 드롭다운
+        if (col === 16) {
           cellProperties.type = 'dropdown';
           cellProperties.source = statusOptions;
         }
@@ -775,27 +965,25 @@ function SalesItemSheet({
             const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
             td.textContent = numValue ? numValue.toLocaleString() : value;
           }
-          // 리뷰샷 컬럼 (col14) - 썸네일 이미지
-          else if (prop === 'col14') {
-            const imageUrl = rowData._reviewImageUrl;
-            if (imageUrl) {
-              td.innerHTML = `<img
-                src="${imageUrl}"
-                alt="리뷰"
-                class="review-thumbnail"
-                data-url="${imageUrl}"
-                data-filename="${rowData._reviewImageName || ''}"
-                style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; cursor: pointer;"
-              />`;
-              td.style.padding = '2px';
+          // 리뷰샷 컬럼 (col15) - "리뷰 보기" 링크 (이미지 개수 표시)
+          else if (prop === 'col15') {
+            const images = rowData._reviewImages || [];
+            const imageCount = images.length;
+            if (imageCount > 0) {
+              const label = imageCount > 1 ? `리뷰 보기 (${imageCount})` : '리뷰 보기';
+              td.innerHTML = `<a
+                href="#"
+                class="review-link"
+                style="color: #1976d2; text-decoration: underline; cursor: pointer; font-size: 11px;"
+              >${label}</a>`;
               td.style.textAlign = 'center';
             } else {
               td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
               td.style.textAlign = 'center';
             }
           }
-          // 상태 컬럼 (col15) - 칩 스타일
-          else if (prop === 'col15') {
+          // 상태 컬럼 (col16) - 칩 스타일
+          else if (prop === 'col16') {
             const hasReviewImage = rowData._reviewImageUrl;
             const hasBuyerData = rowData._hasBuyerData;
             // 상태 결정: 리뷰샷 있음 → completed, 구매자 정보 있음 → active, 둘 다 없음 → "-"
@@ -811,13 +999,25 @@ function SalesItemSheet({
               td.innerHTML = `<span class="status-chip status-${displayStatus}">${label}</span>`;
             }
           }
-          // 입금여부 컬럼 (col18) - Y/N 표시
+          // 입금여부 컬럼 (col18) - 날짜(YYMMDD) 표시
           else if (prop === 'col18') {
-            td.textContent = value ?? '';
             td.style.textAlign = 'center';
-            if (value === 'Y') {
-              td.style.color = '#388e3c';
-              td.style.fontWeight = 'bold';
+            if (value) {
+              // ISO 날짜 문자열을 YYMMDD 형식으로 변환 (Asia/Seoul 기준)
+              try {
+                const date = new Date(value);
+                const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+                const yy = String(kstDate.getUTCFullYear()).slice(-2);
+                const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
+                const dd = String(kstDate.getUTCDate()).padStart(2, '0');
+                td.textContent = `${yy}${mm}${dd}`;
+                td.style.color = '#388e3c';
+                td.style.fontWeight = 'bold';
+              } catch (e) {
+                td.textContent = value;
+              }
+            } else {
+              td.textContent = '';
             }
           }
           // 주문번호 컬럼 (col6) - 중복 시 빨간색 배경
@@ -832,6 +1032,11 @@ function SalesItemSheet({
             td.textContent = value ?? '';
           }
 
+          // 사용자 정의 정렬 적용 (기존 정렬 스타일이 없는 경우에만)
+          if (columnAlignments[c] && !td.style.textAlign) {
+            td.style.textAlign = columnAlignments[c];
+          }
+
           return td;
         };
         break;
@@ -841,7 +1046,7 @@ function SalesItemSheet({
     }
 
     return cellProperties;
-  }, [tableData, statusOptions, statusLabels, collapsedItems, toggleItemCollapse, duplicateOrderNumbers]);
+  }, [tableData, statusOptions, statusLabels, collapsedItems, toggleItemCollapse, duplicateOrderNumbers, columnAlignments]);
 
 
   // 전체 데이터 건수 (원본 slots 기준 - 필터/접기와 무관하게 항상 전체 건수)
@@ -894,7 +1099,7 @@ function SalesItemSheet({
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        bgcolor: '#1976d2',
+        bgcolor: '#2c387e',
         color: 'white',
         px: 2,
         py: 1,
@@ -943,6 +1148,23 @@ function SalesItemSheet({
           <Box sx={{ fontSize: '0.75rem', opacity: 0.8 }}>
             드래그 복사, Ctrl+C/V 지원
           </Box>
+          <Button
+            size="small"
+            onClick={handleDownloadExcel}
+            disabled={slots.length === 0}
+            startIcon={<DownloadIcon />}
+            sx={{
+              color: 'white',
+              bgcolor: 'rgba(255,255,255,0.15)',
+              fontSize: '0.75rem',
+              px: 1.5,
+              py: 0.5,
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+              '&:disabled': { color: 'rgba(255,255,255,0.5)' }
+            }}
+          >
+            엑셀 다운로드
+          </Button>
         </Box>
         {saving && (
           <Box sx={{ fontSize: '0.85rem', color: '#1976d2', fontWeight: 'bold' }}>
@@ -1054,6 +1276,13 @@ function SalesItemSheet({
         // spare-row-cell 클래스의 드롭다운 화살표 숨김
         '& .spare-row-cell .htAutocompleteArrow': {
           display: 'none !important'
+        },
+        // 모든 셀에 텍스트 오버플로우 처리 (... 표시)
+        '& .handsontable td': {
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: '0'
         }
       }}>
         {tableData.length > 0 ? (
@@ -1070,6 +1299,7 @@ function SalesItemSheet({
             autoRowSize={false}
             manualColumnResize={true}
             manualRowResize={false}
+            disableVisualSelection={false}
             imeFastEdit={true}
             // minSpareRows={SPARE_ROWS} // 여분 행 비활성화
             contextMenu={{
@@ -1227,6 +1457,34 @@ function SalesItemSheet({
 
                     openDeleteDialog('item', { itemId }, `품목 "${productName}"을(를) 삭제하시겠습니까?\n\n⚠️ 해당 품목의 모든 구매자 정보와 이미지가 함께 삭제됩니다.`);
                   }
+                },
+                sp4: { name: '---------' },
+                align_left: {
+                  name: '⬅️ 왼쪽 정렬',
+                  callback: function(key, selection) {
+                    const col = selection[0]?.start?.col;
+                    if (col !== undefined) {
+                      handleAlignmentChange(col, 'left');
+                    }
+                  }
+                },
+                align_center: {
+                  name: '↔️ 가운데 정렬',
+                  callback: function(key, selection) {
+                    const col = selection[0]?.start?.col;
+                    if (col !== undefined) {
+                      handleAlignmentChange(col, 'center');
+                    }
+                  }
+                },
+                align_right: {
+                  name: '➡️ 오른쪽 정렬',
+                  callback: function(key, selection) {
+                    const col = selection[0]?.start?.col;
+                    if (col !== undefined) {
+                      handleAlignmentChange(col, 'right');
+                    }
+                  }
                 }
               }
             }}
@@ -1234,7 +1492,6 @@ function SalesItemSheet({
             fillHandle={true}
             cells={cellsRenderer}
             className="htCenter"
-            columnSorting={true}
             autoWrapRow={false}
             autoWrapCol={false}
             selectionMode="multiple"
@@ -1335,15 +1592,15 @@ function SalesItemSheet({
                     [itemId]: { ...(prev[itemId] || {}), [fieldName]: newValue ?? '' }
                   }));
                 }
-                // BUYER_DATA 행 변경 처리 (19개 컬럼)
+                // BUYER_DATA 행 변경 처리 (19개 컬럼) - 영업사는 리뷰비 컬럼 제외
                 else if (rowData._rowType === ROW_TYPES.BUYER_DATA) {
                   const slotId = rowData._slotId;
                   if (!slotId) return;
 
-                  // 컬럼 매핑: 19개 컬럼 → API 필드명
+                  // 컬럼 매핑: 19개 컬럼 → API 필드명 (영업사는 리뷰비 컬럼 제외)
                   // col0: 접기(readOnly), col1: 날짜(slot.date), col2: 순번(readOnly), col3: 제품명(readOnly), col4: 옵션(readOnly),
                   // col5: 예상구매자(slot), col6: 주문번호, col7: 구매자, col8: 수취인, col9: 아이디, col10: 연락처, col11: 주소, col12: 계좌, col13: 금액,
-                  // col14: 리뷰샷(readOnly), col15: 상태, col16: 리뷰비(영업사 숨김), col17: 입금명, col18: 입금여부
+                  // col14: 송장번호, col15: 리뷰샷(readOnly), col16: 상태, col17: 입금명, col18: 입금여부
                   const fieldMap = {
                     col1: 'date',  // 날짜 (slot 필드)
                     col5: 'expected_buyer',  // 예상 구매자 (slot 필드)
@@ -1355,10 +1612,10 @@ function SalesItemSheet({
                     col11: 'address',
                     col12: 'account_info',
                     col13: 'amount',
-                    col15: 'status',
-                    // col16: 리뷰비 - 영업사는 숨김
-                    col17: 'deposit_name',
-                    col18: 'payment_confirmed'
+                    col14: 'tracking_number',  // 송장번호
+                    col16: 'status',
+                    col17: 'deposit_name',  // 입금명
+                    col18: 'payment_confirmed'  // 입금여부
                   };
 
                   const fieldName = fieldMap[prop];
@@ -1368,6 +1625,26 @@ function SalesItemSheet({
                     ...prev,
                     [slotId]: { ...(prev[slotId] || {}), [fieldName]: newValue || '' }
                   }));
+
+                  // slots 상태 즉시 업데이트 (토글 시 데이터 유지를 위해)
+                  const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'tracking_number', 'deposit_name', 'payment_confirmed'];
+                  setSlots(prevSlots => {
+                    return prevSlots.map(slot => {
+                      if (slot.id === slotId) {
+                        if (buyerFields.includes(fieldName)) {
+                          // buyer 객체 업데이트
+                          const updatedBuyer = slot.buyer
+                            ? { ...slot.buyer, [fieldName]: newValue || '' }
+                            : { [fieldName]: newValue || '' };
+                          return { ...slot, buyer: updatedBuyer };
+                        } else {
+                          // slot 필드 업데이트
+                          return { ...slot, [fieldName]: newValue || '' };
+                        }
+                      }
+                      return slot;
+                    });
+                  });
                 }
               });
             }}
@@ -1401,13 +1678,19 @@ function SalesItemSheet({
                 return;
               }
 
-              // 리뷰샷 썸네일 클릭 시 확대 팝업
+              // 리뷰 보기 링크 클릭 시 갤러리 팝업
               const target = event.target;
-              if (target.tagName === 'IMG' && target.classList.contains('review-thumbnail')) {
-                const url = target.getAttribute('data-url');
-                const fileName = target.getAttribute('data-filename');
-                if (url) {
-                  setImagePopup({ open: true, url, fileName: fileName || '리뷰 이미지' });
+              if (target.tagName === 'A' && target.classList.contains('review-link')) {
+                event.preventDefault();
+                const rowData = tableData[coords.row];
+                const images = rowData?._reviewImages || [];
+                if (images.length > 0) {
+                  setImagePopup({
+                    open: true,
+                    images: images,
+                    currentIndex: 0,
+                    buyer: rowData?._buyer || null
+                  });
                 }
               }
             }}
@@ -1565,33 +1848,56 @@ function SalesItemSheet({
         </Alert>
       </Snackbar>
 
-      {/* 이미지 확대 팝업 */}
+      {/* 이미지 갤러리 팝업 */}
       <Dialog
         open={imagePopup.open}
-        onClose={() => setImagePopup({ open: false, url: '', fileName: '' })}
+        onClose={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
         maxWidth="lg"
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
-          <span style={{ fontSize: '14px', color: '#666' }}>{imagePopup.fileName}</span>
+          <span style={{ fontSize: '14px', color: '#666' }}>
+            리뷰 이미지 {imagePopup.images.length > 0 && `(${imagePopup.currentIndex + 1} / ${imagePopup.images.length})`}
+          </span>
           <IconButton
             size="small"
-            onClick={() => setImagePopup({ open: false, url: '', fileName: '' })}
+            onClick={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
           >
             <CloseIcon />
           </IconButton>
         </DialogTitle>
         <DialogContent sx={{ p: 1 }}>
-          {imagePopup.url && (
-            <img
-              src={imagePopup.url}
-              alt={imagePopup.fileName}
-              style={{
-                maxWidth: '100%',
-                maxHeight: '80vh',
-                objectFit: 'contain'
-              }}
-            />
-          )}
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+            {/* 왼쪽 화살표 */}
+            <IconButton
+              onClick={prevImage}
+              disabled={imagePopup.currentIndex === 0}
+              sx={{ visibility: imagePopup.images.length > 1 ? 'visible' : 'hidden' }}
+            >
+              <ChevronLeftIcon fontSize="large" />
+            </IconButton>
+
+            {/* 이미지 */}
+            {imagePopup.images.length > 0 && imagePopup.images[imagePopup.currentIndex] && (
+              <img
+                src={imagePopup.images[imagePopup.currentIndex].s3_url}
+                alt={imagePopup.images[imagePopup.currentIndex].file_name || '리뷰 이미지'}
+                style={{
+                  maxWidth: '70vw',
+                  maxHeight: '70vh',
+                  objectFit: 'contain'
+                }}
+              />
+            )}
+
+            {/* 오른쪽 화살표 */}
+            <IconButton
+              onClick={nextImage}
+              disabled={imagePopup.currentIndex === imagePopup.images.length - 1}
+              sx={{ visibility: imagePopup.images.length > 1 ? 'visible' : 'hidden' }}
+            >
+              <ChevronRightIcon fontSize="large" />
+            </IconButton>
+          </Box>
         </DialogContent>
       </Dialog>
 

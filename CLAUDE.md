@@ -5,10 +5,10 @@
 **CampManager**는 리뷰 캠페인 관리 시스템입니다. 영업사, 진행자, 브랜드사가 캠페인과 구매자(리뷰어)를 효율적으로 관리하는 웹 애플리케이션입니다.
 
 ### 핵심 목적
-- 영업사가 캠페인과 품목을 생성
+- 영업사가 연월브랜드와 캠페인, 품목을 생성
 - 진행자가 구매자(리뷰어) 정보를 관리
 - 브랜드사가 리뷰 현황을 모니터링
-- 총관리자가 전체 시스템을 관리 (진행자 배정, 입금확인, 사용자 대시보드 보기)
+- 총관리자가 전체 시스템을 관리 (진행자 배정/재배정, 입금확인, 사용자 대시보드 보기, 캠페인 영업사 변경, 마진 관리)
 
 ---
 
@@ -27,6 +27,7 @@ purchaseweb/
 │   │   │   └── common/    # 공통 컴포넌트
 │   │   ├── services/      # API 서비스 레이어
 │   │   ├── context/       # React Context (AuthContext)
+│   │   ├── utils/         # 유틸리티 함수
 │   │   └── App.js         # 라우팅
 │   └── package.json
 │
@@ -51,8 +52,7 @@ purchaseweb/
     ├── DATABASE_SCHEMA.md
     ├── BACKEND_STRUCTURE.md
     ├── DEPLOYMENT_GUIDE.md
-    ├── LOCAL_TESTING.md
-    └── IMPLEMENTATION_PROGRESS.md
+    └── LOCAL_TESTING.md
 ```
 
 ---
@@ -63,31 +63,31 @@ purchaseweb/
 
 | 역할 | 영문 코드 | 권한 |
 |------|----------|------|
-| 총관리자 | `admin` | **모든 기능** (캠페인/품목/구매자 CRUD, 진행자 배정/재배정, 입금 확인, 사용자 등록, 업로드 링크 복사, **컨트롤 타워에서 모든 사용자 대시보드 조회**) |
-| 영업사 | `sales` | 캠페인/품목 생성 (자신의 캠페인만), 브랜드 등록 |
-| 진행자 | `operator` | 구매자 관리, 이미지 업로드 링크 공유 (배정된 품목만) |
-| 브랜드사 | `brand` | 리뷰 현황 조회 (연결된 캠페인만, 5개 컬럼만: 주문번호/구매자/수취인/아이디/리뷰샷) |
+| 총관리자 | `admin` | **모든 기능** (캠페인/품목/구매자 CRUD, 진행자 배정/재배정, 입금 확인, 사용자 등록/관리, 업로드 링크 복사, 캠페인 영업사 변경, 마진 관리, **컨트롤 타워에서 모든 사용자 대시보드 조회**) |
+| 영업사 | `sales` | 연월브랜드/캠페인/품목 생성 (자신의 것만), 브랜드 등록, 구매자 조회 (수정/삭제 불가), 마진 조회 (자신의 캠페인만) |
+| 진행자 | `operator` | 배정된 품목의 구매자 CRUD, 이미지 업로드 링크 공유, 메모장 기능, 입금명 수정 가능 |
+| 브랜드사 | `brand` | 연결된 캠페인의 리뷰 현황 조회 (제한된 컬럼: 주문번호/구매자/수취인/아이디/금액/송장번호/리뷰샷 - 연락처, 계좌, 주소 제외) |
 
-**중요**: 각 역할은 자신의 페이지만 접근 가능 (admin은 /admin에서 모든 기능 사용)
+**중요**: 각 역할은 자신의 페이지만 접근 가능 (admin은 /admin에서 모든 역할의 기능 API 접근 가능)
 
 ### 2. 핵심 엔티티
 
 ```
 User (사용자)
   ↓
-MonthlyBrand (연월브랜드) ← Sales/Operator가 그룹핑에 사용
+MonthlyBrand (연월브랜드) ← Sales가 생성, Brand 연결
   ↓
-Campaign (캠페인) ← created_by (영업사가 생성)
+Campaign (캠페인) ← created_by (영업사가 생성), monthly_brand_id 연결
   ↓
-Item (품목) ← upload_link_token 자동 생성
+Item (품목) ← upload_link_token 자동 생성, revenue/expense 필드 (마진 계산용)
   ↓
-ItemSlot (품목 슬롯) ← 일 구매건수별 그룹화
+ItemSlot (품목 슬롯) ← 일 구매건수별 그룹화, day_group, upload_link_token
   ↓
-Buyer (구매자/리뷰어) ← 슬래시(/) 구분 데이터로 추가
+Buyer (구매자/리뷰어) ← 슬래시(/) 구분 데이터로 추가, is_temporary (선 업로드용)
   ↓
 Image (리뷰 이미지) ← AWS S3 저장, buyer_id로 연결
 
-CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정
+CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정, unique(campaign_id, item_id, day_group, operator_id)
 ```
 
 ---
@@ -98,61 +98,95 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정
 - JWT 기반 인증 (7일 유효)
 - 역할 기반 라우트 보호 (ProtectedRoute)
 - 로그아웃 시 세션 완전 정리
-- **로그인 후 항상 역할별 기본 페이지로 리다이렉트** (이전 페이지로 돌아가지 않음)
+- **로그인 후 항상 역할별 기본 페이지로 리다이렉트**:
+  - admin → `/admin` (컨트롤 타워)
+  - sales → `/sales`
+  - operator → `/operator`
+  - brand → `/brand`
 
-### 2. 캠페인/품목 생성 (영업사)
+### 2. 연월브랜드/캠페인/품목 생성 (영업사)
+
+**연월브랜드 생성:**
+- 이름 (예: "2026-01 브랜드명")
+- 브랜드사 선택 (User role='brand')
+- 연월 (year_month), 설명, 상태
 
 **캠페인 생성:**
-- 캠페인명 (`yymmdd_브랜드명` 형식 자동 생성)
-- 설명, 시작일, 종료일, 브랜드사 연결
+- 캠페인명
+- 연월브랜드 선택
+- 등록일 (registered_at)
+- 상태 (신규/진행/완료/취소/보류)
+- 브랜드사 자동 연결 (연월브랜드의 brand_id 상속)
 
 **품목 추가:**
 ```
-- 제품명
-- 미출고/실출고
-- 희망 유입 키워드
-- 총 구매 건수 / 일 구매 건수
-- 상품 URL, 구매 옵션, 가격
-- 출고 마감 시간
-- 리뷰가이드 및 소구점
-- 택배대행 Y/N
-- 비고
+- 제품명 (product_name)
+- 플랫폼 (platform) - 쿠팡, 네이버, 11번가, 지마켓, 옥션, 티몬, 위메프 등
+- 미출고/실출고 (shipping_type)
+- 희망 유입 키워드 (keyword)
+- 총 구매 건수 (total_purchase_count)
+- 일 구매 건수 (daily_purchase_count) - TEXT 타입으로 슬래시 구분 가능 (예: "6/6" 또는 "2/2/2/2")
+- 구매 옵션 (purchase_option)
+- 상품 가격 (product_price)
+- 상품 URL (product_url)
+- 출고 마감 시간 (shipping_deadline)
+- 리뷰가이드 (review_guide)
+- 소구점 (appeal_point)
+- 택배대행 Y/N (courier_service_yn)
+- 비고 (notes)
+- 판매단가 (sale_unit_price) - 마진 계산용
+- 택배단가 (delivery_unit_price) - 마진 계산용
 ```
 
 **품목 생성 시 자동 처리:**
 - `upload_link_token` (UUID) 자동 생성
-- ItemSlot 자동 생성 (일 구매건수 기준)
+- ItemSlot 자동 생성 (일 구매건수 기준으로 day_group 분할)
+- 각 슬롯에 고유한 `upload_link_token` 할당
 - 이미지 업로드 링크: `/upload-slot/{upload_link_token}`
 
 ### 3. 진행자 배정 (총관리자)
 
-- Admin 컨트롤 타워에서 품목별로 진행자 드롭다운 선택
-- **드롭다운에서 현재 배정된 진행자가 선택된 상태로 표시** + "현재 배정" 칩
-- **배정 취소**: 드롭다운에서 "선택 안 함" 선택 시 배정 취소
-- **재배정**: 다른 진행자 선택 시 자동 재배정
-- **상태 표시 칩**:
+**Admin 컨트롤 타워 → 진행자 배정:**
+- 연월브랜드 목록 → 캠페인 목록 → "배정하기" 버튼 클릭
+- `/admin/campaigns/:campaignId/assignment` 페이지로 이동
+- 품목별/일차별(day_group) 진행자 드롭다운 선택
+- **같은 진행자를 다른 일차에 중복 배정 가능** (unique 제약: campaign_id, item_id, day_group, operator_id)
+- **배정 상태 표시**:
   - `배정 완료` (초록): 현재 배정됨
   - `변경 중` (주황): 다른 진행자로 변경 대기
   - `취소 예정` (빨강): 배정 취소 대기
   - `미배정` (회색): 아직 배정 안 됨
-- 저장 버튼 클릭 시 API 호출 (신규: POST, 재배정: PUT, 취소: DELETE)
+- 저장 버튼 클릭 시 API 호출 (신규: POST `/api/items/:id/operator`, 재배정: PUT, 취소: DELETE)
 
-### 4. Admin 컨트롤 타워
+### 4. Admin 컨트롤 타워 구조
 
 **사용자 대시보드 보기 기능:**
-- 진행자/영업사/브랜드사 탭에서 사용자 선택
-- 오른쪽 패널에 해당 사용자의 실제 대시보드 표시 (embedded 모드)
-- **"전체 화면 보기" 버튼** 클릭 시 `/admin/view-operator?userId=xxx` 형식으로 이동
-- URL 쿼리 파라미터로 `viewAsUserId` 전달하여 해당 사용자의 데이터 조회
+1. **컨트롤 타워 메인** (`/admin` 또는 `/admin/control-tower`):
+   - 좌측: 사용자 목록 (진행자/영업사/브랜드사 탭)
+   - 우측: 선택된 사용자의 embedded 대시보드 표시
+   - **embedded 모드**: `isEmbedded=true` prop 전달, 캠페인 클릭 시 즉시 시트 표시 (네비게이션 없음)
+   - 사이드바 접기/펼치기 가능
+
+2. **별도 페이지 보기**:
+   - `/admin/view-operator?userId=xxx` - 특정 진행자 대시보드 전체 화면
+   - `/admin/view-sales?userId=xxx` - 특정 영업사 대시보드 전체 화면
+   - `/admin/view-brand?userId=xxx` - 특정 브랜드사 대시보드 전체 화면
+   - URL 쿼리 파라미터 `viewAsUserId`로 해당 사용자의 데이터 조회
+
+3. **진행자 배정 탭**:
+   - 연월브랜드 → 캠페인 목록 (테이블 형식)
+   - 캠페인 행의 "배정하기" 버튼 → 배정 페이지로 이동
+   - 캠페인 행의 영업사명 옆에 "영업사 변경" 버튼 (SwapHorizIcon)
+   - 연월브랜드/캠페인 삭제 버튼 (cascading delete)
 
 ### 5. 이미지 업로드 (구매자)
 
 **업로드 링크**: `/upload-slot/:token` (로그인 불필요)
 
 **기능:**
-- 캠페인명, 품목명 표시
+- 캠페인명, 품목명, 날짜 표시
 - **주문번호 또는 계좌번호 입력** (둘 중 하나 필수)
-- **다중 이미지 선택** (최대 10개) 또는 Ctrl+V 붙여넣기
+- **다중 이미지 선택** (최대 10개, 각 이미지 최대 10MB) 또는 Ctrl+V 붙여넣기
 - AWS S3에 저장
 - buyer_id와 자동 연결 (**주문번호 우선 매칭, 없으면 계좌번호 매칭**)
 
@@ -160,11 +194,12 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정
 ```
 "국민 111-1234-123456 홍길동" → "1111234123456"
 "신한은행 110-123-456789" → "110123456789"
+모든 숫자가 아닌 문자(공백, 하이픈, 한글, 은행명) 제거
 ```
 
 **선 업로드 (Pre-upload) 지원:**
-- 구매자가 진행자 등록 전에 이미지 업로드 시 → 임시 Buyer 자동 생성
-- 진행자가 같은 계좌번호로 구매자 등록 시 → 기존 이미지 자동 연결, 임시 Buyer 삭제
+- 구매자가 진행자 등록 전에 이미지 업로드 시 → 임시 Buyer 자동 생성 (`is_temporary: true`)
+- 진행자가 같은 계좌번호/주문번호로 구매자 등록 시 → 기존 이미지 자동 연결, 임시 Buyer 삭제
 
 ### 6. 구매자(리뷰어) 추가 (진행자)
 
@@ -172,6 +207,7 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정
 - 드래그 복사, Ctrl+C/V 지원
 - 여러 행 동시 편집 가능
 - 저장 버튼 또는 Ctrl+S로 일괄 저장
+- **슬래시(/) 파싱 붙여넣기**: 주문번호 컬럼에 슬래시 구분 데이터 붙여넣기 시 자동으로 8개 컬럼에 분배
 
 **메시지 형식 (슬래시 구분):**
 ```
@@ -181,18 +217,32 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정
 8100156654664/김민형/김민형/p4che@naver.com/010-8221-1864/경남 거제시.../부산112-2323-738601 김민지/22800
 ```
 
+**컬럼:**
+1. 빈칸 (접기/펼치기 토글)
+2. 주문번호 (order_number) - 중복 시 빨간색 배경
+3. 구매자 (buyer_name)
+4. 수취인 (recipient_name)
+5. 아이디 (user_id)
+6. 연락처 (phone_number)
+7. 주소 (address)
+8. 계좌번호 (bank_account)
+9. 금액 (amount)
+10. 송장번호 (tracking_number)
+11. 리뷰샷 (review_image) - 클릭 시 확대 팝업
+
 ### 7. 입금 확인 (총관리자)
 
-- Admin 대시보드 → 품목 선택 → 입금관리 버튼
+- Admin 대시보드 → 일별 입금 관리 (`/admin/daily-payments`)
 - 구매자별 Switch 토글로 입금완료/대기 변경
 - **로컬 상태 업데이트** (전체 새로고침 없이 해당 행만 변경, 스크롤 위치 유지)
+- API: `PATCH /api/buyers/:id/payment`
 
 ### 8. 이미지-구매자 1:1 매칭
 
 - **1 구매자 = 1 이미지**: 같은 계좌번호로 5명 등록 후 6개 이미지 업로드 시 → 5개는 각 구매자에 매칭, 1개는 선 업로드(임시 Buyer)
 - **선 업로드 표시**: 노란색 배경 + "선 업로드" 칩으로 구분
-- **브랜드사에서는 선 업로드 숨김** (정상 구매자만 표시)
-- 클릭 시 이미지 확대 팝업
+- **브랜드사에서는 선 업로드 숨김** (is_temporary=false인 구매자만 표시)
+- 클릭 시 이미지 확대 팝업 (Dialog)
 
 ### 9. 파일 업로드 제한
 
@@ -200,39 +250,68 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정
 - **프론트엔드 검증**: 업로드 전 파일 크기 체크, 초과 시 파일별 상세 에러 메시지
 - **백엔드 제한**: multer fileSize 10MB, express body-parser 20MB
 
+### 10. 마진 계산 및 관리
+
+**마진 계산 공식:**
+```
+총매출(공급가) = total_purchase_count × sale_unit_price
+총매출(VAT포함) = 총매출(공급가) × 1.1
+
+총지출 = product_cost + delivery_cost + review_cost + other_cost
+
+마진 = 총매출(VAT포함) - 총지출
+마진율 = (마진 / 총매출(VAT포함)) × 100
+```
+
+**권한:**
+- Admin: 지출 입력/수정 + 모든 마진 조회 (`/admin/margin`)
+- Sales: 자신의 캠페인 마진만 조회 (`/sales/margin`, 지출 입력 불가)
+
 ---
 
 ## 권한별 접근 제어
 
 ### 총관리자 (admin)
-- `/admin` 대시보드만 접근
-- **컨트롤 타워**: 모든 사용자의 대시보드 조회 가능
-- **캠페인 추가** (영업사 기능)
-- **품목 추가** (영업사 기능)
-- **구매자 추가/수정/삭제** (진행자 기능)
-- **업로드 링크 복사** (진행자 기능)
-- 전체 품목 조회 및 진행자 배정/재배정
-- 입금확인 토글
-- 사용자 등록
+- `/admin` 대시보드만 접근 (하위 라우트: control-tower, campaigns, daily-items, daily-payments, tracking-management, margin)
+- **컨트롤 타워**: 모든 사용자의 embedded 대시보드 조회 + 별도 페이지 보기
+- **캠페인 영업사 변경**: 캠페인을 다른 영업사에게 이전 가능
+- **진행자 배정/재배정**: 품목별/일차별로 진행자 배정
+- **입금확인 토글**: 구매자별 입금 상태 변경
+- **사용자 등록/관리**: 모든 역할의 사용자 CRUD
+- **마진 관리**: 품목별 지출 입력 + 모든 마진 조회
+- **업로드 링크 복사**: 진행자 기능 사용 가능
+- **구매자 CRUD**: 진행자 기능 사용 가능
+- **연월브랜드/캠페인/품목 CRUD**: 영업사 기능 사용 가능 (viewAsUserId로 대리 생성 가능)
 
 ### 영업사 (sales)
-- `/sales` 대시보드만 접근
-- 캠페인/품목 CRUD (자신의 것만)
-- 브랜드 등록 가능
-- 구매자 조회 (수정/삭제 불가)
+- `/sales` 대시보드만 접근 (하위 라우트: campaign, daily-items, margin)
+- 연월브랜드/캠페인/품목 CRUD (자신의 것만)
+- 브랜드 등록 가능 (자동으로 해당 영업사에 할당)
+- 구매자 조회 (읽기 전용, 수정/삭제 불가)
 - 입금명 수정 가능
+- 마진 조회 (자신의 캠페인만, 지출 입력 불가)
+- **Handsontable 시트**: 연월브랜드별 캠페인 목록 → 캠페인 클릭 시 품목 시트 표시
 
 ### 진행자 (operator)
-- `/operator` 대시보드만 접근
-- 배정된 캠페인/품목만 조회
-- 구매자 CRUD (배정된 품목만)
-- 이미지 업로드 링크 공유
+- `/operator` 대시보드만 접근 (하위 라우트: campaign, daily-items)
+- 배정된 연월브랜드의 캠페인/품목만 조회
+- 배정된 품목의 구매자 CRUD
+- 이미지 업로드 링크 공유 (슬롯별 토큰 링크 복사)
 - 입금명 수정 가능
+- 메모장 기능 (OperatorMemoDialog)
+- **선 업로드 알림**: 헤더 알림 아이콘에 선 업로드된 이미지 개수 표시 (30초마다 갱신)
+- **Handsontable 시트**: 연월브랜드별 캠페인 목록 → 캠페인 클릭 시 품목 시트 표시
+- **배정상태 표시**: 당일 배정=신규(주황 'NEW' 칩), 다음날=진행 + 구매자 없으면 경고 아이콘(빨강)
 
 ### 브랜드사 (brand)
 - `/brand` 대시보드만 접근
-- 연결된 캠페인의 구매자 조회
-- 제한된 컬럼만 표시 (주소, 연락처, 계좌정보 제외)
+- 연결된 연월브랜드의 캠페인/품목/구매자 조회 (읽기 전용)
+- **제한된 컬럼만 표시**:
+  - 제품 테이블: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, 빈칸, 특이사항
+  - 구매자 테이블: 빈칸, 주문번호, 구매자, 수취인, 아이디, 금액, 송장번호, 리뷰샷
+  - **제외**: 연락처, 주소, 계좌번호
+- **선 업로드 숨김**: is_temporary=false인 구매자만 표시
+- **진행률 표시**: 전체 구매자 수 대비 리뷰 완료 퍼센트
 
 ---
 
@@ -242,7 +321,7 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정
 - **React 19.2.0**
 - **Material-UI 7.3.5**
 - **React Router DOM 7.9.6**
-- **Handsontable** - 엑셀 형식 테이블
+- **Handsontable 14.7.0** - 엑셀 형식 테이블 (필터, 정렬, 컬럼 너비 조절, 컬럼 숨기기)
 - **Axios** - HTTP 클라이언트
 
 ### Backend
@@ -250,25 +329,28 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정
 - **Express.js** - REST API
 - **Sequelize** - PostgreSQL ORM
 - **bcrypt** - 비밀번호 해싱
-- **JWT** - 인증
-- **AWS SDK v3** - S3 업로드
-- **multer** - 파일 업로드 처리
+- **JWT** - 인증 (7일 유효)
+- **AWS SDK v3** - S3 업로드 (`@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`)
+- **multer** - 파일 업로드 처리 (최대 10MB/파일)
 - **helmet** - 보안 헤더 (CSP 포함)
 
 ### Database
 - **PostgreSQL** (AWS RDS)
-- Host: `your-rds-endpoint.region.rds.amazonaws.com`
-- 주요 테이블: users, campaigns, items, item_slots, campaign_operators, buyers, images, monthly_brands, notifications, settings, user_activities, user_memos
+- 주요 테이블:
+  - `users` - 사용자 (role: admin/sales/operator/brand)
+  - `monthly_brands` - 연월브랜드 (brand_id, created_by, is_hidden)
+  - `campaigns` - 캠페인 (monthly_brand_id, created_by, is_hidden)
+  - `items` - 품목 (campaign_id, upload_link_token, revenue/expense 필드)
+  - `item_slots` - 품목 슬롯 (item_id, day_group, upload_link_token)
+  - `campaign_operators` - 품목-진행자 매핑 (unique: campaign_id, item_id, day_group, operator_id)
+  - `buyers` - 구매자 (item_id, is_temporary, payment_confirmed)
+  - `images` - 리뷰 이미지 (buyer_id, s3_key, s3_url)
 
 ### Infrastructure
 - **AWS EC2** - 애플리케이션 서버
-- **AWS S3** - 이미지 저장 (your-s3-bucket-name 버킷)
+- **AWS S3** - 이미지 저장
 - **Docker** - 컨테이너화
 - **Nginx** - 리버스 프록시 + SSL
-
-### Deployment
-- Docker Hub: `your-dockerhub-username/campmanager:latest`
-- 도메인: `your-domain.com`
 
 ---
 
@@ -285,67 +367,111 @@ PUT    /api/auth/profile            # 프로필 수정
 
 ### Users (Admin)
 ```
-GET    /api/users                   # 사용자 목록
-GET    /api/users?role=operator     # 역할별 조회
-GET    /api/users/control-tower     # 컨트롤 타워용 사용자 목록
-POST   /api/users                   # 사용자 생성
-PUT    /api/users/:id               # 사용자 수정
-DELETE /api/users/:id               # 사용자 비활성화
-POST   /api/users/:id/reset-password # 비밀번호 초기화
-```
-
-### Items
-```
-GET    /api/items                   # 전체 품목 (Admin - 진행자 배정용)
-GET    /api/items/my-assigned       # 내게 배정된 품목 (Operator)
-GET    /api/items/my-monthly-brands # 내게 배정된 연월브랜드 (Operator) - viewAsUserId 지원
-GET    /api/items/margin-summary    # 마진 대시보드 데이터 (Admin, Sales)
-GET    /api/items/campaign/:id      # 캠페인별 품목
-GET    /api/items/token/:token      # 토큰으로 품목 조회 (Public)
-POST   /api/items/campaign/:id      # 품목 생성
-PUT    /api/items/:id               # 품목 수정
-DELETE /api/items/:id               # 품목 삭제
-POST   /api/items/:id/operator      # 진행자 배정 (Admin)
-PUT    /api/items/:id/operator      # 진행자 재배정 (Admin)
-DELETE /api/items/:id/operator/:opId # 배정 해제 (Admin)
-PUT    /api/items/:id/expense       # 품목 지출 입력/수정 (Admin only)
-GET    /api/items/:id/margin        # 단일 품목 마진 조회 (Admin, Sales)
-```
-
-### Item Slots
-```
-GET    /api/item-slots/item/:itemId           # 품목별 슬롯 조회
-GET    /api/item-slots/campaign/:campaignId   # 캠페인별 슬롯 조회
-GET    /api/item-slots/operator/campaign/:campaignId # Operator용 캠페인별 슬롯 - viewAsUserId 지원
-PUT    /api/item-slots/:id                    # 슬롯 수정
-PUT    /api/item-slots/bulk/update            # 다중 슬롯 수정
-DELETE /api/item-slots/:id                    # 슬롯 삭제
+GET    /api/users                      # 사용자 목록
+GET    /api/users?role=operator        # 역할별 조회
+GET    /api/users/control-tower        # 컨트롤 타워용 사용자 목록
+POST   /api/users                      # 사용자 생성
+PUT    /api/users/:id                  # 사용자 수정
+DELETE /api/users/:id                  # 사용자 비활성화
+POST   /api/users/:id/reset-password  # 비밀번호 초기화
 ```
 
 ### Monthly Brands
 ```
-GET    /api/monthly-brands          # 연월브랜드 목록 - viewAsUserId 지원
-POST   /api/monthly-brands          # 연월브랜드 생성
-PUT    /api/monthly-brands/:id      # 연월브랜드 수정
-DELETE /api/monthly-brands/:id      # 연월브랜드 삭제
+GET    /api/monthly-brands                # 연월브랜드 목록 (Sales, Admin) - viewAsUserId 지원
+GET    /api/monthly-brands/all            # 모든 연월브랜드 (Admin 전용)
+GET    /api/monthly-brands/my-brand       # 브랜드사용 연월브랜드 (Brand, Admin) - viewAsUserId 지원
+GET    /api/monthly-brands/:id            # 연월브랜드 상세
+POST   /api/monthly-brands                # 연월브랜드 생성 - viewAsUserId 지원
+PUT    /api/monthly-brands/:id            # 연월브랜드 수정
+DELETE /api/monthly-brands/:id            # 연월브랜드 삭제
+DELETE /api/monthly-brands/:id/cascade    # 연월브랜드 강제 삭제 (Admin, cascading)
+PATCH  /api/monthly-brands/:id/hide       # 연월브랜드 숨기기
+PATCH  /api/monthly-brands/:id/restore    # 연월브랜드 복구
+```
+
+### Campaigns
+```
+GET    /api/campaigns                     # 캠페인 목록 (역할별 필터링)
+GET    /api/campaigns/:id                 # 캠페인 상세
+POST   /api/campaigns                     # 캠페인 생성 (Sales, Admin)
+PUT    /api/campaigns/:id                 # 캠페인 수정
+DELETE /api/campaigns/:id                 # 캠페인 삭제
+DELETE /api/campaigns/:id/cascade         # 캠페인 강제 삭제 (Admin, cascading)
+PATCH  /api/campaigns/:id/hide            # 캠페인 숨기기
+PATCH  /api/campaigns/:id/restore         # 캠페인 복구
+PATCH  /api/campaigns/:id/change-sales    # 캠페인 영업사 변경 (Admin 전용)
+POST   /api/campaigns/:id/operators       # 진행자 배정 (Admin)
+DELETE /api/campaigns/:campaignId/operators/:operatorId  # 진행자 배정 해제 (Admin)
+GET    /api/campaigns/:id/operators       # 배정된 진행자 목록
+```
+
+### Items
+```
+GET    /api/items                          # 전체 품목 (Admin - 진행자 배정용)
+GET    /api/items/my-assigned              # 내게 배정된 품목 (Operator)
+GET    /api/items/my-monthly-brands        # 내게 배정된 연월브랜드 (Operator) - viewAsUserId 지원
+GET    /api/items/my-preuploads            # 선 업로드가 있는 품목 (Operator 알림용)
+GET    /api/items/by-brand                 # 브랜드별 품목 (Brand, Admin)
+GET    /api/items/by-sales                 # 영업사별 품목 (Sales, Admin)
+GET    /api/items/by-operator              # 진행자별 품목 (Operator, Admin)
+GET    /api/items/margin-summary           # 마진 대시보드 데이터 (Admin, Sales)
+GET    /api/items/campaign/:campaignId     # 캠페인별 품목
+GET    /api/items/token/:token             # 토큰으로 품목 조회 (Public)
+GET    /api/items/:id                      # 품목 상세
+GET    /api/items/:id/margin               # 단일 품목 마진 조회 (Admin, Sales)
+POST   /api/items/campaign/:campaignId     # 품목 생성 (Sales, Admin)
+POST   /api/items/campaign/:campaignId/bulk  # 품목 일괄 생성 (Sales, Admin)
+PUT    /api/items/:id                      # 품목 수정
+PUT    /api/items/:id/expense              # 품목 지출 입력/수정 (Admin 전용)
+DELETE /api/items/:id                      # 품목 삭제
+POST   /api/items/:id/operator             # 진행자 배정 (Admin)
+PUT    /api/items/:id/operator             # 진행자 재배정 (Admin)
+DELETE /api/items/:id/operator/:operatorId  # 진행자 배정 해제 (Admin)
+PATCH  /api/items/:id/deposit-name         # 입금명 수정 (Operator, Admin, Sales)
+```
+
+### Item Slots
+```
+GET    /api/item-slots/item/:itemId                        # 품목별 슬롯 조회
+GET    /api/item-slots/campaign/:campaignId                # 캠페인별 슬롯 조회 (Sales, Admin, Brand)
+GET    /api/item-slots/operator/campaign/:campaignId       # Operator용 캠페인별 슬롯 - viewAsUserId 지원
+GET    /api/item-slots/operator/my-assigned                # Operator용 전체 배정된 슬롯
+GET    /api/item-slots/token/:token                        # 슬롯 토큰으로 조회 (Public)
+POST   /api/item-slots                                     # 슬롯 추가
+PUT    /api/item-slots/:id                                 # 슬롯 수정
+PUT    /api/item-slots/bulk/update                         # 다중 슬롯 수정
+DELETE /api/item-slots/:id                                 # 슬롯 삭제
+DELETE /api/item-slots/bulk/delete                         # 다중 슬롯 삭제
+DELETE /api/item-slots/group/:itemId/:dayGroup             # 그룹별 슬롯 삭제
+DELETE /api/item-slots/item/:itemId                        # 품목의 모든 슬롯 삭제
+POST   /api/item-slots/:slotId/split-day-group             # 일 마감 (day_group 분할)
 ```
 
 ### Buyers
 ```
-GET    /api/buyers/item/:itemId       # 구매자 목록
-POST   /api/buyers/item/:itemId       # 구매자 생성
-POST   /api/buyers/item/:itemId/parse # 슬래시 파싱 후 생성
-POST   /api/buyers/item/:itemId/bulk  # 다중 구매자 일괄 추가
-PUT    /api/buyers/:id                # 구매자 수정
-DELETE /api/buyers/:id                # 구매자 삭제
-PATCH  /api/buyers/:id/payment        # 입금확인 토글
+GET    /api/buyers/by-month                       # 월별 구매자 조회 (Operator, Sales, Admin)
+GET    /api/buyers/by-date                        # 일별 구매자 조회 (Operator, Sales, Admin)
+GET    /api/buyers/item/:itemId                   # 구매자 목록
+GET    /api/buyers/:id                            # 구매자 상세
+POST   /api/buyers/item/:itemId                   # 구매자 생성 (Operator, Admin)
+POST   /api/buyers/item/:itemId/parse             # 슬래시 파싱 후 생성 (Operator, Admin)
+POST   /api/buyers/item/:itemId/bulk              # 다중 구매자 일괄 추가 (Operator, Admin)
+POST   /api/buyers/item/:itemId/tracking-bulk     # 송장번호 일괄 입력 (Admin)
+PUT    /api/buyers/:id                            # 구매자 수정 (Operator, Admin)
+DELETE /api/buyers/:id                            # 구매자 삭제 (Operator, Admin)
+PATCH  /api/buyers/:id/payment                    # 입금확인 토글 (Admin)
+PATCH  /api/buyers/:id/tracking                   # 송장번호 수정 (Sales, Admin)
+PATCH  /api/buyers/:id/tracking-info              # 송장정보 수정 (Admin)
+PATCH  /api/buyers/:id/shipping-delayed           # 배송지연 상태 토글 (Admin, Operator)
+PATCH  /api/buyers/:id/courier                    # 택배사 수정 (Admin)
 ```
 
 ### Images
 ```
-GET    /api/images/item/:itemId     # 품목 이미지 목록
-POST   /api/images/upload/:token    # 다중 이미지 업로드 (Public, 최대 10개)
-DELETE /api/images/:id              # 이미지 삭제
+GET    /api/images/item/:itemId        # 품목 이미지 목록
+POST   /api/images/upload/:token       # 다중 이미지 업로드 (Public, 최대 10개, 각 10MB)
+DELETE /api/images/:id                 # 이미지 삭제 (Operator, Admin, Sales)
 ```
 
 ---
@@ -367,206 +493,61 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ---
 
-## 계정 정보
-
-### 마스터 계정 (역할별)
-| 역할 | Username | Password | 리다이렉트 |
-|------|----------|----------|------------|
-| 총관리자 | `admin` | `your_password` | `/admin` |
-| 영업사 | `sales` | `your_password` | `/sales` |
-| 진행자 | `operator` | `your_password` | `/operator` |
-| 브랜드사 | `brand` | `your_password` | `/brand` |
-
-> **Note**: 실제 배포 시 seeder 파일에서 계정 정보를 변경하세요.
-
----
-
-## 현재 구현 상태 (2026-01-10)
+## 현재 구현 상태 (2026-01-13)
 
 ### 완료된 기능
-- [x] JWT 인증 시스템
-- [x] 역할 기반 라우트 보호
-- [x] 캠페인/품목/구매자 CRUD
-- [x] 슬래시 파싱 구매자 추가
-- [x] 진행자 배정 및 재배정 (경고 다이얼로그 포함)
-- [x] 입금확인 토글 (Admin)
-- [x] AWS S3 이미지 업로드
-- [x] 사용자 등록 (Admin)
-- [x] 프로필 수정
+- [x] JWT 인증 시스템 (7일 유효)
+- [x] 역할 기반 라우트 보호 (ProtectedRoute)
+- [x] 연월브랜드/캠페인/품목/구매자 CRUD
+- [x] 슬래시 파싱 구매자 추가 (붙여넣기 시 자동 파싱)
+- [x] 진행자 배정 및 재배정 (일차별 배정, unique 제약: campaign_id, item_id, day_group, operator_id)
+- [x] 입금확인 토글 (Admin, 로컬 상태 업데이트)
+- [x] AWS S3 이미지 업로드 (최대 10개, 각 10MB)
+- [x] 사용자 등록/관리 (Admin)
+- [x] 프로필 수정 (ProfileEditDialog)
 - [x] Docker 배포
 - [x] SSL 인증서 (Let's Encrypt)
 - [x] CSP 설정 (S3 이미지 허용)
-- [x] **구매자 매칭** (주문번호 우선 매칭, 계좌번호 보조 매칭)
-- [x] **다중 이미지 업로드** (최대 10개)
-- [x] **다중 구매자 일괄 추가** (여러 줄 입력)
-- [x] **선 업로드 지원** (임시 Buyer → 진행자 등록 시 자동 병합)
-- [x] **총관리자 권한 확장** (영업사/진행자/브랜드사 모든 기능 접근)
+- [x] 구매자 매칭 (주문번호 우선 매칭, 계좌번호 보조 매칭)
+- [x] 다중 이미지 업로드 (최대 10개)
+- [x] 다중 구매자 일괄 추가 (여러 줄 입력)
+- [x] 선 업로드 지원 (임시 Buyer → 진행자 등록 시 자동 병합)
+- [x] Admin 권한 확장 (모든 역할의 기능 API 접근)
+- [x] Admin 컨트롤 타워 embedded 대시보드 보기
+- [x] Admin View 라우트 (별도 페이지로 사용자 대시보드 전체 화면)
+- [x] viewAsUserId 지원 (Admin이 다른 사용자 대신 데이터 생성/조회)
+- [x] 캠페인 영업사 변경 (Admin 전용)
+- [x] 품목별 매출/지출/마진 계산 (Admin: 지출 입력, Sales: 마진 조회)
+- [x] Handsontable 컬럼 정렬, 필터, 숨기기, 너비 조절, localStorage 저장
+- [x] 중복 주문번호 빨간색 하이라이팅 (클래스 방식)
+- [x] 일 구매건수 슬래시 구분 지원 (TEXT 타입, 예: "6/6" 또는 "2/2/2/2")
+- [x] Brand 시트 제품 테이블 확장 (14개 컬럼, 영업사/진행자와 동일 구조)
+- [x] Brand 진행률 계산 (전체 구매자 수 대비 리뷰 완료)
+- [x] Admin 컨트롤 타워 구조 변경 (연월브랜드 → 캠페인 목록 → 배정 페이지)
+- [x] 숨김 항목 관리 (연월브랜드/캠페인 숨기기/복구)
+- [x] Shift+스크롤 횡스크롤 전용
+- [x] Operator 메모장 기능 (OperatorMemoDialog)
+- [x] Operator 선 업로드 알림 (30초 갱신)
 
-### 2025-12-20 추가 수정 (Phase 4)
-- [x] **영업사 캠페인 상태 옵션** - 신규/보류 추가, 기본값을 '신규'로 변경
-- [x] **영업사 브랜드 등록 기능** - 영업사가 직접 브랜드 추가 가능 (자동으로 해당 영업사에 할당)
-- [x] **Admin 진행자 재배정** - 이미 배정된 품목의 진행자를 드롭다운으로 변경 가능
-- [x] **Admin 통합 수정 레이아웃** - 그리드 비율 5:7로 조정, 구분선 제거하여 빈공간 감소
-- [x] **Operator 테이블 정렬** - 캠페인/품목 테이블에 컬럼별 정렬 기능 추가
-- [x] **Operator 배정상태 표시** - 당일 배정=신규, 다음날=진행 + 구매자 없으면 경고 아이콘
-
-### 2025-12-29 추가 수정 (Phase 5)
-- [x] **Admin 컨트롤 타워 개선**
-  - 사용자 선택 시 embedded 대시보드 표시
-  - "전체 화면 보기" 버튼으로 별도 페이지에서 해당 사용자 대시보드 조회
-  - URL 쿼리 파라미터 `?userId=xxx`로 viewAsUserId 전달
-- [x] **Admin View 라우트 개선**
-  - `/admin/view-operator?userId=xxx` - 특정 진행자 대시보드 조회
-  - `/admin/view-sales?userId=xxx` - 특정 영업사 대시보드 조회
-  - `/admin/view-brand?userId=xxx` - 특정 브랜드사 대시보드 조회
-- [x] **Handsontable 시트 버그 수정**
-  - useEffect 의존성 `tableData` → `slots`로 변경하여 렌더링 에러 방지
-- [x] **Sales/Operator 시트 스크롤 개선**
-  - 페이지 전체 스크롤 제거 → 시트에만 고정 종횡 스크롤
-  - Layout: `overflow: 'hidden'` + flex 레이아웃
-  - ItemSheet: `height: "100%"` + flex 컨테이너
-
-### 2025-12-31 추가 수정 (Phase 6)
-- [x] **Admin viewAsUserId 완전 지원**
-  - SalesLayout에서 SalesBrandCreateDialog, SalesMonthlyBrandDialog에 viewAsUserId 전달
-  - Admin이 영업사 대신 브랜드/연월브랜드 생성 시 해당 영업사 소유로 생성
-- [x] **Handsontable 필터 버튼 UI 개선**
-  - 필터 버튼이 텍스트와 겹치지 않도록 오른쪽 끝에 배치
-  - CSS: `position: absolute; right: 2px` 적용
-  - OperatorItemSheet, SalesItemSheet 동일 적용
-- [x] **Operator 컬럼 너비 조정**
-  - 구매옵션: 80 → 100
-  - 희망유입키워드: 100 → 130
-  - 예상구매자: 80 → 100
-  - 구매자: 70 → 90
-  - 리뷰작성: 60 → 80
-- [x] **Shift+스크롤 횡스크롤 전용**
-  - 기존: Shift+휠 시 종횡 동시 이동
-  - 변경: Shift+휠 시 횡스크롤만 이동
-  - capture phase 이벤트 처리로 정확한 제어
-- [x] **사용자별 컬럼 너비 localStorage 저장**
-  - 역할별 키: `operator_itemsheet_column_widths`, `sales_itemsheet_column_widths`
-  - 사용자가 컬럼 너비 조정 시 자동 저장, 재접속 시 복원
-
-### 2026-01-03~04 추가 수정 (Phase 7)
-- [x] **SalesItemSheet 컬럼 추가**
-  - 품목 추가 시 입력한 데이터가 시트에 표시되도록 3개 컬럼 추가
-  - 총구매건수 (`total_purchase_count`) - Item에서 가져옴
-  - 일구매건수 (`daily_purchase_count`) - Item에서 가져옴
-  - 상품URL (`product_url`) - Item에서 가져옴
-  - 특이사항에 통합되는 3개 필드(리뷰가이드, 상품가격, 출고마감시간)는 제외
-- [x] **Handsontable 필터 기능 개선**
-  - `beforeFilter` → `afterFilter` 변경으로 필터 체크박스 상태 유지
-  - `hiddenRows` 플러그인으로 실제 행 숨김 처리
-  - 그룹 삭제 시 필터 상태 및 hiddenRows 초기화
-- [x] **일차별(day_group) 진행자 배정 버그 수정**
-  - **문제**: 같은 진행자를 다른 일차(1일차, 2일차 등)에 배정할 수 없었음
-  - **원인**: DB의 `unique_campaign_operator` 제약조건이 `day_group`을 포함하지 않음
-  - **해결**: 마이그레이션 `20260103000001-fix-campaign-operator-unique-index.js`로 제약조건 수정
-    - 기존 `unique_campaign_operator(campaign_id, item_id, operator_id)` 제거
-    - 신규 `unique_campaign_operator_daygroup(campaign_id, item_id, day_group, operator_id)` 추가
-  - `itemController.js`에서 null day_group 비교 시 `{ [Op.is]: null }` 사용
-- [x] **그룹 삭제 404 에러 수정**
-  - `deleteSlotsByGroup`에서 삭제할 항목이 없어도 200 success 반환
-- [x] **슬래시(/) 파싱 붙여넣기 기능** (계획됨)
-  - 진행자가 주문번호 컬럼에 슬래시 구분 데이터 붙여넣기 시 자동 파싱
-  - Handsontable `beforePaste` 훅 사용
-  - 8개 컬럼에 자동 분배: 주문번호/구매자/수취인/아이디/연락처/주소/계좌번호/금액
-
-### 2026-01-05 추가 수정 (Phase 8)
-- [x] **Admin 컨트롤 타워 제품 상세 다이얼로그**
-  - 진행자 배정 탭에서 제품명 클릭 시 상세 정보 팝업
-  - 기본 정보, 키워드/구매 정보, 출고 정보, 상품 URL, 리뷰가이드, 비고 표시
-  - 수정 파일: `AdminControlTower.js`
-- [x] **Brand 시트 뷰 403 에러 수정**
-  - `/api/item-slots/campaign/:campaignId` 라우트에 `brand` 권한 추가
-  - 브랜드사가 캠페인 클릭 시 Handsontable 시트 정상 표시
-  - 수정 파일: `backend/src/routes/itemSlots.js`
-- [x] **미사용 파일 정리**
-  - 삭제: `AdminDashboard.js`, `SharedCampaignTable.js`, `OperatorHome.js`, `SalesDashboard.js`, `BrandDashboard.js`
-
-### 2026-01-08 추가 수정 (Phase 10)
-- [x] **일 구매건수 슬래시 구분 지원**
-  - `daily_purchase_count` 컬럼 타입: `INTEGER` → `TEXT` (길이 제한 없음)
-  - "6/6", "2/2/2/.../2" 같은 슬래시 구분 값 저장 가능 (100건을 2건씩 50일로 나눠도 OK)
-  - 마이그레이션: `20260108000001-change-daily-purchase-count-to-string.js`
-- [x] **업로드 페이지 주문번호 입력 필드 추가**
-  - 주문번호 또는 계좌번호 둘 중 하나 필수
-  - 구매자 매칭 우선순위: 주문번호 > 계좌번호
-  - 수정 파일: `UploadPage.js`, `imageService.js`, `imageController.js`
-
-### 2026-01-06 추가 수정 (Phase 9)
-- [x] **품목별 매출/지출/마진 계산 기능**
-  - 영업사 품목 등록 시 판매단가, 택배단가 입력 → 매출 자동 계산
-  - Admin이 항목별 지출 입력 (제품비, 택배비, 리뷰비용, 기타비용)
-  - 마진 = 총매출(VAT포함) - 총지출, 마진율 자동 계산
-  - 공급가 + 부가세포함가(×1.1) 둘 다 표시
-  - 별도 마진 대시보드에서 조회 (`/admin/margin`, `/sales/margin`)
-  - Admin: 지출 입력 + 마진 조회 가능
-  - Sales: 자신의 캠페인 마진만 조회 가능 (지출 입력 불가)
-  - 신규 API: `GET /api/items/margin-summary`, `PUT /api/items/:id/expense`, `GET /api/items/:id/margin`
-  - 신규 컴포넌트: `AdminMarginDashboard.js`, `AdminItemExpenseDialog.js`, `SalesMarginDashboard.js`
-  - DB 마이그레이션: `20260106000001-add-revenue-expense-to-items.js` (7개 필드 추가)
-- [x] **브랜드사 송장번호 컬럼 추가**
-  - 테이블 뷰 및 갤러리 뷰 이미지 상세에 송장번호 표시
-  - 수정 파일: `BrandBuyerTable.js`
-
-### 2026-01-09 추가 수정 (Phase 11)
-- [x] **Operator 시트 UI 개선**
-  - 필터링 버튼 호버 시에만 표시 (엑셀처럼)
-  - 접기 컬럼 너비 축소 (30px → 20px)
-  - 제품 컬럼 순서 변경: 접기, 날짜, 순번, 제품명, 옵션, 플랫폼, 출고, 키워드, 가격, 총건수, 일건수, 택배, URL, 특이사항
-- [x] **Operator 시트 건수/금액 계산 버그 수정**
-  - 접기/펼치기 시에도 전체 건수 및 금액 합계가 변하지 않도록 수정
-  - `tableData` 대신 원본 `slots` 데이터 기준으로 계산
-- [x] **Brand 퍼센트 계산 수정**
-  - 기존: `total_purchase_count` (목표 건수) 대비 리뷰 완료
-  - 변경: **전체 구매자 수** (실제 등록된 구매자) 대비 리뷰 완료
-  - 수정 파일: `BrandLayout.js`
-- [x] **Admin 상단바 간소화**
-  - "전체 제품 조회" 버튼 삭제
-  - 수정 파일: `AdminLayout.js`
-- [x] **Admin 컨트롤 타워 구조 변경 - 연월브랜드 > 캠페인 > 배정**
-  - 기존: 모든 제품을 한 페이지에 나열 → 제품별 진행자 배정
-  - 변경: 연월브랜드 → 캠페인 목록 → 캠페인 클릭 시 상세 배정 페이지
-  - 신규 컴포넌트: `AdminCampaignAssignment.js` (캠페인별 진행자 배정)
-  - 신규 라우트: `/admin/campaigns/:campaignId/assignment`
-  - 신규 API: `GET /api/monthly-brands/all` (Admin 전용 - 모든 연월브랜드 조회)
-  - 수정 파일: `AdminControlTower.js`, `App.js`, `monthlyBrandService.js`, `backend/src/routes/monthlyBrands.js`
-- [x] **중복 주문번호 빨간색 하이라이팅 버그 수정**
-  - 원인: CSS `!important`가 inline 스타일보다 우선순위가 높아서 무시됨
-  - 해결: `td.classList.add('duplicate-order')` 클래스 방식으로 변경
-  - `.duplicate-order { backgroundColor: '#ffcdd2 !important' }` CSS 추가
-  - 수정 파일: `SalesItemSheet.js`, `OperatorItemSheet.js`
-
-### 2026-01-10 추가 수정 (Phase 12)
-- [x] **URL/플랫폼 하이퍼링크 버그 수정**
-  - 문제: 하이퍼링크가 URL(col11)이 아닌 플랫폼(col12)에 적용됨
-  - 해결: `col12` → `col11`로 수정
-  - 수정 파일: `SalesItemSheet.js`, `OperatorItemSheet.js`
-- [x] **Brand 시트 제품 테이블 확장**
-  - 기존 8개 컬럼 → 14개 컬럼 (영업사/진행자와 동일한 구조)
-  - 제품 테이블: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
-  - 구매자 테이블: 빈칸, 주문번호, 구매자, 수취인, 아이디, 금액, 송장번호, 리뷰샷
-  - 플랫폼 컬럼에 파란색 볼드 스타일 적용
-  - 수정 파일: `BrandItemSheet.js`
-- [x] **Brand 페이지 스크롤 개선**
-  - 페이지 전체 스크롤 제거 → 시트 내부에서만 스크롤
-  - `height: '100vh'`, `overflow: 'hidden'` 설정
-  - 수정 파일: `BrandLayout.js`, `BrandItemSheet.js`
-- [x] **품목 추가 다이얼로그 플랫폼 예시 추가**
-  - samplePlaceholder에 `플랫폼 : 쿠팡` 예시 추가
-  - 안내 문구: `※ 플랫폼: 쿠팡, 네이버, 11번가, 지마켓, 옥션, 티몬, 위메프 등`
-  - 수정 파일: `SalesAddItemDialog.js`
-- [x] **API Item attributes 필드 추가**
-  - `getSlotsByCampaign`, `getSlotsByCampaignForOperator`에 `date`, `display_order` 필드 추가
-  - 수정 파일: `backend/src/controllers/itemSlotController.js`
+### 최신 수정 (2026-01-13)
+- [x] **Admin 컨트롤 타워 정리**
+  - "숨김 항목" 기능 완전 제거 (진행자 배정 탭에서)
+  - "새로고침" 버튼 삭제 (F5로 대체)
+  - 사용자 목록 접기 시 거꾸로 표시되던 텍스트 제거
+- [x] **Embedded 모드 네비게이션 수정**
+  - Admin 컨트롤 타워에서 사용자 선택 후 캠페인 클릭 시 즉시 시트 표시 (네비게이션 없음)
+  - OperatorLayout, SalesLayout, BrandLayout에서 `isEmbedded` prop 처리
+- [x] **Brand 시트 색상 통일**
+  - Item separator: #2e7d32 → #1565c0 (파란색)
+  - Product header: #e8f5e9 → #e0e0e0 (회색)
+  - Product data: #cae6c1 → #fff8e1 (연노랑)
+- [x] **Brand 제품 테이블 컬럼 정렬 기능 적용**
 
 ### 역할별 페이지 격리
-- admin은 /admin만 접근 가능 (단, API는 모든 역할의 기능 접근 가능)
-- sales는 /sales만 접근 가능
-- operator는 /operator만 접근 가능
-- brand는 /brand만 접근 가능
+- admin은 `/admin` 및 하위 라우트만 접근 (단, API는 모든 역할의 기능 접근 가능)
+- sales는 `/sales` 및 하위 라우트만 접근
+- operator는 `/operator` 및 하위 라우트만 접근
+- brand는 `/brand` 및 하위 라우트만 접근
 
 ---
 
@@ -576,8 +557,7 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 - [BACKEND_STRUCTURE.md](docs/BACKEND_STRUCTURE.md) - API 엔드포인트 및 구조
 - [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) - EC2 배포 가이드
 - [LOCAL_TESTING.md](docs/LOCAL_TESTING.md) - 로컬 테스트 방법
-- [IMPLEMENTATION_PROGRESS.md](docs/IMPLEMENTATION_PROGRESS.md) - 구현 진행 상황
 
 ---
 
-**최종 업데이트**: 2026-01-10
+**최종 업데이트**: 2026-01-13

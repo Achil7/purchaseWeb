@@ -1,6 +1,6 @@
 NAME=campmanager
 TAG=latest
-DOCKER_USER=your-dockerhub-username
+DOCKER_USER=achil7
 
 IMG=${NAME}:${TAG}
 

@@ -27,19 +27,19 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 품목 기본 정보 (복사됨)
     product_name: {
-      type: DataTypes.STRING(200),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     purchase_option: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     keyword: {
-      type: DataTypes.STRING(200),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     product_price: {
-      type: DataTypes.DECIMAL(10, 2),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     notes: {
@@ -47,7 +47,8 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     status: {
-      type: DataTypes.ENUM('active', 'completed', 'cancelled'),
+      type: DataTypes.TEXT,
+      allowNull: true,
       defaultValue: 'active'
     },
     // 예상구매자 (진행자 입력)
@@ -86,12 +87,15 @@ module.exports = (sequelize, DataTypes) => {
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
+    paranoid: true,
+    deletedAt: 'deleted_at',
     indexes: [
       { fields: ['item_id'] },
       { fields: ['buyer_id'] },
       { fields: ['status'] },
       { fields: ['day_group'] },
       { fields: ['upload_link_token'] },
+      { fields: ['deleted_at'] },
       { unique: true, fields: ['item_id', 'slot_number'] }
     ]
   });

@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Typography,
   TextField, Box, Button, MenuItem, Alert, Paper, Chip,
-  Table, TableHead, TableBody, TableRow, TableCell, IconButton, Tooltip
+  Table, TableHead, TableBody, TableRow, TableCell, IconButton, Tooltip,
+  Tabs, Tab
 } from '@mui/material';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import EditIcon from '@mui/icons-material/Edit';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
+import MergeTypeIcon from '@mui/icons-material/MergeType';
 
 // UTC+9 현재 시간을 YYYY-MM-DDTHH:mm 형식으로 반환
 const getKoreanDateTime = () => {
@@ -67,26 +69,26 @@ const parseItemText = (text) => {
     const key = line.substring(0, colonIndex).trim().toLowerCase();
     const value = line.substring(colonIndex + 1).trim();
 
-    if (key.includes('제품') && (key.includes('미출고') || key.includes('실출고'))) {
+    if (key.includes('미출고') || key.includes('실출고')) {
       result.shipping_type = value.includes('미출고') ? '미출고' : '실출고';
     } else if (key.includes('제품명') || key === '제품') {
       result.product_name = value;
-    } else if (key.includes('총') && key.includes('구매') && key.includes('건수')) {
+    } else if (key.includes('총') && key.includes('건수')) {
       result.total_purchase_count = value.replace(/[^0-9]/g, '');
-    } else if (key.includes('일') && key.includes('구매') && key.includes('건수')) {
+    } else if (key.includes('일') && key.includes('건수')) {
       // 일 구매 건수는 슬래시 포함하여 저장 (예: "6/6", "1/3/4/2")
       result.daily_purchase_count = value.replace(/[^0-9/]/g, '');
-    } else if (key.includes('상품') && key.includes('url')) {
+    } else if (key.includes('url') && (key.includes('상품') || key.includes('확인'))) {
       result.product_url = value;
     } else if (key.includes('구매') && key.includes('옵션')) {
       result.purchase_option = value;
-    } else if (key.includes('제품') && key.includes('가격')) {
+    } else if (key.includes('가격')) {
       result.product_price = value.replace(/[^0-9]/g, '');
     } else if (key.includes('리뷰') || key.includes('가이드') || key.includes('소구점')) {
       result.review_guide = value;
     } else if (key.includes('택배') && key.includes('대행')) {
       result.courier_service_yn = value.toUpperCase() === 'Y' || value.includes('사용');
-    } else if (key.includes('키워드')) {
+    } else if (key.includes('키워드') || key.includes('유입')) {
       result.keyword = value;
     } else if (key.includes('출고') && key.includes('마감')) {
       result.shipping_deadline = value;
@@ -125,22 +127,116 @@ const parseItemText = (text) => {
   return result;
 };
 
-// 여러 품목 텍스트를 파싱 (빈 줄로 구분)
+// 파이프(|)로 구분된 텍스트를 그대로 하나의 제품으로 파싱
+// 파이프 구분 데이터는 분리하지 않고 그대로 저장
+// 총 구매건수: 파이프로 분리된 값 중 최대값
+// 일 구매건수: 총 구매건수 최대값과 동일
+const parseCombineText = (text) => {
+  const lines = text.split('\n').filter(line => line.trim());
+
+  // 파이프 구분자가 있는지 확인
+  const hasPipe = lines.some(line => line.includes('|'));
+  if (!hasPipe) return null;
+
+  const result = {
+    product_name: '',
+    product_url: '',
+    purchase_option: '',
+    keyword: '',
+    shipping_type: '',
+    total_purchase_count: '',
+    daily_purchase_count: '',
+    review_guide: '',
+    product_price: '',
+    shipping_deadline: '',
+    courier_service_yn: '',
+    platform: '',
+    notes: '',
+    registered_at: getKoreanDateTime()
+  };
+
+  lines.forEach(line => {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex === -1) return;
+
+    const key = line.substring(0, colonIndex).trim().toLowerCase();
+    const value = line.substring(colonIndex + 1).trim(); // 파이프 포함 그대로
+
+    // 필드 키 매핑
+    if (key.includes('제품명') || key === '제품') {
+      result.product_name = value;
+    } else if (key.includes('url') && (key.includes('상품') || key.includes('확인'))) {
+      result.product_url = value;
+    } else if (key.includes('구매') && key.includes('옵션')) {
+      result.purchase_option = value;
+    } else if (key.includes('키워드') || key.includes('유입')) {
+      result.keyword = value;
+    } else if (key.includes('플랫폼') || key.includes('판매처')) {
+      result.platform = value;
+    } else if (key.includes('미출고') || key.includes('실출고') || key.includes('출고') && !key.includes('마감')) {
+      result.shipping_type = value;
+    } else if (key.includes('총') && key.includes('건수')) {
+      // 총 구매건수: 파이프로 분리된 값 중 최대값
+      const values = value.split('|').map(v => parseInt(v.replace(/[^0-9]/g, ''), 10) || 0);
+      result.total_purchase_count = Math.max(...values);
+    } else if (key.includes('일') && key.includes('건수')) {
+      // 일 구매건수는 무시 (총 구매건수 최대값으로 대체)
+      // 아무것도 안 함
+    } else if (key.includes('리뷰') || key.includes('가이드') || key.includes('소구점')) {
+      result.review_guide = value;
+    } else if (key.includes('가격')) {
+      result.product_price = value;
+    } else if (key.includes('출고') && key.includes('마감')) {
+      result.shipping_deadline = value;
+    } else if (key.includes('택배') && key.includes('대행')) {
+      result.courier_service_yn = value;  // 그대로 저장
+    }
+  });
+
+  // 일 구매건수 = 총 구매건수 최대값
+  result.daily_purchase_count = String(result.total_purchase_count);
+
+  // 특이사항 자동 생성
+  const noteParts = [];
+  if (result.review_guide) noteParts.push(result.review_guide);
+  if (result.product_price) noteParts.push(result.product_price);
+  if (result.shipping_deadline) noteParts.push(result.shipping_deadline);
+  result.notes = noteParts.join(', ');
+
+  return result.product_name ? result : null;
+};
+
+// 여러 품목 텍스트를 파싱 (빈 줄로 구분 또는 파이프 구분)
+// 파이프(|) 구분 텍스트가 감지되면 하나의 제품으로 처리 (데이터 그대로 유지)
 const parseMultipleItems = (text) => {
-  // 빈 줄(1개 이상)로 품목 구분
+  // 파이프 구분 텍스트인지 확인 (여러 라인에 |가 있는 경우)
+  const lines = text.split('\n').filter(line => line.trim());
+  const pipeLines = lines.filter(line => line.includes('|') && line.includes(':'));
+
+  // 2개 이상의 라인에 파이프가 있으면 하나의 제품으로 합침
+  if (pipeLines.length >= 2) {
+    const combinedItem = parseCombineText(text);
+    if (combinedItem) {
+      // 하나의 제품으로 반환 (isCombineMode: true)
+      // combinedItem.total_purchase_count가 있으면 유효한 품목
+      return { items: [combinedItem], isCombineMode: true };
+    }
+  }
+
+  // 일반 모드: 빈 줄(1개 이상)로 품목 구분
   const itemBlocks = text.split(/\n\s*\n/).filter(block => block.trim());
 
   const items = [];
 
   for (const block of itemBlocks) {
     const parsed = parseItemText(block);
-    // 총건수와 일건수가 있는 경우에만 유효한 품목으로 인정
-    if (parsed.total_purchase_count && parsed.daily_purchase_count) {
+    // 총건수가 있는 경우에만 유효한 품목으로 인정 (일건수는 선택)
+    if (parsed.total_purchase_count) {
       items.push(parsed);
     }
   }
 
-  return items;
+  return { items, isCombineMode: false };
 };
 
 function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', initialData = null }) {
@@ -170,11 +266,21 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
   const [pasteText, setPasteText] = useState('');
   const [parsedItems, setParsedItems] = useState([]);
 
+  // 탭 상태: 'paste' (붙여넣기) | 'combine' (제품 합치기)
+  const [inputMode, setInputMode] = useState('paste');
+
+  // 제품 합치기 상태
+  const [combinedProducts, setCombinedProducts] = useState([]);
+  const [combineText, setCombineText] = useState('');
+
   useEffect(() => {
     if (open) {
       setError('');
       setPasteText('');
       setParsedItems([]);
+      setInputMode('paste');
+      setCombinedProducts([]);
+      setCombineText('');
 
       if (mode === 'edit' && initialData) {
         let registeredAt = initialData.registered_at || getKoreanDateTime();
@@ -213,7 +319,9 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
     setPasteText(text);
 
     if (text.trim()) {
-      const items = parseMultipleItems(text);
+      const result = parseMultipleItems(text);
+      const items = result.items;
+
       if (items.length > 0) {
         setParsedItems(items);
         // 단일 품목인 경우 formData도 업데이트
@@ -244,6 +352,54 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
     ));
   };
 
+  // 제품 합치기: 제품 삭제
+  const removeProductFromCombine = (index) => {
+    setCombinedProducts(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // 제품 합치기: 개별 제품 필드 수정
+  const handleCombinedProductFieldChange = (index, field, value) => {
+    setCombinedProducts(prev => prev.map((item, i) =>
+      i === index ? { ...item, [field]: value } : item
+    ));
+  };
+
+  // 제품 합치기: 합쳐진 결과 생성
+  // 총 구매건수: 모든 제품 중 최대값
+  // 일 구매건수: 총 구매건수의 최대값과 동일 (day_group 1개로 통합)
+  const mergeCombinedProducts = () => {
+    if (combinedProducts.length === 0) return null;
+
+    // 총 구매건수: 모든 제품 중 최대값
+    const maxTotalCount = Math.max(
+      ...combinedProducts.map(p => parseInt(p.total_purchase_count) || 0)
+    );
+
+    // 모든 필드를 | 로 합침
+    const merged = {
+      product_name: combinedProducts.map(p => p.product_name).filter(Boolean).join(' | '),
+      keyword: combinedProducts.map(p => p.keyword || '').filter(Boolean).join(' | '),
+      product_price: combinedProducts.map(p => p.product_price || '').filter(Boolean).join(' | '),
+      product_url: combinedProducts.map(p => p.product_url || '').filter(Boolean).join(' | '),
+      purchase_option: combinedProducts.map(p => p.purchase_option || '').filter(Boolean).join(' | '),
+      review_guide: combinedProducts.map(p => p.review_guide || '').filter(Boolean).join(' | '),
+      notes: combinedProducts.map(p => p.notes || '').filter(Boolean).join(' | '),
+      shipping_type: combinedProducts.map(p => p.shipping_type || '').filter(Boolean).join(' | '),
+      platform: combinedProducts.map(p => p.platform || '').filter(Boolean).join(' | '),
+      shipping_deadline: combinedProducts.map(p => p.shipping_deadline || '').filter(Boolean).join(' | '),
+
+      // 총 구매건수: 최대값, 일 구매건수: 총 구매건수와 동일
+      total_purchase_count: maxTotalCount,
+      daily_purchase_count: String(maxTotalCount),
+
+      // courier_service_yn: 하나라도 true면 true
+      courier_service_yn: combinedProducts.some(p => p.courier_service_yn === true),
+      registered_at: getKoreanDateTime()
+    };
+
+    return merged;
+  };
+
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData({
@@ -252,15 +408,17 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
     });
   };
 
-  // 일 구매 건수 검증 (총 구매 건수와 일치 여부) - 필수값
+  // 일 구매 건수 검증 (총 구매 건수와 일치 여부)
+  // 일 구매건수가 빈 값이면 총 구매건수와 동일하게 처리 (선택적 필드)
   const validateDailyPurchaseCount = (totalCount, dailyCountStr) => {
     // 총 구매 건수 필수
     if (!totalCount) {
       return { valid: false, error: '총 구매 건수를 입력해주세요.' };
     }
-    // 일 구매 건수 필수
-    if (!dailyCountStr) {
-      return { valid: false, error: '일 구매 건수를 입력해주세요.' };
+
+    // 일 구매 건수가 빈 값이면 유효 (총 구매건수와 동일하게 처리됨)
+    if (!dailyCountStr || dailyCountStr.trim() === '') {
+      return { valid: true, error: '' };
     }
 
     const total = parseInt(totalCount, 10);
@@ -276,6 +434,40 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
   };
 
   const handleSave = () => {
+    // 제품 합치기 모드인 경우 - parsedItems[0] 사용
+    if (inputMode === 'combine') {
+      if (parsedItems.length === 0 || !parsedItems[0].product_name) {
+        setError('파이프(|) 구분 텍스트를 붙여넣어 주세요.');
+        return;
+      }
+
+      const item = parsedItems[0];
+
+      const saveData = {
+        product_name: item.product_name,
+        description: null,
+        status: 'active',
+        shipping_type: item.shipping_type || null,
+        keyword: item.keyword || null,
+        total_purchase_count: item.total_purchase_count ? parseInt(item.total_purchase_count) : null,
+        daily_purchase_count: item.daily_purchase_count || null,
+        product_url: item.product_url || null,
+        purchase_option: item.purchase_option || null,
+        product_price: item.product_price || null,
+        shipping_deadline: item.shipping_deadline || null,
+        review_guide: item.review_guide || null,
+        courier_service_yn: item.courier_service_yn || null,  // 그대로 저장 (TEXT)
+        notes: item.notes || null,
+        platform: item.platform || null,
+        registered_at: item.registered_at ? new Date(item.registered_at).toISOString() : new Date().toISOString(),
+        sale_price_per_unit: null,
+        courier_price_per_unit: null
+      };
+
+      onSave(saveData);
+      return;
+    }
+
     // 여러 품목인 경우
     if (parsedItems.length > 1 && onSaveBulk) {
       // 각 품목의 일 구매 건수 검증
@@ -298,7 +490,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
         daily_purchase_count: item.daily_purchase_count || null, // 슬래시 포함 문자열 저장
         product_url: item.product_url || null,
         purchase_option: item.purchase_option || null,
-        product_price: item.product_price ? parseFloat(item.product_price) : null,
+        product_price: item.product_price || null,
         shipping_deadline: item.shipping_deadline || null,
         review_guide: item.review_guide || null,
         courier_service_yn: item.courier_service_yn,
@@ -332,7 +524,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
       daily_purchase_count: itemData.daily_purchase_count || null, // 슬래시 포함 문자열 저장
       product_url: itemData.product_url || null,
       purchase_option: itemData.purchase_option || null,
-      product_price: itemData.product_price ? parseFloat(itemData.product_price) : null,
+      product_price: itemData.product_price || null,
       shipping_deadline: itemData.shipping_deadline || null,
       review_guide: itemData.review_guide || null,
       courier_service_yn: itemData.courier_service_yn,
@@ -370,8 +562,11 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
       <DialogTitle sx={{ fontWeight: 'bold', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: 1 }}>
         {isEdit ? <EditIcon color="primary" /> : <AddCircleIcon color="success" />}
         {isEdit ? '제품 수정' : '제품 추가'}
-        {parsedItems.length > 1 && (
+        {parsedItems.length > 1 && inputMode === 'paste' && (
           <Chip label={`${parsedItems.length}개 품목`} color="primary" size="small" sx={{ ml: 1 }} />
+        )}
+        {combinedProducts.length > 0 && inputMode === 'combine' && (
+          <Chip label={`${combinedProducts.length}개 제품 합치기`} color="success" size="small" sx={{ ml: 1 }} />
         )}
       </DialogTitle>
 
@@ -385,38 +580,62 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
         {/* 생성 모드 */}
         {!isEdit && (
           <>
-            {/* 데이터 붙여넣기 섹션 */}
-            <Paper sx={{ p: 2, mb: 3, border: '2px solid #e3f2fd', borderRadius: 2, bgcolor: '#fafafa' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <ContentPasteIcon color="primary" />
-                <Typography variant="subtitle1" color="primary" fontWeight="bold">
-                  데이터 붙여넣기 (여러 품목 동시 추가 가능)
-                </Typography>
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1.5 }}>
-                <InfoOutlinedIcon sx={{ color: 'text.secondary', fontSize: 20, mt: 0.3 }} />
-                <Typography variant="body2" color="text.secondary">
-                  품목별로 빈 줄로 구분하거나 "상품 확인 URL"로 시작하면 자동으로 여러 품목을 인식합니다.
-                  <br />
-                  <strong>특이사항</strong>에 "리뷰가이드, 가격, 출고마감시간"이 자동 합쳐져 저장됩니다.
-                </Typography>
-              </Box>
-              <TextField
-                multiline
-                rows={8}
-                fullWidth
-                value={pasteText}
-                onChange={handlePasteTextChange}
-                placeholder={samplePlaceholder}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    bgcolor: 'white',
-                    fontFamily: 'monospace',
-                    fontSize: '0.85rem'
-                  }
-                }}
+            {/* 탭 선택: 붙여넣기 / 제품 합치기 */}
+            <Tabs
+              value={inputMode}
+              onChange={(e, v) => setInputMode(v)}
+              sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+            >
+              <Tab
+                value="paste"
+                icon={<ContentPasteIcon />}
+                iconPosition="start"
+                label="붙여넣기"
+                sx={{ minHeight: 48 }}
               />
-            </Paper>
+              <Tab
+                value="combine"
+                icon={<MergeTypeIcon />}
+                iconPosition="start"
+                label="제품 합치기"
+                sx={{ minHeight: 48 }}
+              />
+            </Tabs>
+
+            {/* 붙여넣기 모드 */}
+            {inputMode === 'paste' && (
+              <>
+                <Paper sx={{ p: 2, mb: 3, border: '2px solid #e3f2fd', borderRadius: 2, bgcolor: '#fafafa' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <ContentPasteIcon color="primary" />
+                    <Typography variant="subtitle1" color="primary" fontWeight="bold">
+                      데이터 붙여넣기 (여러 품목 동시 추가 가능)
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1.5 }}>
+                    <InfoOutlinedIcon sx={{ color: 'text.secondary', fontSize: 20, mt: 0.3 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      품목별로 빈 줄로 구분하거나 "상품 확인 URL"로 시작하면 자동으로 여러 품목을 인식합니다.
+                      <br />
+                      <strong>특이사항</strong>에 "리뷰가이드, 가격, 출고마감시간"이 자동 합쳐져 저장됩니다.
+                    </Typography>
+                  </Box>
+                  <TextField
+                    multiline
+                    rows={8}
+                    fullWidth
+                    value={pasteText}
+                    onChange={handlePasteTextChange}
+                    placeholder={samplePlaceholder}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        bgcolor: 'white',
+                        fontFamily: 'monospace',
+                        fontSize: '0.85rem'
+                      }
+                    }}
+                  />
+                </Paper>
 
             {/* 파싱된 품목 미리보기 */}
             {parsedItems.length > 0 && (
@@ -619,6 +838,266 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
                     <MenuItem value={false}>N</MenuItem>
                   </TextField>
                 </Box>
+              </Paper>
+            )}
+              </>
+            )}
+
+            {/* 제품 합치기 모드 - 파이프(|) 구분 텍스트를 그대로 저장 */}
+            {inputMode === 'combine' && (
+              <Paper sx={{ p: 2, mb: 3, border: '2px solid #e8f5e9', borderRadius: 2, bgcolor: '#fafafa' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <MergeTypeIcon color="success" />
+                  <Typography variant="subtitle1" color="success.main" fontWeight="bold">
+                    제품 합치기 (파이프 | 구분 텍스트)
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1.5 }}>
+                  <InfoOutlinedIcon sx={{ color: 'text.secondary', fontSize: 20, mt: 0.3 }} />
+                  <Typography variant="body2" color="text.secondary">
+                    파이프(|)로 구분된 텍스트를 붙여넣으면 미리보기를 표시하고, DB에는 그대로 저장됩니다.
+                    <br />
+                    총 구매건수: 파이프 값 중 최대값 / 일 구매건수: 총 구매건수와 동일
+                  </Typography>
+                </Box>
+
+                {/* 텍스트 입력 영역 */}
+                <TextField
+                  multiline
+                  rows={8}
+                  fullWidth
+                  value={combineText}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    setCombineText(text);
+
+                    if (text.trim()) {
+                      // 파이프 구분 파싱
+                      const parsed = parseCombineText(text);
+                      if (parsed) {
+                        setParsedItems([parsed]);
+                        setError('');
+                      } else {
+                        setParsedItems([]);
+                      }
+                    } else {
+                      setParsedItems([]);
+                    }
+                  }}
+                  placeholder={`상품 확인 URL : URL1 | URL2
+제품명 : 제품A | 제품B
+플랫폼 : 쿠팡 | 네이버
+구매 옵션 : 옵션A | 옵션B
+희망 유입 키워드 : 키워드A | 키워드B
+제품 미출고/ 실출고 : 실출고 | 실출고
+총 구매 건수 : 12 | 10
+일 구매 건수 : (무시됨 - 총건수 최대값 사용)
+리뷰 가이드 및 소구점 : 가이드A | 가이드B
+제품 구매 가격 : 27600 | 30000
+출고 마감 시간 : 오후1시 | 오전10시
+택배대행 Y/N : Y | N`}
+                  sx={{
+                    mb: 1,
+                    '& .MuiOutlinedInput-root': {
+                      bgcolor: 'white',
+                      fontFamily: 'monospace',
+                      fontSize: '0.85rem'
+                    }
+                  }}
+                />
+
+                {/* 개별 제품 추가 버튼 */}
+                <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => {
+                      if (!combineText.trim()) return;
+                      // 단일 제품으로 파싱
+                      const parsed = parseItemText(combineText);
+                      if (parsed.product_name) {
+                        setCombinedProducts(prev => [...prev, parsed]);
+                        setCombineText('');
+                        setError('');
+                      } else {
+                        setError('제품명을 인식할 수 없습니다.');
+                      }
+                    }}
+                  >
+                    제품 추가
+                  </Button>
+                  <Button
+                    variant="text"
+                    size="small"
+                    color="inherit"
+                    onClick={() => {
+                      setCombineText('');
+                      setCombinedProducts([]);
+                      setParsedItems([]);
+                    }}
+                  >
+                    초기화
+                  </Button>
+                </Box>
+
+                {/* 추가된 제품 목록 테이블 */}
+                {combinedProducts.length > 0 && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold', color: '#1565c0' }}>
+                      추가된 제품 목록 ({combinedProducts.length}개) - 클릭하여 수정 가능
+                    </Typography>
+                    <Box sx={{ overflowX: 'auto', border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                            <TableCell sx={{ fontWeight: 'bold', width: 40 }}>#</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', minWidth: 150 }}>제품명</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', width: 90 }}>플랫폼</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', width: 80 }}>출고</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', width: 80 }}>총건수</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', minWidth: 100 }}>옵션</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', minWidth: 100 }}>키워드</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', width: 50 }}></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {combinedProducts.map((item, index) => (
+                            <TableRow key={index} hover>
+                              <TableCell>{index + 1}</TableCell>
+                              <TableCell>
+                                <TextField
+                                  size="small"
+                                  value={item.product_name}
+                                  onChange={(e) => handleCombinedProductFieldChange(index, 'product_name', e.target.value)}
+                                  variant="standard"
+                                  fullWidth
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <TextField
+                                  size="small"
+                                  value={item.platform || '-'}
+                                  onChange={(e) => handleCombinedProductFieldChange(index, 'platform', e.target.value)}
+                                  variant="standard"
+                                  fullWidth
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <TextField
+                                  size="small"
+                                  value={item.shipping_type || ''}
+                                  onChange={(e) => handleCombinedProductFieldChange(index, 'shipping_type', e.target.value)}
+                                  variant="standard"
+                                  fullWidth
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  value={item.total_purchase_count}
+                                  onChange={(e) => handleCombinedProductFieldChange(index, 'total_purchase_count', e.target.value)}
+                                  variant="standard"
+                                  fullWidth
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <TextField
+                                  size="small"
+                                  value={item.purchase_option || ''}
+                                  onChange={(e) => handleCombinedProductFieldChange(index, 'purchase_option', e.target.value)}
+                                  variant="standard"
+                                  fullWidth
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <TextField
+                                  size="small"
+                                  value={item.keyword || ''}
+                                  onChange={(e) => handleCombinedProductFieldChange(index, 'keyword', e.target.value)}
+                                  variant="standard"
+                                  fullWidth
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <IconButton size="small" onClick={() => removeProductFromCombine(index)} color="error">
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </Box>
+
+                    {/* 합쳐진 결과 요약 */}
+                    {combinedProducts.length >= 2 && (
+                      <Box sx={{ mt: 2, p: 1.5, bgcolor: '#e8f5e9', borderRadius: 1, border: '1px solid #a5d6a7' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: '#2e7d32', mb: 0.5 }}>
+                          합쳐진 결과 (총건수: {Math.max(...combinedProducts.map(p => parseInt(p.total_purchase_count) || 0))}개 슬롯 생성)
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          제품명: {combinedProducts.map(p => p.product_name).filter(Boolean).join(' | ')}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+
+                {/* 파이프 텍스트 파싱된 결과 미리보기 */}
+                {parsedItems.length === 1 && parsedItems[0].product_name && combinedProducts.length === 0 && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold', color: '#1565c0' }}>
+                      파싱 결과 미리보기 (DB 저장 데이터)
+                    </Typography>
+                    <Box sx={{ bgcolor: '#fff', border: '1px solid #e0e0e0', borderRadius: 1, p: 2 }}>
+                      <Table size="small">
+                        <TableBody>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold', width: 120 }}>제품명</TableCell>
+                            <TableCell>{parsedItems[0].product_name}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>플랫폼</TableCell>
+                            <TableCell>{parsedItems[0].platform || '-'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>출고</TableCell>
+                            <TableCell>{parsedItems[0].shipping_type || '-'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>총건수</TableCell>
+                            <TableCell sx={{ color: '#d32f2f', fontWeight: 'bold' }}>{parsedItems[0].total_purchase_count} (최대값)</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>일건수</TableCell>
+                            <TableCell sx={{ color: '#d32f2f', fontWeight: 'bold' }}>{parsedItems[0].daily_purchase_count} (= 총건수)</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>옵션</TableCell>
+                            <TableCell>{parsedItems[0].purchase_option || '-'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>키워드</TableCell>
+                            <TableCell>{parsedItems[0].keyword || '-'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>가격</TableCell>
+                            <TableCell>{parsedItems[0].product_price || '-'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>택배대행</TableCell>
+                            <TableCell>{parsedItems[0].courier_service_yn || '-'}</TableCell>
+                          </TableRow>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 'bold' }}>URL</TableCell>
+                            <TableCell sx={{ wordBreak: 'break-all' }}>{parsedItems[0].product_url || '-'}</TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </Box>
+                  </Box>
+                )}
               </Paper>
             )}
           </>
@@ -849,9 +1328,24 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
           color={isEdit ? 'primary' : 'success'}
           size="large"
           disableElevation
-          disabled={parsedItems.length === 0 && !formData.product_name}
+          disabled={
+            isEdit
+              ? false
+              : inputMode === 'combine'
+                ? parsedItems.length === 0 || !parsedItems[0]?.product_name
+                : parsedItems.length === 0 && !formData.product_name
+          }
         >
-          {isEdit ? '수정하기' : parsedItems.length > 1 ? `${parsedItems.length}개 품목 추가` : '추가하기'}
+          {isEdit
+            ? '수정하기'
+            : inputMode === 'combine'
+              ? parsedItems.length > 0 && parsedItems[0]?.product_name
+                ? '제품 추가'
+                : '파이프(|) 텍스트 입력'
+              : parsedItems.length > 1
+                ? `${parsedItems.length}개 품목 추가`
+                : '추가하기'
+          }
         </Button>
       </DialogActions>
     </Dialog>

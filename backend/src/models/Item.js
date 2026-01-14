@@ -18,16 +18,18 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 품목 기본 정보
     product_name: {
-      type: DataTypes.STRING(200),
-      allowNull: false
+      type: DataTypes.TEXT,
+      allowNull: false,
+      comment: '제품명 (파이프 구분 가능, 예: "A | B")'
     },
     shipping_type: {
-      type: DataTypes.STRING(50),
+      type: DataTypes.TEXT,
       allowNull: true,
-      comment: '출고 유형 (실출고, 미출고 등 자유 입력)'
+      comment: '출고 유형 (파이프 구분 가능, 예: "실출고 | 미출고")'
     },
     keyword: {
-      type: DataTypes.STRING(200)
+      type: DataTypes.TEXT,
+      comment: '키워드 (파이프 구분 가능)'
     },
     // 구매 목표
     total_purchase_count: {
@@ -42,22 +44,26 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT
     },
     purchase_option: {
-      type: DataTypes.STRING(100)
+      type: DataTypes.TEXT,
+      comment: '구매 옵션 (파이프 구분 가능)'
     },
     product_price: {
-      type: DataTypes.DECIMAL(10, 2)
+      type: DataTypes.TEXT,
+      comment: '제품 가격 (파이프 구분 가능, 예: "27600 | 30000")'
     },
-    // 일정 (시간 문자열, 예: "18:00")
+    // 출고 마감 시간 (파이프 구분 가능)
     shipping_deadline: {
-      type: DataTypes.STRING(20)
+      type: DataTypes.TEXT,
+      comment: '출고 마감 시간 (파이프 구분 가능, 예: "오후1시 마감 | 오전 10시 마감")'
     },
     // 리뷰 가이드
     review_guide: {
       type: DataTypes.TEXT
     },
     courier_service_yn: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: '택배대행 Y/N (파이프 구분 가능, 예: "Y | N")'
     },
     // 입금명 (카톡방명)
     deposit_name: {
@@ -66,8 +72,9 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 판매 플랫폼 (쿠팡, 네이버, 11번가 등)
     platform: {
-      type: DataTypes.STRING(50),
-      allowNull: true
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: '플랫폼 (파이프 구분 가능, 예: "쿠팡 | 네이버")'
     },
     // 제품 날짜 (사용자 입력)
     date: {
@@ -143,10 +150,13 @@ module.exports = (sequelize, DataTypes) => {
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
+    paranoid: true,
+    deletedAt: 'deleted_at',
     indexes: [
       { fields: ['campaign_id'] },
       { fields: ['upload_link_token'] },
-      { fields: ['status'] }
+      { fields: ['status'] },
+      { fields: ['deleted_at'] }
     ],
     hooks: {
       beforeCreate: (item) => {

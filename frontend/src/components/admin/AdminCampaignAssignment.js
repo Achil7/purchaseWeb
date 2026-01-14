@@ -7,8 +7,6 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SaveIcon from '@mui/icons-material/Save';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import GroupAddIcon from '@mui/icons-material/GroupAdd';
@@ -314,8 +312,6 @@ function AdminCampaignAssignment() {
                   진행자 배정 (필수)
                 </TableCell>
                 <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa', width: '100px' }}>상태</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#fff3e0', width: '120px' }}>입금관리</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#e3f2fd', width: '120px' }}>송장관리</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -436,44 +432,12 @@ function AdminCampaignAssignment() {
                           <Chip label="미배정" color="default" size="small" variant="outlined" />
                         )}
                       </TableCell>
-                      <TableCell align="center">
-                        {isAssigned && !hasPendingChange ? (
-                          <Button
-                            variant="contained"
-                            size="small"
-                            color="warning"
-                            startIcon={<OpenInNewIcon />}
-                            onClick={() => navigate(`/admin/campaigns/${campaignId}/item/${item.id}?dayGroup=${dayGroup}`)}
-                            sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}
-                          >
-                            입금관리
-                          </Button>
-                        ) : (
-                          <Typography variant="caption" color="text.disabled">-</Typography>
-                        )}
-                      </TableCell>
-                      <TableCell align="center">
-                        {assignedOperator ? (
-                          <Button
-                            variant="contained"
-                            size="small"
-                            color="primary"
-                            startIcon={<LocalShippingIcon />}
-                            onClick={() => navigate(`/admin/campaigns/${campaignId}/item/${item.id}/shipping?dayGroup=${dayGroup}`)}
-                            sx={{ fontWeight: 'bold', fontSize: '0.7rem' }}
-                          >
-                            송장관리
-                          </Button>
-                        ) : (
-                          <Typography variant="caption" color="text.disabled">-</Typography>
-                        )}
-                      </TableCell>
                     </TableRow>
                   );
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 5, color: '#999' }}>
+                  <TableCell colSpan={5} align="center" sx={{ py: 5, color: '#999' }}>
                     등록된 제품이 없습니다. 영업사가 캠페인에서 제품을 등록하면 여기에 표시됩니다.
                   </TableCell>
                 </TableRow>

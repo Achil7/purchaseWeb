@@ -1,5 +1,6 @@
 const app = require('./src/app');
 const { sequelize } = require('./src/models');
+const { startTrashCleanupScheduler } = require('./src/schedulers/trashCleanup');
 
 const PORT = process.env.PORT || 5000;
 
@@ -20,6 +21,9 @@ sequelize
       console.log(`🚀 Server is running on port ${PORT}`);
       console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🔗 API URL: http://localhost:${PORT}/api`);
+
+      // 휴지통 자동 정리 스케줄러 시작
+      startTrashCleanupScheduler();
     });
   })
   .catch((err) => {

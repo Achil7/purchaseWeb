@@ -53,6 +53,7 @@ app.use('/api/memos', require('./routes/memos'));
 app.use('/api/monthly-brands', require('./routes/monthlyBrands'));
 app.use('/api/item-slots', require('./routes/itemSlots'));
 app.use('/api/sheet-memos', require('./routes/sheetMemos'));
+app.use('/api/trash', require('./routes/trash'));
 
 // Serve static files from React build (production)
 if (process.env.NODE_ENV === 'production') {

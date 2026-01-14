@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
-  Chip, CircularProgress, Alert, TextField, IconButton, Switch, Dialog, DialogContent, Button
+  Chip, CircularProgress, Alert, TextField, IconButton, Switch, Dialog, DialogContent, Button, Tooltip
 } from '@mui/material';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -12,7 +12,9 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
+import DownloadIcon from '@mui/icons-material/Download';
 import { buyerService } from '../../services';
+import { downloadExcel, convertDailyPaymentsToExcelData } from '../../utils/excelExport';
 
 // UTC+9 (Asia/Seoul) 오늘 날짜 가져오기
 const getKoreanToday = () => {
@@ -86,6 +88,28 @@ function AdminDailyPayments() {
     setSelectedDate(getKoreanToday());
   };
 
+  // 엑셀 다운로드 핸들러
+  const handleDownloadExcel = useCallback(() => {
+    const excelData = convertDailyPaymentsToExcelData(buyers);
+    const year = selectedDate.getFullYear();
+    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+    const day = String(selectedDate.getDate()).padStart(2, '0');
+    const dateStr = `${year}${month}${day}`;
+    downloadExcel(excelData, `daily_payments_${dateStr}`, '일별입금관리');
+  }, [buyers, selectedDate]);
+
+  // 한국 시간 포맷 (YYMMDD)
+  const formatKoreanDate = (dateStr) => {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    // UTC를 KST로 변환
+    const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+    const yy = String(kstDate.getUTCFullYear()).slice(-2);
+    const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(kstDate.getUTCDate()).padStart(2, '0');
+    return `${yy}${mm}${dd}`;
+  };
+
   // 입금확인 토글
   const handlePaymentToggle = async (buyerId, currentStatus) => {
     const newStatus = currentStatus === 'completed' ? 'pending' : 'completed';
@@ -93,10 +117,11 @@ function AdminDailyPayments() {
 
     try {
       await buyerService.confirmPayment(buyerId, newStatus);
-      // 로컬 상태만 업데이트
+      // 로컬 상태만 업데이트 - 입금 완료 시 현재 시간 저장
+      const now = newStatus === 'completed' ? new Date().toISOString() : null;
       setBuyers(prev => prev.map(buyer =>
         buyer.id === buyerId
-          ? { ...buyer, payment_status: newStatus }
+          ? { ...buyer, payment_status: newStatus, payment_confirmed_at: now }
           : buyer
       ));
     } catch (err) {
@@ -131,10 +156,12 @@ function AdminDailyPayments() {
       await Promise.all(
         pendingBuyers.map(buyer => buyerService.confirmPayment(buyer.id, 'completed'))
       );
-      // 로컬 상태 업데이트
+      // 로컬 상태 업데이트 - 입금 완료 시 현재 시간 저장
+      const now = new Date().toISOString();
       setBuyers(prev => prev.map(buyer => ({
         ...buyer,
-        payment_status: 'completed'
+        payment_status: 'completed',
+        payment_confirmed_at: buyer.payment_status !== 'completed' ? now : buyer.payment_confirmed_at
       })));
     } catch (err) {
       console.error('Failed to bulk update payment status:', err);
@@ -163,10 +190,11 @@ function AdminDailyPayments() {
       await Promise.all(
         completedBuyers.map(buyer => buyerService.confirmPayment(buyer.id, 'pending'))
       );
-      // 로컬 상태 업데이트
+      // 로컬 상태 업데이트 - 입금 취소 시 날짜 초기화
       setBuyers(prev => prev.map(buyer => ({
         ...buyer,
-        payment_status: 'pending'
+        payment_status: 'pending',
+        payment_confirmed_at: null
       })));
     } catch (err) {
       console.error('Failed to bulk cancel payment status:', err);
@@ -272,6 +300,19 @@ function AdminDailyPayments() {
                 >
                   전체 입금취소
                 </Button>
+                <Tooltip title="엑셀 다운로드">
+                  <span>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<DownloadIcon />}
+                      onClick={handleDownloadExcel}
+                      disabled={buyers.length === 0}
+                    >
+                      엑셀
+                    </Button>
+                  </span>
+                </Tooltip>
               </Box>
               {/* 금액 통계 */}
               <Box sx={{ textAlign: 'right' }}>
@@ -317,7 +358,7 @@ function AdminDailyPayments() {
                   {buyers.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={9} align="center" sx={{ py: 4, color: '#999' }}>
-                        해당 날짜에 등록된 구매자가 없습니다.
+                        해당 날짜에 리뷰샷을 업로드한 구매자가 없습니다.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -356,7 +397,12 @@ function AdminDailyPayments() {
                               size="small"
                             />
                             {buyer.payment_status === 'completed' ? (
-                              <Chip label="완료" color="primary" size="small" sx={{ fontWeight: 'bold', minWidth: 50 }} />
+                              <Chip
+                                label={buyer.payment_confirmed_at ? formatKoreanDate(buyer.payment_confirmed_at) : '완료'}
+                                color="primary"
+                                size="small"
+                                sx={{ fontWeight: 'bold', minWidth: 60 }}
+                              />
                             ) : (
                               <Chip label="대기" size="small" variant="outlined" sx={{ color: '#999', minWidth: 50 }} />
                             )}

@@ -829,9 +829,9 @@ exports.toggleShippingDelayed = async (req, res) => {
 };
 
 /**
- * 일별 구매자 조회 (구매자 등록일 기준, Asia/Seoul)
+ * 일별 구매자 조회 (리뷰샷 업로드 날짜 기준, Asia/Seoul)
  * GET /api/buyers/by-date?year=2025&month=12&day=13
- * 리뷰샷 없는 구매자도 포함하여 조회
+ * 해당 날짜에 리뷰샷을 업로드한 구매자만 조회 (연월브랜드/캠페인/제품 무관)
  */
 exports.getBuyersByDate = async (req, res) => {
   try {
@@ -860,20 +860,23 @@ exports.getBuyersByDate = async (req, res) => {
     const startDateKST = new Date(Date.UTC(yearInt, monthInt - 1, dayInt, -9, 0, 0));
     const endDateKST = new Date(Date.UTC(yearInt, monthInt - 1, dayInt + 1, -9, 0, 0));
 
-    // 해당 일에 등록된 구매자 조회 (리뷰샷 없어도 포함)
+    // 해당 날짜에 리뷰샷(이미지)을 업로드한 구매자만 조회
+    // Image.created_at이 해당 날짜에 속하는 구매자
     const buyers = await Buyer.findAll({
       where: {
-        is_temporary: false,
-        created_at: {
-          [Op.gte]: startDateKST,
-          [Op.lt]: endDateKST
-        }
+        is_temporary: false
       },
       include: [
         {
           model: Image,
           as: 'images',
-          required: false,  // 이미지 없어도 조회
+          where: {
+            created_at: {
+              [Op.gte]: startDateKST,
+              [Op.lt]: endDateKST
+            }
+          },
+          required: true,  // INNER JOIN - 해당 날짜에 이미지를 업로드한 구매자만
           attributes: ['id', 's3_url', 'file_name', 'created_at']
         },
         {
@@ -889,7 +892,7 @@ exports.getBuyersByDate = async (req, res) => {
           ]
         }
       ],
-      order: [['created_at', 'DESC']]
+      order: [[{ model: Image, as: 'images' }, 'created_at', 'DESC']]
     });
 
     // 총 금액 계산
@@ -907,6 +910,7 @@ exports.getBuyersByDate = async (req, res) => {
       tracking_number: buyer.tracking_number,
       courier_company: buyer.courier_company,
       payment_status: buyer.payment_status,
+      payment_confirmed_at: buyer.payment_confirmed_at,  // 입금확인 날짜 추가
       created_at: buyer.created_at,
       image_uploaded_at: buyer.images && buyer.images.length > 0 ? buyer.images[0].created_at : null,
       image_url: buyer.images && buyer.images.length > 0 ? buyer.images[0].s3_url : null,

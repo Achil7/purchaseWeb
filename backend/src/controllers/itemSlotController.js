@@ -234,14 +234,14 @@ exports.getSlotsByCampaign = async (req, res) => {
     const itemIds = items.map(i => i.id);
 
     // 구매자 include 옵션
-    // Brand 뷰: 제한된 필드 (주소, 연락처, 계좌 제외)
+    // Brand 뷰: 제한된 필드 (연락처, 계좌 제외) - 주소는 포함
     // Sales 뷰: 모든 필드 + 이미지 (진행자와 동일하게 연동)
     const buyerInclude = {
       model: Buyer,
       as: 'buyer',
       attributes: isBrandView
-        ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'amount', 'payment_status', 'is_temporary', 'tracking_number']
-        : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'payment_status', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company'],
+        ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number']
+        : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company'],
       include: [
         {
           model: Image,
@@ -420,7 +420,7 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
           as: 'buyer',
           attributes: [
             'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
-            'contact', 'address', 'account_info', 'amount', 'payment_status', 'notes',
+            'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes',
             'tracking_number', 'shipping_delayed', 'courier_company'
           ],
           include: [

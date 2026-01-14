@@ -10,13 +10,15 @@ import { getMyBrands, getSalesUsers, getBrandsBySalesId } from '../../services/u
 import { monthlyBrandService } from '../../services';
 import { useAuth } from '../../context/AuthContext';
 
-function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialData = null, preSelectedMonthlyBrandId = null }) {
+function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialData = null, preSelectedMonthlyBrandId = null, viewAsUserId = null }) {
   const { user } = useAuth();
 
   // 오늘 날짜를 기본값으로 설정
   const today = new Date().toISOString().split('T')[0];
 
   const isAdmin = user?.role === 'admin';
+  // Admin이 영업사 대시보드를 보고 있을 때는 해당 영업사로 생성
+  const effectiveUserId = viewAsUserId || user?.id;
 
   const emptyFormState = {
     name: '',  // 캠페인명 (영업사 직접 입력)
@@ -202,8 +204,8 @@ function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialDa
       name: formData.name.trim(),
       brand_id: brandId,
       monthly_brand_id: monthlyBrandId,
-      // Admin인 경우 선택한 영업사 ID, 아니면 자기 자신
-      created_by: isAdmin ? salesId : user?.id
+      // viewAsUserId가 있으면 해당 영업사로, Admin이 직접 선택한 경우 salesId, 그 외 자기 자신
+      created_by: viewAsUserId || (isAdmin ? salesId : user?.id)
     };
 
     // sales_id는 서버에 보낼 필요 없음

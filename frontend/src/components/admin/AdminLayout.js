@@ -11,6 +11,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import AdminUserCreate from './AdminUserCreate';
@@ -139,6 +140,16 @@ function AdminLayout() {
             마진 현황
           </Button>
 
+          {/* 휴지통 버튼 */}
+          <Button
+            color="inherit"
+            startIcon={<DeleteIcon />}
+            onClick={() => navigate('/admin/trash')}
+            sx={{ mr: 2 }}
+          >
+            휴지통
+          </Button>
+
           {/* 사용자 등록 버튼 */}
           <Button
             variant="contained"
@@ -223,7 +234,7 @@ function AdminLayout() {
               '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' }
             }}
           >
-            <Avatar sx={{ width: 32, height: 32, bgcolor: '#1976d2' }}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: '#2c387e' }}>
               {user?.username?.charAt(0)?.toUpperCase() || 'A'}
             </Avatar>
             <Typography variant="subtitle2">{user?.name || '관리자'}</Typography>

@@ -40,10 +40,10 @@ router.delete('/:id', authenticate, campaignController.deleteCampaign);
 
 /**
  * @route   DELETE /api/campaigns/:id/cascade
- * @desc    캠페인 강제 삭제 (Admin 전용) - 모든 관련 데이터 cascading delete
- * @access  Private (Admin only)
+ * @desc    캠페인 강제 삭제 - 모든 관련 데이터 cascading delete
+ * @access  Private (Admin, Sales - 자신의 캠페인, Operator - 배정받은 캠페인)
  */
-router.delete('/:id/cascade', authenticate, authorize(['admin']), campaignController.deleteCampaignCascade);
+router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operator']), campaignController.deleteCampaignCascade);
 
 /**
  * @route   PATCH /api/campaigns/:id/hide

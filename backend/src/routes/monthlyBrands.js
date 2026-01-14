@@ -96,8 +96,8 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
  */
 router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
   try {
+    // Admin용: 숨긴 항목도 모두 조회 (숨김 관리 기능 위해)
     const monthlyBrands = await MonthlyBrand.findAll({
-      where: { is_hidden: false },
       include: [
         {
           model: User,
@@ -112,7 +112,7 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
         {
           model: Campaign,
           as: 'campaigns',
-          attributes: ['id', 'name', 'status', 'registered_at', 'created_at'],
+          attributes: ['id', 'name', 'status', 'registered_at', 'created_at', 'is_hidden'],
           include: [
             {
               model: User,
@@ -573,10 +573,10 @@ router.delete('/:id', authenticate, authorize(['sales', 'admin']), async (req, r
 
 /**
  * @route   DELETE /api/monthly-brands/:id/cascade
- * @desc    연월브랜드 강제 삭제 (Admin 전용) - 모든 관련 데이터 cascading delete
- * @access  Private (Admin only)
+ * @desc    연월브랜드 강제 삭제 - 모든 관련 데이터 cascading delete
+ * @access  Private (Admin, Sales - 자신의 연월브랜드, Operator - 배정받은 연월브랜드)
  */
-router.delete('/:id/cascade', authenticate, authorize(['admin']), async (req, res) => {
+router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operator']), async (req, res) => {
   const sequelize = require('../models').sequelize;
   const { ItemSlot, CampaignOperator } = require('../models');
 
@@ -584,6 +584,8 @@ router.delete('/:id/cascade', authenticate, authorize(['admin']), async (req, re
 
   try {
     const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
 
     const monthlyBrand = await MonthlyBrand.findByPk(id, {
       include: [
@@ -610,6 +612,43 @@ router.delete('/:id/cascade', authenticate, authorize(['admin']), async (req, re
         success: false,
         message: '연월브랜드를 찾을 수 없습니다'
       });
+    }
+
+    // 권한 확인: admin은 모두 삭제 가능, sales는 자신이 만든 연월브랜드, operator는 배정받은 연월브랜드
+    if (userRole !== 'admin') {
+      if (userRole === 'sales' && monthlyBrand.created_by !== userId) {
+        await transaction.rollback();
+        return res.status(403).json({
+          success: false,
+          message: '자신이 생성한 연월브랜드만 삭제할 수 있습니다'
+        });
+      }
+      if (userRole === 'operator') {
+        // operator는 배정받은 연월브랜드만 삭제 가능 (연월브랜드 내 캠페인에 배정되어 있는지 확인)
+        const campaignIds = (monthlyBrand.campaigns || []).map(c => c.id);
+        if (campaignIds.length > 0) {
+          const isAssigned = await CampaignOperator.findOne({
+            where: {
+              campaign_id: campaignIds,
+              operator_id: userId
+            }
+          });
+          if (!isAssigned) {
+            await transaction.rollback();
+            return res.status(403).json({
+              success: false,
+              message: '배정받은 연월브랜드만 삭제할 수 있습니다'
+            });
+          }
+        } else {
+          // 캠페인이 없는 연월브랜드는 operator가 삭제 불가
+          await transaction.rollback();
+          return res.status(403).json({
+            success: false,
+            message: '배정받은 연월브랜드만 삭제할 수 있습니다'
+          });
+        }
+      }
     }
 
     // 통계 수집
@@ -676,7 +715,7 @@ router.delete('/:id/cascade', authenticate, authorize(['admin']), async (req, re
 
     res.json({
       success: true,
-      message: '연월브랜드 및 모든 관련 데이터가 삭제되었습니다',
+      message: '연월브랜드가 휴지통으로 이동되었습니다 (30일 후 영구 삭제)',
       data: {
         monthly_brand_name: monthlyBrand.name,
         deleted: deletedStats

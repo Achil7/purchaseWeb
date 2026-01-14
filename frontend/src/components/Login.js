@@ -90,7 +90,7 @@ const Login = () => {
       sx={{
         minHeight: '100vh',
         display: 'flex',
-        bgcolor: '#f0f2f5'
+        bgcolor: '#f5f6fa'  // Admin 테마 기반 연한 배경
       }}
     >
       {/* 왼쪽: 배너 영역 */}
@@ -101,7 +101,7 @@ const Login = () => {
           flexDirection: 'column',
           justifyContent: 'center',
           alignItems: 'center',
-          bgcolor: 'primary.main',
+          bgcolor: '#2c387e',  // Admin 상단바 색상
           color: 'white',
           p: 4,
           position: 'relative',
@@ -115,7 +115,7 @@ const Login = () => {
             width: 300,
             height: 300,
             borderRadius: '50%',
-            bgcolor: 'rgba(255,255,255,0.1)',
+            bgcolor: 'rgba(255, 255, 255, 0.1)',  // Admin 테마 기반
             top: -100,
             left: -100
           }}
@@ -126,7 +126,7 @@ const Login = () => {
             width: 200,
             height: 200,
             borderRadius: '50%',
-            bgcolor: 'rgba(255,255,255,0.1)',
+            bgcolor: 'rgba(255, 255, 255, 0.1)',  // Admin 테마 기반
             bottom: -50,
             right: -50
           }}
@@ -201,7 +201,7 @@ const Login = () => {
         <Card sx={{ maxWidth: 400, width: '100%', borderRadius: 3, boxShadow: 3 }}>
           <CardContent sx={{ p: 4 }}>
             <Box sx={{ textAlign: 'center', mb: 4 }}>
-              <Typography variant="h4" fontWeight="bold" color="primary" gutterBottom>
+              <Typography variant="h4" fontWeight="bold" sx={{ color: '#2c387e' }} gutterBottom>
                 {loginSettings.login_title || 'CampManager'}
               </Typography>
               <Typography variant="body2" color="text.secondary">
@@ -257,7 +257,7 @@ const Login = () => {
                 size="large"
                 disabled={loading || !username || !password}
                 startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <LoginIcon />}
-                sx={{ py: 1.5, borderRadius: 2 }}
+                sx={{ py: 1.5, borderRadius: 2, bgcolor: '#2c387e', '&:hover': { bgcolor: '#3f51b5' } }}
               >
                 {loading ? '로그인 중...' : '로그인'}
               </Button>

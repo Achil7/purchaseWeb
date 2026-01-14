@@ -18,6 +18,8 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import RestoreIcon from '@mui/icons-material/Restore';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import BrandItemSheet from './BrandItemSheet';
@@ -38,8 +40,16 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const [monthlyBrands, setMonthlyBrands] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 확장된 연월브랜드 상태
-  const [expandedMonthlyBrands, setExpandedMonthlyBrands] = useState({});
+  // 확장된 연월브랜드 상태 - localStorage에서 복원
+  const EXPANDED_MB_KEY = 'brand_expanded_monthly_brands';
+  const [expandedMonthlyBrands, setExpandedMonthlyBrands] = useState(() => {
+    try {
+      const saved = localStorage.getItem(EXPANDED_MB_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   // 선택된 캠페인 (메인 영역에 시트 표시용)
   const [selectedCampaign, setSelectedCampaign] = useState(null);
@@ -151,17 +161,54 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 연월브랜드 확장/축소 토글
   const handleMonthlyBrandToggle = (monthlyBrandId) => {
-    setExpandedMonthlyBrands(prev => ({
-      ...prev,
-      [monthlyBrandId]: !prev[monthlyBrandId]
-    }));
+    setExpandedMonthlyBrands(prev => {
+      const newState = {
+        ...prev,
+        [monthlyBrandId]: !prev[monthlyBrandId]
+      };
+      // localStorage에 저장
+      try {
+        localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+      } catch (e) {
+        console.error('Failed to save expanded state:', e);
+      }
+      return newState;
+    });
+  };
+
+  // 모든 연월브랜드 펼치기
+  const handleExpandAllMonthlyBrands = () => {
+    const newState = {};
+    monthlyBrands.forEach(mb => {
+      newState[mb.id] = true;
+    });
+    setExpandedMonthlyBrands(newState);
+    try {
+      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+    } catch (e) {
+      console.error('Failed to save expanded state:', e);
+    }
+  };
+
+  // 모든 연월브랜드 접기
+  const handleCollapseAllMonthlyBrands = () => {
+    const newState = {};
+    monthlyBrands.forEach(mb => {
+      newState[mb.id] = false;
+    });
+    setExpandedMonthlyBrands(newState);
+    try {
+      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+    } catch (e) {
+      console.error('Failed to save expanded state:', e);
+    }
   };
 
   // 캠페인 클릭 - 메인 영역에 시트 표시
   const handleCampaignClick = (campaign) => {
     setSelectedCampaign(campaign);
-    // 다른 페이지에 있을 때 기본 라우트로 이동
-    if (location.pathname !== basePathOnly && location.pathname !== `${basePathOnly}/`) {
+    // Embedded 모드가 아닐 때만 네비게이션 처리
+    if (!isEmbedded && location.pathname !== basePathOnly && location.pathname !== `${basePathOnly}/`) {
       navigate(basePath);
     }
   };
@@ -258,10 +305,10 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const isDefaultRoute = isEmbedded ? true : (location.pathname === basePathOnly || location.pathname === `${basePathOnly}/`);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: '#f5f5f5', overflow: 'hidden' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: isEmbedded ? '100%' : '100vh', bgcolor: '#f5f5f5', overflow: 'hidden' }}>
 
       {/* 헤더 - isEmbedded일 때는 relative 포지션 */}
-      <AppBar position={isEmbedded ? "relative" : "fixed"} sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, bgcolor: isAdminMode ? '#2c387e' : '#4a148c', flexShrink: 0 }}>
+      <AppBar position={isEmbedded ? "relative" : "fixed"} sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, bgcolor: '#2c387e', flexShrink: 0 }}>
         <Toolbar>
           {/* 왼쪽: 아이콘 및 타이틀 */}
           <AssignmentIcon sx={{ mr: 2 }} />
@@ -345,7 +392,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' }
             }}
           >
-            <Avatar sx={{ width: 32, height: 32, bgcolor: 'purple' }}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: '#2c387e' }}>
               {user?.username?.charAt(0)?.toUpperCase() || 'B'}
             </Avatar>
             <Typography variant="subtitle2">{user?.name || '브랜드사'}</Typography>
@@ -359,13 +406,13 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       </AppBar>
 
       {/* 메인 컨테이너 - 사이드바 + 콘텐츠 */}
-      <Box sx={{ display: 'flex', flex: 1, pt: isEmbedded ? 0 : 8, overflow: 'hidden' }}>
+      <Box sx={{ display: 'flex', flex: 1, pt: isEmbedded ? 0 : 8, overflow: 'hidden', minHeight: 0 }}>
       {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록 */}
       <Paper
         sx={{
           width: sidebarCollapsed ? 40 : DRAWER_WIDTH,
           flexShrink: 0,
-          height: 'calc(100vh - 64px)',
+          height: isEmbedded ? '100%' : 'calc(100vh - 64px)',
           display: 'flex',
           flexDirection: 'column',
           borderRadius: 0,
@@ -375,17 +422,33 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       >
         {!sidebarCollapsed && (
           <Box sx={{ flex: 1, overflow: 'auto', pb: 1 }}>
-            <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#ede7f6', borderBottom: '1px solid #e0e0e0' }}>
+            <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#e8eaf6', borderBottom: '1px solid #e0e0e0' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <DateRangeIcon fontSize="small" />
                   {showHidden ? '숨긴 항목' : '내 캠페인 (연월브랜드)'}
                 </Typography>
-                <Tooltip title={showHidden ? '일반 목록 보기' : '숨긴 항목 보기'}>
-                  <IconButton size="small" onClick={() => setShowHidden(!showHidden)} sx={{ p: 0.5 }} color={showHidden ? 'warning' : 'default'}>
-                    {showHidden ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  {!showHidden && (
+                    <>
+                      <Tooltip title="모두 펼치기">
+                        <IconButton size="small" onClick={handleExpandAllMonthlyBrands} sx={{ p: 0.5 }}>
+                          <UnfoldMoreIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="모두 접기">
+                        <IconButton size="small" onClick={handleCollapseAllMonthlyBrands} sx={{ p: 0.5 }}>
+                          <UnfoldLessIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  )}
+                  <Tooltip title={showHidden ? '일반 목록 보기' : '숨긴 항목 보기'}>
+                    <IconButton size="small" onClick={() => setShowHidden(!showHidden)} sx={{ p: 0.5 }} color={showHidden ? 'warning' : 'default'}>
+                      {showHidden ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </Box>
               <Typography variant="caption" color="text.secondary">
                 {showHidden ? '숨긴 연월브랜드/캠페인을 복구할 수 있습니다' : '캠페인 클릭 시 리뷰 현황이 표시됩니다'}
@@ -423,7 +486,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                         <ListItemButton
                           onClick={() => handleMonthlyBrandToggle(monthlyBrand.id)}
                           sx={{
-                            bgcolor: monthlyBrand.is_hidden ? '#fff3e0' : expandedMonthlyBrands[monthlyBrand.id] ? '#ede7f6' : 'inherit',
+                            bgcolor: monthlyBrand.is_hidden ? '#fff3e0' : expandedMonthlyBrands[monthlyBrand.id] ? '#e8eaf6' : 'inherit',
                             borderBottom: '1px solid #f0f0f0',
                             py: 0.5
                           }}
@@ -469,9 +532,9 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                     onClick={() => handleCampaignClick(campaign)}
                                     sx={{
                                       pl: 4, py: 0.5,
-                                      bgcolor: isSelected ? '#d1c4e9' : 'inherit',
-                                      borderLeft: isSelected ? '3px solid #4a148c' : '3px solid transparent',
-                                      '&:hover': { bgcolor: isSelected ? '#d1c4e9' : '#f5f5f5' }
+                                      bgcolor: isSelected ? '#c5cae9' : 'inherit',
+                                      borderLeft: isSelected ? '3px solid #2c387e' : '3px solid transparent',
+                                      '&:hover': { bgcolor: isSelected ? '#c5cae9' : '#f5f5f5' }
                                     }}
                                   >
                                     <ListItemIcon sx={{ minWidth: 24 }}>
@@ -485,7 +548,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                           </Typography>
                                           {stats.isCompleted ? (
                                             <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalBuyerCount}`}>
-                                              <CheckCircleIcon sx={{ fontSize: 16, color: '#4caf50' }} />
+                                              <CheckCircleIcon sx={{ fontSize: 16, color: '#2c387e' }} />
                                             </Tooltip>
                                           ) : stats.totalBuyerCount > 0 ? (
                                             <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalBuyerCount}`}>
@@ -533,14 +596,14 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           sx={{
             flexShrink: 0,
-            bgcolor: '#4a148c',
+            bgcolor: '#2c387e',
             color: 'white',
             height: 36,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            '&:hover': { bgcolor: '#38006b' }
+            '&:hover': { bgcolor: '#3f51b5' }
           }}
         >
           {sidebarCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
@@ -564,7 +627,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             {/* 선택된 캠페인 헤더 */}
             <Box sx={{ mb: 1, flexShrink: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Typography variant="h6" fontWeight="bold" color="#4a148c">
+                <Typography variant="h6" fontWeight="bold" color="#2c387e">
                   {selectedCampaign.name}
                 </Typography>
                 <Chip
@@ -582,6 +645,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             <Box sx={{ flex: 1, overflow: 'hidden' }}>
               <BrandItemSheet
                 campaignId={selectedCampaign.id}
+                campaignName={selectedCampaign.name}
                 viewAsUserId={viewAsUserId}
               />
             </Box>

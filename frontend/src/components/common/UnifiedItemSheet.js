@@ -920,8 +920,8 @@ function UnifiedItemSheet({
     }).length;
   }, [filteredRows, totalBuyerCount, tableData]);
 
-  // 역할에 따른 헤더 색상
-  const headerColor = effectiveRole === 'operator' ? '#00897b' : '#1976d2';
+  // 역할에 따른 헤더 색상 (모두 Admin 색상으로 통일)
+  const headerColor = '#2c387e';
 
   if (loading) {
     return (
@@ -1117,7 +1117,6 @@ function UnifiedItemSheet({
               }
             }}
             className="htCenter"
-            columnSorting={true}
             autoWrapRow={false}
             autoWrapCol={false}
             selectionMode="multiple"

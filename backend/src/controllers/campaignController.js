@@ -369,6 +369,8 @@ exports.deleteCampaignCascade = async (req, res) => {
 
   try {
     const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
 
     const campaign = await Campaign.findByPk(id, {
       include: [
@@ -389,6 +391,30 @@ exports.deleteCampaignCascade = async (req, res) => {
         success: false,
         message: '캠페인을 찾을 수 없습니다'
       });
+    }
+
+    // 권한 확인: admin은 모두 삭제 가능, sales는 자신이 만든 캠페인, operator는 배정받은 캠페인
+    if (userRole !== 'admin') {
+      if (userRole === 'sales' && campaign.created_by !== userId) {
+        await transaction.rollback();
+        return res.status(403).json({
+          success: false,
+          message: '자신이 생성한 캠페인만 삭제할 수 있습니다'
+        });
+      }
+      if (userRole === 'operator') {
+        // operator는 배정받은 캠페인만 삭제 가능
+        const isAssigned = await CampaignOperator.findOne({
+          where: { campaign_id: id, operator_id: userId }
+        });
+        if (!isAssigned) {
+          await transaction.rollback();
+          return res.status(403).json({
+            success: false,
+            message: '배정받은 캠페인만 삭제할 수 있습니다'
+          });
+        }
+      }
     }
 
     // 통계 수집
@@ -447,7 +473,7 @@ exports.deleteCampaignCascade = async (req, res) => {
 
     res.json({
       success: true,
-      message: '캠페인 및 모든 관련 데이터가 삭제되었습니다',
+      message: '캠페인이 휴지통으로 이동되었습니다 (30일 후 영구 삭제)',
       data: {
         campaign_name: campaign.name,
         deleted: deletedStats

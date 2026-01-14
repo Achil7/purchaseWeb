@@ -8,4 +8,5 @@ export { default as imageService } from './imageService';
 export { default as notificationService } from './notificationService';
 export { default as settingService } from './settingService';
 export { default as monthlyBrandService } from './monthlyBrandService';
+export { default as trashService } from './trashService';
 export * as userService from './userService';

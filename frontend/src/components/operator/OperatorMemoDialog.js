@@ -123,7 +123,7 @@ function OperatorMemoDialog({ open, onClose }) {
           sx: { minHeight: '60vh' }
         }}
       >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#00897b', color: 'white' }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#2c387e', color: 'white' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <NoteAltIcon />
             <Typography variant="h6" fontWeight="bold">
@@ -196,7 +196,7 @@ function OperatorMemoDialog({ open, onClose }) {
               startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
               onClick={handleSave}
               disabled={saving || !hasChanges}
-              sx={{ bgcolor: '#00897b', '&:hover': { bgcolor: '#00695c' } }}
+              sx={{ bgcolor: '#2c387e', '&:hover': { bgcolor: '#3f51b5' } }}
             >
               저장
             </Button>

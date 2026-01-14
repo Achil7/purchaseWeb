@@ -11,18 +11,9 @@ import BrandLayout from '../brand/BrandLayout';
  * 진행자/영업사/브랜드사 각각의 실제 페이지를 그대로 렌더링
  */
 function UserDashboardViewer({ user, roleLabels }) {
-  // 역할별 테마 색상
+  // 역할별 테마 색상 (모두 Admin 색상으로 통일)
   const getRoleTheme = () => {
-    switch (user?.role) {
-      case 'operator':
-        return { primaryColor: '#00897b' };
-      case 'sales':
-        return { primaryColor: '#1976d2' };
-      case 'brand':
-        return { primaryColor: '#7b1fa2' };
-      default:
-        return { primaryColor: '#757575' };
-    }
+    return { primaryColor: '#2c387e' };  // Admin 상단바 색상
   };
 
   const theme = getRoleTheme();
@@ -102,8 +93,8 @@ function UserDashboardViewer({ user, roleLabels }) {
         </CardContent>
       </Card>
 
-      {/* 역할별 실제 페이지 - 높이를 채우도록 (calc로 헤더 높이 제외) */}
-      <Box sx={{ height: 'calc(100% - 50px)', overflow: 'hidden' }}>
+      {/* 역할별 실제 페이지 - flex로 남은 공간 모두 사용 */}
+      <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
         {renderRolePage()}
       </Box>
     </Box>

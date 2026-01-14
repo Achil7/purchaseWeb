@@ -102,13 +102,16 @@ module.exports = (sequelize, DataTypes) => {
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
+    paranoid: true,
+    deletedAt: 'deleted_at',
     indexes: [
       { fields: ['item_id'] },
       { fields: ['order_number'] },
       { fields: ['payment_status'] },
       { fields: ['account_normalized'] },
       { fields: ['is_temporary'] },
-      { fields: ['shipping_delayed'] }
+      { fields: ['shipping_delayed'] },
+      { fields: ['deleted_at'] }
     ]
   });
 

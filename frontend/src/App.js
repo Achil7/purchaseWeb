@@ -10,14 +10,13 @@ import Login from './components/Login';
 // --- 페이지들 ---
 import AdminLayout from './components/admin/AdminLayout';
 import AdminCampaignTable from './components/admin/AdminCampaignTable';
-import AdminBuyerTable from './components/admin/AdminBuyerTable';
-import AdminShippingTable from './components/admin/AdminShippingTable';
 import AdminMonthlyBuyers from './components/admin/AdminMonthlyBuyers';
 import AdminDailyPayments from './components/admin/AdminDailyPayments';
 import AdminTrackingManagement from './components/admin/AdminTrackingManagement';
 import AdminControlTower from './components/admin/AdminControlTower';
 import AdminMarginDashboard from './components/admin/AdminMarginDashboard';
 import AdminCampaignAssignment from './components/admin/AdminCampaignAssignment';
+import AdminTrash from './components/admin/AdminTrash';
 
 // --- 영업사 관련 페이지 ---
 import SalesLayout from './components/sales/SalesLayout';
@@ -93,13 +92,12 @@ function App() {
             <Route path="control-tower" element={<AdminControlTower />} />
             <Route path="campaigns" element={<AdminCampaignTable />} />
             <Route path="campaigns/:campaignId" element={<AdminCampaignTable />} />
-            <Route path="campaigns/:campaignId/item/:itemId" element={<AdminBuyerTable />} />
-            <Route path="campaigns/:campaignId/item/:itemId/shipping" element={<AdminShippingTable />} />
             <Route path="campaigns/:campaignId/assignment" element={<AdminCampaignAssignment />} />
             <Route path="daily-items" element={<AdminMonthlyBuyers />} />
             <Route path="daily-payments" element={<AdminDailyPayments />} />
             <Route path="tracking-management" element={<AdminTrackingManagement />} />
             <Route path="margin" element={<AdminMarginDashboard />} />
+            <Route path="trash" element={<AdminTrash />} />
           </Route>
 
           {/* Admin이 영업사 페이지를 그대로 볼 수 있는 라우트 (쿼리: ?userId=xxx) */}

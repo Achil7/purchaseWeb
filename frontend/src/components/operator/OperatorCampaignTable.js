@@ -7,7 +7,7 @@ function OperatorCampaignTable() {
   return (
     <Box>
       <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 3 }}>
-        <StoreIcon sx={{ fontSize: 64, color: '#00897b', mb: 2 }} />
+        <StoreIcon sx={{ fontSize: 64, color: '#2c387e', mb: 2 }} />
         <Typography variant="h5" fontWeight="bold" gutterBottom>
           캠페인을 선택해주세요
         </Typography>

@@ -691,6 +691,7 @@ exports.getMyMonthlyBrands = async (req, res) => {
         tempBuyerCount,
         reviewCompletedCount,
         totalPurchaseCount: item.total_purchase_count || 0,
+        courier_service_yn: item.courier_service_yn,  // 택배대행 여부
         assigned_at: assignment.assigned_at
       });
     }
@@ -1125,8 +1126,14 @@ exports.createItem = async (req, res) => {
     // ItemSlot 자동 생성 (total_purchase_count 개수만큼)
     // 일 구매건수 기준으로 day_group 설정, 그룹별로 upload_link_token 생성
     // 일 구매건수가 슬래시로 구분된 경우 (예: "6/6", "1/3/4/2") 파싱하여 처리
+    // 일 구매건수가 빈 값이면 총 구매건수와 동일하게 처리 (day_group 1개로 생성)
     const slotCount = total_purchase_count || 0;
-    const dailyCounts = parseDailyPurchaseCounts(daily_purchase_count);
+    let dailyCounts = parseDailyPurchaseCounts(daily_purchase_count);
+
+    // 일 구매건수가 없으면 총 구매건수를 하나의 그룹으로 처리
+    if (dailyCounts.length === 0 && slotCount > 0) {
+      dailyCounts = [slotCount];
+    }
 
     if (slotCount > 0) {
       const slots = [];
@@ -1255,13 +1262,19 @@ exports.createItemsBulk = async (req, res) => {
 
       // ItemSlot 자동 생성 (total_purchase_count 개수만큼)
       // 일 구매건수 슬래시 구분 방식으로 day_group 설정, 그룹별로 upload_link_token 생성
+      // 일 구매건수가 빈 값이면 총 구매건수와 동일하게 처리 (day_group 1개로 생성)
       const slotCount = itemData.total_purchase_count || 0;
       if (slotCount > 0) {
         const slots = [];
         let slotNumber = 1;
 
         // 슬래시 구분 방식으로 일 구매건수 파싱 (예: "6/6" -> [6, 6], "1/3/4/2" -> [1, 3, 4, 2])
-        const dailyCounts = parseDailyPurchaseCounts(itemData.daily_purchase_count);
+        let dailyCounts = parseDailyPurchaseCounts(itemData.daily_purchase_count);
+
+        // 일 구매건수가 없으면 총 구매건수를 하나의 그룹으로 처리
+        if (dailyCounts.length === 0) {
+          dailyCounts = [slotCount];
+        }
 
         if (dailyCounts.length > 0) {
           // 슬래시 구분 방식: 각 day_group별로 지정된 건수만큼 슬롯 생성
