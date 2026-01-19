@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Box, Typography, Paper, TextField, Button, Alert, CircularProgress,
-  Container, IconButton, ImageList, ImageListItem, ImageListItemBar
+  Container, IconButton, Checkbox, Table, TableBody, TableCell,
+  TableContainer, TableHead, TableRow
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloseIcon from '@mui/icons-material/Close';
+import SearchIcon from '@mui/icons-material/Search';
 import imageService from '../../services/imageService';
 
 function UploadPage({ isSlotUpload = false }) {
@@ -15,28 +17,33 @@ function UploadPage({ isSlotUpload = false }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [orderNumber, setOrderNumber] = useState('');
-  const [accountNumber, setAccountNumber] = useState('');
-  const [selectedFiles, setSelectedFiles] = useState([]);
-  const [previewUrls, setPreviewUrls] = useState([]);
+  // 1단계: 이름 검색
+  const [searchName, setSearchName] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchError, setSearchError] = useState(null);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // 2단계: 구매자 선택
+  const [selectedBuyers, setSelectedBuyers] = useState([]);
+
+  // 3단계: 이미지 업로드
+  const [buyerFiles, setBuyerFiles] = useState({}); // { buyerId: File }
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [uploadError, setUploadError] = useState(null);
-  const [isTemporaryBuyer, setIsTemporaryBuyer] = useState(false);
 
-  const fileInputRef = useRef(null);
+  const fileInputRefs = useRef({});
 
-  // 제품 정보 조회 (item token 또는 slot token)
+  // 제품 정보 조회
   useEffect(() => {
     const fetchItemInfo = async () => {
       try {
         setLoading(true);
         let response;
         if (isSlotUpload) {
-          // 슬롯 토큰으로 조회
           response = await imageService.getSlotByToken(token);
         } else {
-          // 기존 품목 토큰으로 조회
           response = await imageService.getItemByToken(token);
         }
         setItemInfo(response.data);
@@ -54,119 +61,128 @@ function UploadPage({ isSlotUpload = false }) {
     }
   }, [token, isSlotUpload]);
 
-  // 파일 선택 처리 (다중)
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-
-  const handleFileSelect = (files) => {
-    const fileArray = Array.from(files);
-    const validFiles = [];
-    const oversizedFiles = [];
-    const invalidTypeFiles = [];
-
-    fileArray.forEach(file => {
-      if (!file.type.startsWith('image/')) {
-        invalidTypeFiles.push(file.name);
-      } else if (file.size > MAX_FILE_SIZE) {
-        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-        oversizedFiles.push(`${file.name} (${sizeMB}MB)`);
-      } else {
-        validFiles.push(file);
-      }
-    });
-
-    // 에러 메시지 생성
-    const errorMessages = [];
-    if (oversizedFiles.length > 0) {
-      errorMessages.push(`파일 크기 초과 (10MB 이하만 가능):\n- ${oversizedFiles.join('\n- ')}`);
-    }
-    if (invalidTypeFiles.length > 0) {
-      errorMessages.push(`이미지 파일이 아님:\n- ${invalidTypeFiles.join('\n- ')}`);
-    }
-
-    if (errorMessages.length > 0) {
-      setUploadError(errorMessages.join('\n\n'));
-    }
-
-    if (validFiles.length === 0 && errorMessages.length > 0) {
+  // 이름으로 검색
+  const handleSearch = async () => {
+    if (!searchName.trim()) {
+      setSearchError('이름을 입력해주세요.');
       return;
     }
 
-    if (validFiles.length > 0) {
-      setSelectedFiles(prev => [...prev, ...validFiles]);
-      if (errorMessages.length === 0) {
-        setUploadError(null);
-      }
+    try {
+      setSearching(true);
+      setSearchError(null);
+      setHasSearched(true);
+      setSelectedBuyers([]);
+      setBuyerFiles({});
       setUploadSuccess(false);
 
-      // 미리보기 생성
-      validFiles.forEach(file => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          setPreviewUrls(prev => [...prev, e.target.result]);
-        };
-        reader.readAsDataURL(file);
-      });
+      const response = await imageService.searchBuyersByName(token, searchName.trim());
+      setSearchResults(response.data || []);
+
+      if (response.data?.length === 0) {
+        setSearchError(`"${searchName}"에 해당하는 주문을 찾을 수 없습니다.`);
+      }
+    } catch (err) {
+      console.error('Search failed:', err);
+      setSearchError(err.response?.data?.message || '검색에 실패했습니다.');
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
     }
   };
 
-  // input 파일 선택
-  const handleInputChange = (e) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      handleFileSelect(files);
+  // Enter 키로 검색
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleSearch();
     }
-    e.target.value = '';
   };
 
-  // 파일 삭제
-  const handleRemoveFile = (index) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
-    setPreviewUrls(prev => prev.filter((_, i) => i !== index));
+  // 구매자 선택/해제
+  const handleToggleBuyer = (buyer) => {
+    setSelectedBuyers(prev => {
+      const isSelected = prev.some(b => b.id === buyer.id);
+      if (isSelected) {
+        // 선택 해제 시 해당 파일도 제거
+        setBuyerFiles(prevFiles => {
+          const newFiles = { ...prevFiles };
+          delete newFiles[buyer.id];
+          return newFiles;
+        });
+        return prev.filter(b => b.id !== buyer.id);
+      } else {
+        return [...prev, buyer];
+      }
+    });
+    setUploadSuccess(false);
+    setUploadError(null);
   };
 
-  // Ctrl+V 붙여넣기
-  const handlePaste = useCallback((e) => {
+  // 현재 포커스된 구매자 ID (붙여넣기용)
+  const [focusedBuyerId, setFocusedBuyerId] = useState(null);
+
+  // 파일 선택
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+  const handleFileSelect = (buyerId, file) => {
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setUploadError(`${file.name}: 이미지 파일만 업로드 가능합니다.`);
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      setUploadError(`${file.name} (${sizeMB}MB): 파일 크기가 10MB를 초과합니다.`);
+      return;
+    }
+
+    setBuyerFiles(prev => ({
+      ...prev,
+      [buyerId]: file
+    }));
+    setUploadError(null);
+  };
+
+  // 붙여넣기 처리 (Ctrl+V)
+  const handlePaste = (buyerId) => (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
 
-    const imageFiles = [];
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.startsWith('image/')) {
-        const file = items[i].getAsFile();
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
         if (file) {
-          imageFiles.push(file);
+          handleFileSelect(buyerId, file);
+          e.preventDefault();
+          return;
         }
       }
     }
+  };
 
-    if (imageFiles.length > 0) {
-      handleFileSelect(imageFiles);
+  // 드래그 앤 드롭 처리
+  const handleDrop = (buyerId) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer?.files?.[0];
+    if (file) {
+      handleFileSelect(buyerId, file);
     }
-  }, []);
+  };
 
-  // 붙여넣기 이벤트 리스너
-  useEffect(() => {
-    document.addEventListener('paste', handlePaste);
-    return () => {
-      document.removeEventListener('paste', handlePaste);
-    };
-  }, [handlePaste]);
-
-  // 드롭 영역 클릭
-  const handleDropAreaClick = () => {
-    fileInputRef.current?.click();
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   // 업로드 처리
   const handleUpload = async () => {
-    // 주문번호 또는 계좌번호 중 하나는 필수
-    if (!orderNumber.trim() && !accountNumber.trim()) {
-      setUploadError('주문번호 또는 계좌번호 중 하나는 입력해주세요.');
-      return;
-    }
-
-    if (selectedFiles.length === 0) {
-      setUploadError('이미지를 선택해주세요.');
+    // 선택된 구매자 모두에 대해 파일이 있는지 확인
+    const missingFiles = selectedBuyers.filter(b => !buyerFiles[b.id]);
+    if (missingFiles.length > 0) {
+      setUploadError(`모든 선택한 주문에 이미지를 추가해주세요. (${missingFiles.length}개 누락)`);
       return;
     }
 
@@ -174,18 +190,21 @@ function UploadPage({ isSlotUpload = false }) {
       setUploading(true);
       setUploadError(null);
 
-      const response = await imageService.uploadImages(token, selectedFiles, accountNumber, isSlotUpload, orderNumber);
+      // 선택 순서대로 buyerIds와 files 배열 생성
+      const buyerIds = selectedBuyers.map(b => b.id);
+      const files = selectedBuyers.map(b => buyerFiles[b.id]);
+
+      await imageService.uploadImages(token, buyerIds, files);
 
       setUploadSuccess(true);
-      setIsTemporaryBuyer(response.isTemporaryBuyer);
-      setSelectedFiles([]);
-      setPreviewUrls([]);
-      setOrderNumber('');
-      setAccountNumber('');
+      // 성공 후 초기화
+      setSelectedBuyers([]);
+      setBuyerFiles({});
+      // 검색 결과에서 업로드된 구매자 제거
+      setSearchResults(prev => prev.filter(b => !buyerIds.includes(b.id)));
     } catch (err) {
       console.error('Upload failed:', err);
-      const errorMessage = err.response?.data?.message || '이미지 업로드에 실패했습니다. 다시 시도해주세요.';
-      setUploadError(errorMessage);
+      setUploadError(err.response?.data?.message || '이미지 업로드에 실패했습니다.');
     } finally {
       setUploading(false);
     }
@@ -232,7 +251,7 @@ function UploadPage({ isSlotUpload = false }) {
       bgcolor: '#f5f5f5',
       py: 4
     }}>
-      <Container maxWidth="sm">
+      <Container maxWidth="md">
         <Paper sx={{ p: 4, borderRadius: 3 }}>
           {/* 제목 */}
           <Typography variant="h5" fontWeight="bold" align="center" gutterBottom>
@@ -242,119 +261,213 @@ function UploadPage({ isSlotUpload = false }) {
             리뷰 이미지 업로드
           </Typography>
 
-          {/* 주문번호 / 계좌번호 입력 - 둘 중 하나 필수 */}
-          <Alert severity="info" sx={{ mb: 2 }}>
-            주문번호 또는 계좌번호 중 <strong>하나는 필수</strong>로 입력해주세요.
-          </Alert>
-
-          <TextField
-            label="주문번호"
-            fullWidth
-            value={orderNumber}
-            onChange={(e) => setOrderNumber(e.target.value)}
-            placeholder="예: 8100156654664"
-            helperText="구매 시 받은 주문번호를 입력하세요"
-            sx={{ mb: 2 }}
-          />
-
-          <TextField
-            label="계좌번호"
-            fullWidth
-            value={accountNumber}
-            onChange={(e) => setAccountNumber(e.target.value)}
-            placeholder="예: 국민 123-456-789012 홍길동"
-            helperText="계좌번호를 입력하세요 (주문번호 입력 시 생략 가능)"
-            sx={{ mb: 3 }}
-          />
-
-          {/* 이미지 업로드 영역 */}
-          <Box
-            onClick={handleDropAreaClick}
-            sx={{
-              border: '2px dashed #ccc',
-              borderRadius: 2,
-              p: 4,
-              textAlign: 'center',
-              cursor: 'pointer',
-              bgcolor: '#fafafa',
-              transition: 'all 0.2s',
-              '&:hover': {
-                borderColor: '#1976d2',
-                bgcolor: '#e3f2fd'
-              }
-            }}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleInputChange}
-              style={{ display: 'none' }}
-            />
-            <CloudUploadIcon sx={{ fontSize: 48, color: '#999', mb: 1 }} />
-            <Typography variant="body1" color="text.secondary">
-              클릭하여 이미지 선택 (여러 개 가능)
+          {/* 1단계: 이름 검색 */}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
+              1. 이름으로 주문 검색
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              또는 Ctrl+V로 붙여넣기
-            </Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <TextField
+                fullWidth
+                size="small"
+                value={searchName}
+                onChange={(e) => setSearchName(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="이름을 입력하세요 (예: 홍길동)"
+                disabled={searching}
+              />
+              <Button
+                variant="contained"
+                onClick={handleSearch}
+                disabled={searching || !searchName.trim()}
+                startIcon={searching ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />}
+                sx={{ minWidth: 100 }}
+              >
+                검색
+              </Button>
+            </Box>
+            {searchError && (
+              <Alert severity="warning" sx={{ mt: 1 }}>
+                {searchError}
+              </Alert>
+            )}
           </Box>
 
-          {/* 다중 이미지 미리보기 */}
-          {previewUrls.length > 0 && (
-            <Box sx={{ mt: 3 }}>
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-                선택된 이미지 ({selectedFiles.length}개):
+          {/* 2단계: 검색 결과 및 선택 */}
+          {hasSearched && searchResults.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
+                2. 주문 선택 ({searchResults.filter(b => !b.hasImage).length}건 선택 가능 / {searchResults.length}건 검색됨)
               </Typography>
-              <ImageList cols={3} gap={8}>
-                {previewUrls.map((url, idx) => (
-                  <ImageListItem key={idx} sx={{ position: 'relative' }}>
-                    <img
-                      src={url}
-                      alt={`Preview ${idx + 1}`}
-                      style={{
-                        width: '100%',
-                        height: 100,
-                        objectFit: 'cover',
-                        borderRadius: 8
-                      }}
-                    />
-                    <ImageListItemBar
-                      sx={{
-                        background: 'transparent',
-                        '& .MuiImageListItemBar-actionIcon': {
-                          position: 'absolute',
-                          top: 4,
-                          right: 4
-                        }
-                      }}
-                      position="top"
-                      actionIcon={
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveFile(idx);
-                          }}
+              <TableContainer sx={{ border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                      <TableCell padding="checkbox" />
+                      <TableCell>주문번호</TableCell>
+                      <TableCell>구매자</TableCell>
+                      <TableCell>수취인</TableCell>
+                      <TableCell>아이디</TableCell>
+                      <TableCell>상태</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {searchResults.map((buyer) => {
+                      const isSelected = selectedBuyers.some(b => b.id === buyer.id);
+                      const hasImage = buyer.hasImage;
+                      return (
+                        <TableRow
+                          key={buyer.id}
+                          hover={!hasImage}
+                          onClick={() => !hasImage && handleToggleBuyer(buyer)}
                           sx={{
-                            bgcolor: 'rgba(255,255,255,0.9)',
-                            '&:hover': { bgcolor: 'white' }
+                            cursor: hasImage ? 'not-allowed' : 'pointer',
+                            bgcolor: hasImage ? '#f5f5f5' : (isSelected ? '#e3f2fd' : 'inherit'),
+                            opacity: hasImage ? 0.6 : 1
                           }}
                         >
-                          <CloseIcon fontSize="small" />
-                        </IconButton>
-                      }
-                    />
-                  </ImageListItem>
-                ))}
-              </ImageList>
+                          <TableCell padding="checkbox">
+                            <Checkbox checked={isSelected} disabled={hasImage} />
+                          </TableCell>
+                          <TableCell sx={{ color: hasImage ? 'text.disabled' : 'inherit' }}>
+                            {buyer.order_number || '-'}
+                          </TableCell>
+                          <TableCell sx={{ color: hasImage ? 'text.disabled' : 'inherit' }}>
+                            {buyer.buyer_name || '-'}
+                          </TableCell>
+                          <TableCell sx={{ color: hasImage ? 'text.disabled' : 'inherit' }}>
+                            {buyer.recipient_name || '-'}
+                          </TableCell>
+                          <TableCell sx={{ color: hasImage ? 'text.disabled' : 'inherit' }}>
+                            {buyer.user_id || '-'}
+                          </TableCell>
+                          <TableCell>
+                            {hasImage ? (
+                              <Typography variant="caption" color="success.main" fontWeight="bold">
+                                업로드 완료
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">
+                                대기중
+                              </Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              {selectedBuyers.length > 0 && (
+                <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
+                  {selectedBuyers.length}개 주문 선택됨
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          {/* 3단계: 이미지 업로드 */}
+          {selectedBuyers.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
+                3. 각 주문별 이미지 선택 ({selectedBuyers.length}개)
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                각 주문 영역을 클릭 후 이미지를 선택하거나, Ctrl+V로 붙여넣기, 또는 드래그 앤 드롭하세요.
+              </Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {selectedBuyers.map((buyer, index) => {
+                  const file = buyerFiles[buyer.id];
+                  const isFocused = focusedBuyerId === buyer.id;
+                  return (
+                    <Paper
+                      key={buyer.id}
+                      variant="outlined"
+                      tabIndex={0}
+                      onFocus={() => setFocusedBuyerId(buyer.id)}
+                      onPaste={handlePaste(buyer.id)}
+                      onDrop={handleDrop(buyer.id)}
+                      onDragOver={handleDragOver}
+                      sx={{
+                        p: 2,
+                        cursor: 'pointer',
+                        border: isFocused ? '2px solid #1976d2' : '1px solid #e0e0e0',
+                        bgcolor: isFocused ? '#e3f2fd' : 'inherit',
+                        '&:hover': { bgcolor: '#f5f5f5' },
+                        outline: 'none'
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="body2" fontWeight="bold">
+                          주문 {index + 1}: {buyer.order_number} ({buyer.buyer_name})
+                        </Typography>
+                        {isFocused && (
+                          <Typography variant="caption" color="primary">
+                            Ctrl+V 또는 드래그로 이미지 추가
+                          </Typography>
+                        )}
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <input
+                          ref={el => fileInputRefs.current[buyer.id] = el}
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleFileSelect(buyer.id, e.target.files[0])}
+                          style={{ display: 'none' }}
+                        />
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          onClick={() => fileInputRefs.current[buyer.id]?.click()}
+                          startIcon={<CloudUploadIcon />}
+                        >
+                          파일 선택
+                        </Button>
+                        {file ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <img
+                              src={URL.createObjectURL(file)}
+                              alt="preview"
+                              style={{
+                                width: 50,
+                                height: 50,
+                                objectFit: 'cover',
+                                borderRadius: 4
+                              }}
+                            />
+                            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {file.name}
+                            </Typography>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBuyerFiles(prev => {
+                                  const newFiles = { ...prev };
+                                  delete newFiles[buyer.id];
+                                  return newFiles;
+                                });
+                              }}
+                            >
+                              <CloseIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="error">
+                            이미지를 선택해주세요
+                          </Typography>
+                        )}
+                      </Box>
+                    </Paper>
+                  );
+                })}
+              </Box>
             </Box>
           )}
 
           {/* 에러 메시지 */}
           {uploadError && (
-            <Alert severity="error" sx={{ mt: 3, whiteSpace: 'pre-line' }}>
+            <Alert severity="error" sx={{ mb: 2 }}>
               {uploadError}
             </Alert>
           )}
@@ -364,34 +477,31 @@ function UploadPage({ isSlotUpload = false }) {
             <Alert
               severity="success"
               icon={<CheckCircleIcon />}
-              sx={{ mt: 3 }}
+              sx={{ mb: 2 }}
             >
               <Typography variant="body1" fontWeight="bold">
                 이미지가 성공적으로 업로드되었습니다!
               </Typography>
-              {isTemporaryBuyer && (
-                <Typography variant="body2" sx={{ mt: 1 }} color="warning.main">
-                  아직 등록되지 않은 계좌번호입니다. 진행자가 등록하면 자동으로 연결됩니다.
-                </Typography>
-              )}
               <Typography variant="body2" sx={{ mt: 1 }}>
-                추가 이미지를 업로드하려면 주문번호 또는 계좌번호를 다시 입력하세요.
+                추가 이미지를 업로드하려면 이름을 다시 검색하세요.
               </Typography>
             </Alert>
           )}
 
           {/* 업로드 버튼 */}
-          <Button
-            variant="contained"
-            fullWidth
-            size="large"
-            onClick={handleUpload}
-            disabled={selectedFiles.length === 0 || uploading}
-            startIcon={uploading ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
-            sx={{ mt: 3, py: 1.5 }}
-          >
-            {uploading ? '업로드 중...' : `${selectedFiles.length}개 이미지 업로드`}
-          </Button>
+          {selectedBuyers.length > 0 && (
+            <Button
+              variant="contained"
+              fullWidth
+              size="large"
+              onClick={handleUpload}
+              disabled={uploading || selectedBuyers.some(b => !buyerFiles[b.id])}
+              startIcon={uploading ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
+              sx={{ py: 1.5 }}
+            >
+              {uploading ? '업로드 중...' : `${selectedBuyers.length}개 이미지 업로드`}
+            </Button>
+          )}
         </Paper>
       </Container>
     </Box>

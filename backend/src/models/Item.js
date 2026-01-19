@@ -33,7 +33,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 구매 목표
     total_purchase_count: {
-      type: DataTypes.INTEGER
+      type: DataTypes.TEXT
     },
     daily_purchase_count: {
       type: DataTypes.TEXT,
@@ -67,7 +67,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 입금명 (카톡방명)
     deposit_name: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     // 판매 플랫폼 (쿠팡, 네이버, 11번가 등)
@@ -78,7 +78,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 제품 날짜 (사용자 입력)
     date: {
-      type: DataTypes.STRING(20),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     // 제품 표시 순번 (1, 2, 3...)
@@ -97,46 +97,46 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 이미지 업로드 링크 토큰
     upload_link_token: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.TEXT,
       unique: true,
       defaultValue: () => uuidv4()
     },
     // 상태
     status: {
-      type: DataTypes.STRING(50),
+      type: DataTypes.TEXT,
       allowNull: true,
       defaultValue: 'active',
       comment: '상태 (active, completed, cancelled 등 자유 입력)'
     },
     // 매출 관련 필드
     sale_price_per_unit: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.TEXT,
       allowNull: true,
       comment: '판매 단가 (원/개)'
     },
     courier_price_per_unit: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.TEXT,
       allowNull: true,
       comment: '택배대행 단가 (원/개)'
     },
     // 지출 관련 필드 (Admin 입력)
     expense_product: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.TEXT,
       allowNull: true,
       comment: '지출 - 제품비 (원)'
     },
     expense_courier: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.TEXT,
       allowNull: true,
       comment: '지출 - 택배비 (원)'
     },
     expense_review: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.TEXT,
       allowNull: true,
       comment: '지출 - 리뷰비용 (원)'
     },
     expense_other: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.TEXT,
       allowNull: true,
       comment: '지출 - 기타비용 (원)'
     },

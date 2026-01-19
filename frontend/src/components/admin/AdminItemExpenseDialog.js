@@ -42,11 +42,12 @@ function AdminItemExpenseDialog({ open, onClose, item, onSave }) {
     setLoading(true);
     setError('');
     try {
+      // TEXT 필드로 저장 (숫자 변환 없이 원본 텍스트 전달)
       const expenseData = {
-        expense_product: formData.expense_product ? parseInt(formData.expense_product) : null,
-        expense_courier: formData.expense_courier ? parseInt(formData.expense_courier) : null,
-        expense_review: formData.expense_review ? parseInt(formData.expense_review) : null,
-        expense_other: formData.expense_other ? parseInt(formData.expense_other) : null,
+        expense_product: formData.expense_product || null,
+        expense_courier: formData.expense_courier || null,
+        expense_review: formData.expense_review || null,
+        expense_other: formData.expense_other || null,
         expense_note: formData.expense_note || null
       };
       await itemService.updateItemExpense(item.id, expenseData);
@@ -59,19 +60,33 @@ function AdminItemExpenseDialog({ open, onClose, item, onSave }) {
     }
   };
 
-  // 계산값들
-  const totalCount = item?.total_purchase_count || 0;
-  const salePrice = item?.sale_price_per_unit || 0;
-  const courierPrice = item?.courier_service_yn ? (item?.courier_price_per_unit || 0) : 0;
+  // TEXT 필드를 숫자로 파싱하는 헬퍼 함수
+  const parseNumber = (value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    const parsed = parseFloat(String(value).replace(/[^0-9.-]/g, ''));
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  // 택배대행 여부를 boolean으로 판단하는 헬퍼 함수
+  const isCourierService = (value) => {
+    if (!value) return false;
+    const str = String(value).toUpperCase().trim();
+    return str === 'Y' || str === 'YES' || str === '1' || str === 'TRUE';
+  };
+
+  // 계산값들 (TEXT 필드를 숫자로 파싱)
+  const totalCount = parseNumber(item?.total_purchase_count);
+  const salePrice = parseNumber(item?.sale_price_per_unit);
+  const courierPrice = isCourierService(item?.courier_service_yn) ? parseNumber(item?.courier_price_per_unit) : 0;
   const saleRevenue = salePrice * totalCount;
   const courierRevenue = courierPrice * totalCount;
   const totalRevenue = saleRevenue + courierRevenue;
   const totalRevenueVat = Math.round(totalRevenue * 1.1);
 
-  const expenseProduct = parseInt(formData.expense_product) || 0;
-  const expenseCourier = parseInt(formData.expense_courier) || 0;
-  const expenseReview = parseInt(formData.expense_review) || 0;
-  const expenseOther = parseInt(formData.expense_other) || 0;
+  const expenseProduct = parseNumber(formData.expense_product);
+  const expenseCourier = parseNumber(formData.expense_courier);
+  const expenseReview = parseNumber(formData.expense_review);
+  const expenseOther = parseNumber(formData.expense_other);
   const totalExpense = expenseProduct + expenseCourier + expenseReview + expenseOther;
   const margin = totalRevenueVat - totalExpense;
   const marginRate = totalRevenueVat > 0 ? ((margin / totalRevenueVat) * 100).toFixed(1) : 0;
@@ -94,7 +109,7 @@ function AdminItemExpenseDialog({ open, onClose, item, onSave }) {
           <Typography variant="h6" fontWeight="bold">{item.product_name}</Typography>
           <Typography variant="body2" color="text.secondary">
             총 건수: {totalCount}개 | 판매단가: {salePrice.toLocaleString()}원 |
-            택배대행: {item.courier_service_yn ? `${courierPrice.toLocaleString()}원` : 'N'}
+            택배대행: {item.courier_service_yn || '-'} {courierPrice > 0 ? `(${courierPrice.toLocaleString()}원)` : ''}
           </Typography>
         </Paper>
 
@@ -140,8 +155,8 @@ function AdminItemExpenseDialog({ open, onClose, item, onSave }) {
             onChange={handleInputChange}
             fullWidth
             size="small"
-            helperText={totalCount > 0 && formData.expense_product ?
-              `개당 ${Math.round(parseInt(formData.expense_product) / totalCount).toLocaleString()}원` : ''}
+            helperText={totalCount > 0 && expenseProduct ?
+              `개당 ${Math.round(expenseProduct / totalCount).toLocaleString()}원` : ''}
           />
           <TextField
             label="택배비 (원)"
@@ -151,8 +166,8 @@ function AdminItemExpenseDialog({ open, onClose, item, onSave }) {
             onChange={handleInputChange}
             fullWidth
             size="small"
-            helperText={totalCount > 0 && formData.expense_courier ?
-              `개당 ${Math.round(parseInt(formData.expense_courier) / totalCount).toLocaleString()}원` : ''}
+            helperText={totalCount > 0 && expenseCourier ?
+              `개당 ${Math.round(expenseCourier / totalCount).toLocaleString()}원` : ''}
           />
           <TextField
             label="리뷰비용 (원)"
@@ -162,8 +177,8 @@ function AdminItemExpenseDialog({ open, onClose, item, onSave }) {
             onChange={handleInputChange}
             fullWidth
             size="small"
-            helperText={totalCount > 0 && formData.expense_review ?
-              `개당 ${Math.round(parseInt(formData.expense_review) / totalCount).toLocaleString()}원` : ''}
+            helperText={totalCount > 0 && expenseReview ?
+              `개당 ${Math.round(expenseReview / totalCount).toLocaleString()}원` : ''}
           />
           <TextField
             label="기타비용 (원)"

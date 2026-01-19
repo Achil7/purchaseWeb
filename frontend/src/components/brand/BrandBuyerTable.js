@@ -402,7 +402,7 @@ function BrandBuyerTable({ isAdminMode = false, viewAsUserId = null }) {
                         {buyer.amount ? `${Number(buyer.amount).toLocaleString()}원` : '-'}
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                        {item?.courier_service_yn ? 'Y' : 'N'}
+                        {item?.courier_service_yn || '-'}
                       </TableCell>
                       <TableCell sx={{ whiteSpace: 'nowrap' }}>
                         {buyer.tracking_number || '-'}
@@ -505,7 +505,7 @@ function BrandBuyerTable({ isAdminMode = false, viewAsUserId = null }) {
                   </Grid>
                   <Grid item xs={6}>
                     <Typography variant="body2">
-                      <strong>택배대행:</strong> {item?.courier_service_yn ? 'Y' : 'N'}
+                      <strong>택배대행:</strong> {item?.courier_service_yn || '-'}
                     </Typography>
                   </Grid>
                   <Grid item xs={6}>

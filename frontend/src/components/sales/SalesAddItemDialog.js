@@ -54,7 +54,7 @@ const parseItemText = (text) => {
     purchase_option: '',
     product_price: '',
     review_guide: '',
-    courier_service_yn: false,
+    courier_service_yn: '',
     keyword: '',
     shipping_deadline: '',
     notes: '',
@@ -87,7 +87,8 @@ const parseItemText = (text) => {
     } else if (key.includes('리뷰') || key.includes('가이드') || key.includes('소구점')) {
       result.review_guide = value;
     } else if (key.includes('택배') && key.includes('대행')) {
-      result.courier_service_yn = value.toUpperCase() === 'Y' || value.includes('사용');
+      // TEXT 필드 - 'Y' 또는 'N' 문자열로 저장
+      result.courier_service_yn = (value.toUpperCase() === 'Y' || value.includes('사용')) ? 'Y' : 'N';
     } else if (key.includes('키워드') || key.includes('유입')) {
       result.keyword = value;
     } else if (key.includes('출고') && key.includes('마감')) {
@@ -253,7 +254,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
     product_price: '',
     shipping_deadline: '',
     review_guide: '',
-    courier_service_yn: true,
+    courier_service_yn: '',
     notes: '',
     platform: '-',
     registered_at: getKoreanDateTime(),
@@ -300,7 +301,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
           product_price: initialData.product_price || '',
           shipping_deadline: initialData.shipping_deadline || '',
           review_guide: initialData.review_guide || '',
-          courier_service_yn: initialData.courier_service_yn ?? true,
+          courier_service_yn: initialData.courier_service_yn || '',
           notes: initialData.notes || '',
           platform: initialData.platform || '-',
           registered_at: registeredAt,
@@ -392,8 +393,8 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
       total_purchase_count: maxTotalCount,
       daily_purchase_count: String(maxTotalCount),
 
-      // courier_service_yn: 하나라도 true면 true
-      courier_service_yn: combinedProducts.some(p => p.courier_service_yn === true),
+      // courier_service_yn: 하나라도 Y면 Y (TEXT 필드)
+      courier_service_yn: combinedProducts.some(p => p.courier_service_yn === 'Y' || p.courier_service_yn === true) ? 'Y' : '',
       registered_at: getKoreanDateTime()
     };
 
@@ -493,7 +494,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
         product_price: item.product_price || null,
         shipping_deadline: item.shipping_deadline || null,
         review_guide: item.review_guide || null,
-        courier_service_yn: item.courier_service_yn,
+        courier_service_yn: item.courier_service_yn || null,
         notes: item.notes || null,
         platform: item.platform || '-',
         registered_at: new Date().toISOString(),
@@ -527,7 +528,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
       product_price: itemData.product_price || null,
       shipping_deadline: itemData.shipping_deadline || null,
       review_guide: itemData.review_guide || null,
-      courier_service_yn: itemData.courier_service_yn,
+      courier_service_yn: itemData.courier_service_yn || null,
       notes: itemData.notes || null,
       platform: itemData.platform || '-',
       registered_at: itemData.registered_at ? new Date(itemData.registered_at).toISOString() : new Date().toISOString(),
@@ -828,15 +829,12 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
                   />
                   <TextField
                     label="택배대행"
-                    value={parsedItems[0].courier_service_yn}
-                    onChange={(e) => handleItemFieldChange(0, 'courier_service_yn', e.target.value === 'true')}
-                    select
+                    value={parsedItems[0].courier_service_yn || ''}
+                    onChange={(e) => handleItemFieldChange(0, 'courier_service_yn', e.target.value)}
                     sx={{ width: 100 }}
                     size="small"
-                  >
-                    <MenuItem value={true}>Y</MenuItem>
-                    <MenuItem value={false}>N</MenuItem>
-                  </TextField>
+                    placeholder="Y/N"
+                  />
                 </Box>
               </Paper>
             )}

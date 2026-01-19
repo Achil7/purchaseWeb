@@ -142,55 +142,57 @@ CREATE INDEX idx_campaigns_registered_at ON campaigns(registered_at);
 ### 4. items (품목 테이블)
 캠페인 내의 개별 상품/품목 정보
 
+> **Note (2026-01-15)**: 엑셀 데이터 유연성을 위해 대부분의 필드가 TEXT 타입으로 변경됨. 제한 없이 어떤 값이든 저장 가능.
+
 ```sql
 CREATE TABLE items (
   id SERIAL PRIMARY KEY,
   campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
 
-  -- 품목 기본 정보
-  product_name VARCHAR(200) NOT NULL,
-  shipping_type VARCHAR(20) CHECK (shipping_type IN ('실출고', '미출고')),
-  keyword VARCHAR(200),
+  -- 품목 기본 정보 (TEXT 타입 - 파이프 구분 지원)
+  product_name TEXT NOT NULL,
+  shipping_type TEXT,                -- 출고 유형 (예: "실출고 | 미출고")
+  keyword TEXT,                      -- 키워드 (파이프 구분 가능)
 
-  -- 구매 목표
-  total_purchase_count INTEGER,
-  daily_purchase_count TEXT,  -- 슬래시 구분 (예: "6/6", "2/2/2/.../2" - 길이 제한 없음)
+  -- 구매 목표 (TEXT 타입)
+  total_purchase_count TEXT,         -- 총 구매 건수 (숫자로 파싱 필요)
+  daily_purchase_count TEXT,         -- 일 구매 건수 (슬래시 구분, 예: "6/6", "2/2/2/.../2")
 
   -- 상품 정보
   product_url TEXT,
-  purchase_option VARCHAR(100),
-  product_price DECIMAL(10, 2),
+  purchase_option TEXT,
+  product_price TEXT,                -- 가격 (TEXT, 파이프 구분 가능)
 
   -- 일정
   shipping_deadline TIMESTAMP,
 
   -- 리뷰 가이드
   review_guide TEXT,
-  courier_service_yn BOOLEAN DEFAULT false,
+  courier_service_yn TEXT,           -- 택배대행 Y/N (TEXT, 파이프 구분 가능)
 
   -- 기타
   notes TEXT,
-  deposit_name VARCHAR(100),  -- 입금명
-  platform VARCHAR(50),        -- 판매 플랫폼 (쿠팡, 네이버 등)
-  date DATE,                   -- 품목 날짜
-  display_order INTEGER,       -- 품목 순번
+  deposit_name TEXT,                 -- 입금명
+  platform TEXT,                     -- 판매 플랫폼 (파이프 구분 가능)
+  date TEXT,                         -- 품목 날짜 (TEXT)
+  display_order INTEGER,             -- 품목 순번
 
   -- 이미지 업로드 링크 (자동 생성)
-  upload_link_token VARCHAR(100) UNIQUE,
+  upload_link_token TEXT UNIQUE,
 
-  -- 매출 정보 (영업사 입력)
-  sale_price_per_unit INTEGER,      -- 판매 단가 (원/개)
-  courier_price_per_unit INTEGER,   -- 택배대행 단가 (원/개)
+  -- 매출 정보 (영업사 입력) - TEXT 타입, parseNumber()로 숫자 추출
+  sale_price_per_unit TEXT,          -- 판매 단가
+  courier_price_per_unit TEXT,       -- 택배대행 단가
 
-  -- 지출 정보 (Admin 입력)
-  expense_product INTEGER,          -- 지출 - 제품비 (원)
-  expense_courier INTEGER,          -- 지출 - 택배비 (원)
-  expense_review INTEGER,           -- 지출 - 리뷰비용 (원)
-  expense_other INTEGER,            -- 지출 - 기타비용 (원)
-  expense_note TEXT,                -- 지출 메모
+  -- 지출 정보 (Admin 입력) - TEXT 타입
+  expense_product TEXT,              -- 지출 - 제품비
+  expense_courier TEXT,              -- 지출 - 택배비
+  expense_review TEXT,               -- 지출 - 리뷰비용
+  expense_other TEXT,                -- 지출 - 기타비용
+  expense_note TEXT,                 -- 지출 메모
 
   -- 메타 정보
-  status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'cancelled')),
+  status TEXT DEFAULT 'active',      -- 상태 (제한 없음)
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -232,7 +234,9 @@ CREATE INDEX idx_items_status ON items(status);
 ---
 
 ### 5. item_slots (품목 슬롯 테이블)
-일 구매건수별로 그룹화된 슬롯 정보
+일 구매건수별로 그룹화된 슬롯 정보. **day_group별 독립 제품 정보를 저장**하여 일마감(splitDayGroup) 시 제품 정보가 복사됩니다.
+
+> **Note (2026-01-15)**: day_group별 독립 제품 정보 필드 추가. 일마감 시 현재 day_group의 제품 정보가 새 day_group 슬롯에 복사되어 완전히 독립적으로 관리됩니다.
 
 ```sql
 CREATE TABLE item_slots (
@@ -241,38 +245,44 @@ CREATE TABLE item_slots (
   day_group INTEGER NOT NULL,  -- 일차 그룹 (1, 2, 3...)
   slot_number INTEGER NOT NULL,  -- 해당 일차 내 슬롯 번호
 
-  -- 구매자 정보
-  order_number VARCHAR(50),
-  buyer_name VARCHAR(100),
-  recipient_name VARCHAR(100),
-  user_id VARCHAR(100),
-  contact VARCHAR(50),
-  address TEXT,
-  account_info VARCHAR(200),
-  amount INTEGER,
-  tracking_number VARCHAR(100),
+  -- 슬롯 정보
+  date TEXT,                    -- 날짜 (진행자 입력)
+  expected_buyer TEXT,          -- 예상 구매자 (진행자 입력)
+  buyer_id INTEGER REFERENCES buyers(id) ON DELETE SET NULL,
+  review_cost INTEGER,          -- 리뷰비용 (진행자 입력)
 
-  -- 계좌번호 정규화
-  account_normalized VARCHAR(50),
+  -- day_group별 독립 제품 정보 (일마감 시 복사됨)
+  product_name TEXT,            -- 제품명
+  purchase_option TEXT,         -- 구매 옵션
+  keyword TEXT,                 -- 키워드
+  product_price TEXT,           -- 가격
+  notes TEXT,                   -- 특이사항
+  platform TEXT,                -- 플랫폼
+  shipping_type TEXT,           -- 출고 유형
+  total_purchase_count TEXT,    -- 총 구매건수
+  daily_purchase_count TEXT,    -- 일 구매건수
+  courier_service_yn TEXT,      -- 택배대행 여부
+  product_url TEXT,             -- 상품 URL
 
   -- 이미지 업로드 토큰 (그룹별)
   upload_link_token VARCHAR(100),
 
-  -- 입금 확인
-  payment_status VARCHAR(20) DEFAULT 'pending',
-  payment_confirmed_by INTEGER REFERENCES users(id),
-  payment_confirmed_at TIMESTAMP,
+  -- 상태
+  status TEXT DEFAULT 'active',
 
   -- 메타 정보
-  created_by INTEGER REFERENCES users(id),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP          -- 소프트 삭제
 );
 
 CREATE INDEX idx_item_slots_item_id ON item_slots(item_id);
 CREATE INDEX idx_item_slots_day_group ON item_slots(day_group);
-CREATE INDEX idx_item_slots_account_normalized ON item_slots(account_normalized);
+CREATE INDEX idx_item_slots_buyer_id ON item_slots(buyer_id);
+CREATE INDEX idx_item_slots_status ON item_slots(status);
 CREATE INDEX idx_item_slots_upload_token ON item_slots(upload_link_token);
+CREATE INDEX idx_item_slots_deleted_at ON item_slots(deleted_at);
+CREATE UNIQUE INDEX idx_item_slots_item_slot_unique ON item_slots(item_id, slot_number);
 ```
 
 **컬럼 설명:**
@@ -280,10 +290,30 @@ CREATE INDEX idx_item_slots_upload_token ON item_slots(upload_link_token);
 - `item_id`: 품목 ID
 - `day_group`: 일차 그룹 번호
 - `slot_number`: 해당 일차 내 슬롯 순번
+- `date`: 날짜 (진행자가 입력)
+- `expected_buyer`: 예상 구매자명
+- `buyer_id`: 연결된 구매자 ID
+- `review_cost`: 리뷰비용
 - `upload_link_token`: 그룹별 이미지 업로드 토큰
-- (구매자 정보 필드들)
-- `account_normalized`: 정규화된 계좌번호 (숫자만)
-- `payment_status`: 입금 확인 상태
+
+**day_group별 독립 제품 정보 필드:**
+- `product_name`: 제품명 (슬롯에 값이 있으면 슬롯 값 사용, 없으면 Item 값 사용)
+- `purchase_option`: 구매 옵션
+- `keyword`: 키워드
+- `product_price`: 가격
+- `notes`: 특이사항
+- `platform`: 플랫폼
+- `shipping_type`: 출고 유형 (미출고/실출고)
+- `total_purchase_count`: 총 구매건수
+- `daily_purchase_count`: 일 구매건수
+- `courier_service_yn`: 택배대행 여부
+- `product_url`: 상품 URL
+
+**일마감(splitDayGroup) 동작:**
+1. 선택된 슬롯들의 day_group을 새 값으로 변경
+2. 새 upload_link_token 할당
+3. 현재 day_group의 제품 정보를 새 day_group 슬롯에 복사
+4. CampaignOperator에 새 day_group 배정 레코드 자동 생성
 
 ---
 
@@ -322,26 +352,32 @@ CREATE INDEX idx_campaign_operators_day_group ON campaign_operators(day_group);
 ### 7. buyers (구매자/리뷰어 테이블)
 진행자가 추가하는 구매자(리뷰어) 정보
 
+> **Note (2026-01-15)**: 모든 데이터 필드가 TEXT 타입으로 변경됨. allowNull: true로 변경되어 데이터 삭제(빈 값 저장) 가능.
+
 ```sql
 CREATE TABLE buyers (
   id SERIAL PRIMARY KEY,
   item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
   slot_id INTEGER REFERENCES item_slots(id) ON DELETE SET NULL,
 
-  -- 구매자 정보
-  order_number VARCHAR(50) NOT NULL,
-  buyer_name VARCHAR(100) NOT NULL,
-  recipient_name VARCHAR(100) NOT NULL,
-  user_id VARCHAR(100),
-  contact VARCHAR(50),
-  address TEXT,
-  account_info VARCHAR(200),
-  amount INTEGER,
-  tracking_number VARCHAR(100),
+  -- 구매자 정보 (TEXT 타입 - 제한 없음)
+  order_number TEXT,               -- 주문번호
+  buyer_name TEXT,                 -- 구매자명
+  recipient_name TEXT,             -- 수취인명
+  user_id TEXT,                    -- 아이디
+  contact TEXT,                    -- 연락처
+  address TEXT,                    -- 주소
+  account_info TEXT,               -- 계좌정보
+  amount TEXT DEFAULT '0',         -- 금액 (TEXT)
+  tracking_number TEXT,            -- 송장번호
+  courier_company TEXT,            -- 택배사
 
   -- 계좌번호 매칭용
-  account_normalized VARCHAR(50),
+  account_normalized TEXT,         -- 정규화된 계좌번호
   is_temporary BOOLEAN DEFAULT false,
+
+  -- 배송 상태
+  shipping_delayed BOOLEAN DEFAULT false,
 
   -- 입금 확인
   payment_status VARCHAR(20) DEFAULT 'pending',
@@ -600,7 +636,9 @@ migrations/
 ├── 20260109000001-add-courier-company-to-buyers.js
 ├── 20260110000001-create-brand-sales.js
 ├── 20260110000001-remove-enum-constraints.js
-└── 20260110000002-add-date-and-display-order-to-items.js
+├── 20260110000002-add-date-and-display-order-to-items.js
+├── 20260115195338-change-all-columns-to-text.js   # Item, Buyer 필드 TEXT 타입 변경
+└── 20260115200001-add-product-fields-to-item-slots.js  # ItemSlot에 day_group별 독립 제품 정보 필드 추가
 ```
 
 ---
@@ -621,4 +659,4 @@ migrations/
 
 ---
 
-**최종 업데이트**: 2026-01-10
+**최종 업데이트**: 2026-01-15

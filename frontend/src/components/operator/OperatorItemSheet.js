@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert, IconButton, Tooltip } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
@@ -46,13 +46,13 @@ const BUYER_HEADERS = ['', '날짜', '순번', '제품명', '옵션', '예상구
  * 컬럼 순서:
  * URL, 날짜, 순번, 품명, 옵션, 리뷰(키워드), 예상구매자, 주문번호, 구매자, 수취인, 아이디, 연락처, 주소, 금액, 리뷰비용, 리뷰작성(상태), 특이사항
  */
-function OperatorItemSheet({
+const OperatorItemSheet = forwardRef(function OperatorItemSheet({
   campaignId,
   campaignName = '',
   items,
   onRefresh,
   viewAsUserId = null
-}) {
+}, ref) {
   const hotRef = useRef(null);
 
   // 슬롯 데이터
@@ -283,6 +283,11 @@ function OperatorItemSheet({
     }
   }, [campaignId, viewAsUserId]);
 
+  // 부모 컴포넌트에서 loadSlots 호출 가능하도록 노출
+  useImperativeHandle(ref, () => ({
+    loadSlots
+  }), [loadSlots]);
+
   // 메모 데이터 로드 - 기능 비활성화
   // const loadMemos = useCallback(async () => {
   //   if (!campaignId) return;
@@ -399,6 +404,7 @@ function OperatorItemSheet({
     // 품목별로 행 생성
     Object.entries(itemGroups).forEach(([itemId, itemGroup]) => {
       const item = itemGroup.item || {};
+      const mergedItem = { ...item };
 
       // 품목별 완료 상태 계산 (전체 슬롯 vs 리뷰샷 완료)
       let totalSlots = 0;
@@ -423,6 +429,26 @@ function OperatorItemSheet({
 
         // 해당 day_group의 첫 번째 슬롯에서 날짜 가져오기 (Sales가 입력한 날짜)
         const dayGroupDate = groupData.slots[0]?.date || '';
+
+        // day_group별 독립 제품 정보: changedItems > 슬롯 값 > Item 값 (우선순위)
+        const firstSlot = groupData.slots[0] || {};
+        const dayGroupKey = `${itemId}_${dayGroup}`;
+        const dayGroupChanges = changedItems[dayGroupKey] || {};
+
+        // 우선순위: changedItems(수정 중인 값) > 슬롯 값 > Item 값
+        const dayGroupProductInfo = {
+          product_name: dayGroupChanges.product_name !== undefined ? dayGroupChanges.product_name : (firstSlot.product_name || mergedItem.product_name || ''),
+          platform: dayGroupChanges.platform !== undefined ? dayGroupChanges.platform : (firstSlot.platform || mergedItem.platform || '-'),
+          shipping_type: dayGroupChanges.shipping_type !== undefined ? dayGroupChanges.shipping_type : (firstSlot.shipping_type || mergedItem.shipping_type || ''),
+          keyword: dayGroupChanges.keyword !== undefined ? dayGroupChanges.keyword : (firstSlot.keyword || mergedItem.keyword || ''),
+          product_price: dayGroupChanges.product_price !== undefined ? dayGroupChanges.product_price : (firstSlot.product_price || mergedItem.product_price || ''),
+          total_purchase_count: dayGroupChanges.total_purchase_count !== undefined ? dayGroupChanges.total_purchase_count : (firstSlot.total_purchase_count || mergedItem.total_purchase_count || ''),
+          daily_purchase_count: dayGroupChanges.daily_purchase_count !== undefined ? dayGroupChanges.daily_purchase_count : (firstSlot.daily_purchase_count || mergedItem.daily_purchase_count || ''),
+          purchase_option: dayGroupChanges.purchase_option !== undefined ? dayGroupChanges.purchase_option : (firstSlot.purchase_option || mergedItem.purchase_option || ''),
+          courier_service_yn: dayGroupChanges.courier_service_yn !== undefined ? dayGroupChanges.courier_service_yn : (firstSlot.courier_service_yn || mergedItem.courier_service_yn || ''),
+          product_url: dayGroupChanges.product_url !== undefined ? dayGroupChanges.product_url : (firstSlot.product_url || mergedItem.product_url || ''),
+          notes: dayGroupChanges.notes !== undefined ? dayGroupChanges.notes : (firstSlot.notes || mergedItem.notes || '')
+        };
 
         // 첫 번째 품목의 첫 번째 일차가 아닌 경우 품목 구분선 추가
         if (!isFirstItem || dayGroupIndex > 0) {
@@ -454,19 +480,19 @@ function OperatorItemSheet({
           _dayGroup: parseInt(dayGroup),
           _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
           col0: '',  // 토글 버튼
-          col1: item.date || '',  // 제품 날짜 (Item 테이블 - 사용자 입력)
-          col2: item.platform || '-',  // 플랫폼 (순번 대신)
-          col3: item.product_name || '',  // 제품명
-          col4: item.purchase_option || '',  // 옵션
-          col5: item.shipping_type || '',   // 출고
-          col6: item.keyword || '',         // 키워드
-          col7: item.product_price || '',  // 가격 (합쳐진 제품은 텍스트 그대로 표시)
-          col8: item.total_purchase_count || '',   // 총건수
-          col9: item.daily_purchase_count || '',   // 일건수
-          col10: item.courier_service_yn ? 'Y' : 'N',  // 택배대행
-          col11: item.product_url || '',    // URL
+          col1: mergedItem.date || '',  // 제품 날짜 (Item 테이블 - 사용자 입력, day_group별로 독립되지 않음)
+          col2: dayGroupProductInfo.platform,  // 플랫폼 (day_group별 독립)
+          col3: dayGroupProductInfo.product_name,  // 제품명 (day_group별 독립)
+          col4: dayGroupProductInfo.purchase_option,  // 옵션 (day_group별 독립)
+          col5: dayGroupProductInfo.shipping_type,   // 출고 (day_group별 독립)
+          col6: dayGroupProductInfo.keyword,         // 키워드 (day_group별 독립)
+          col7: dayGroupProductInfo.product_price,  // 가격 (day_group별 독립)
+          col8: dayGroupProductInfo.total_purchase_count,   // 총건수 (day_group별 독립)
+          col9: dayGroupProductInfo.daily_purchase_count,   // 일건수 (day_group별 독립)
+          col10: dayGroupProductInfo.courier_service_yn,  // 택배대행 (day_group별 독립)
+          col11: dayGroupProductInfo.product_url,    // URL (day_group별 독립)
           col12: '',                        // 빈칸 (기존 플랫폼 위치)
-          col13: item.notes || '',          // 특이사항
+          col13: dayGroupProductInfo.notes,          // 특이사항 (day_group별 독립)
           col14: '', col15: '', col16: '', col17: '', col18: ''
         });
 
@@ -569,7 +595,7 @@ function OperatorItemSheet({
     });
 
     return { tableData: data, slotIndexMap: indexMap, rowMetaMap: metaMap };
-  }, [slots, collapsedItems, changedSlots]);
+  }, [slots, collapsedItems, changedSlots, changedItems]);
 
   // 상태 옵션
   const statusOptions = ['active', 'completed', 'cancelled'];
@@ -628,12 +654,24 @@ function OperatorItemSheet({
         const slotsToUpdate = Object.values(changedSlots);
         await itemSlotService.updateSlotsBulk(slotsToUpdate);
       }
-      // 제품 정보 저장
+      // 제품 정보 저장 (day_group별 슬롯 업데이트)
       if (hasItemChanges) {
-        const itemsToUpdate = Object.values(changedItems);
-        for (const item of itemsToUpdate) {
-          const { id, ...updateData } = item;
-          await itemService.updateItem(id, updateData);
+        const dayGroupUpdates = Object.values(changedItems);
+        for (const update of dayGroupUpdates) {
+          const { itemId, dayGroup, ...productData } = update;
+          // 해당 day_group의 모든 슬롯 ID 수집
+          const dayGroupSlotIds = slots
+            .filter(s => s.item_id === itemId && s.day_group === dayGroup)
+            .map(s => s.id);
+
+          // 해당 슬롯들에 제품 정보 업데이트
+          if (dayGroupSlotIds.length > 0) {
+            const slotsToUpdateProduct = dayGroupSlotIds.map(id => ({
+              id,
+              ...productData
+            }));
+            await itemSlotService.updateSlotsBulk(slotsToUpdateProduct);
+          }
         }
       }
       // 상태 초기화
@@ -644,7 +682,7 @@ function OperatorItemSheet({
     } catch (error) {
       console.error('Auto-save failed:', error);
     }
-  }, [changedSlots, changedItems, loadSlots]);
+  }, [changedSlots, changedItems, slots, loadSlots]);
 
   // 개별 품목 접기/펼치기 토글
   const toggleItemCollapse = useCallback((itemId) => {
@@ -764,20 +802,23 @@ function OperatorItemSheet({
       const rowData = tableData[row];
       if (!rowData) return;
 
-      // 제품 정보 행 처리
+      // 제품 정보 행 처리 (day_group별 독립적인 제품 정보)
       if (rowData._rowType === ROW_TYPES.PRODUCT_DATA) {
         const itemId = rowData._itemId;
-        if (!itemId) return;
+        const dayGroup = rowData._dayGroup;
+        if (!itemId || !dayGroup) return;
 
         const apiField = itemFieldMap[prop];
         if (!apiField) return;
 
-        if (!itemUpdates[itemId]) {
-          itemUpdates[itemId] = { id: itemId };
+        // day_group별 독립 키 사용 (itemId_dayGroup 형식)
+        const dayGroupKey = `${itemId}_${dayGroup}`;
+        if (!itemUpdates[dayGroupKey]) {
+          itemUpdates[dayGroupKey] = { itemId, dayGroup };
         }
 
         // 사용자 입력값을 그대로 저장 (계산 시에만 숫자 추출)
-        itemUpdates[itemId][apiField] = newValue ?? '';
+        itemUpdates[dayGroupKey][apiField] = newValue ?? '';
         return;
       }
 
@@ -862,12 +903,24 @@ function OperatorItemSheet({
         await itemSlotService.updateSlotsBulk(slotsToUpdate);
       }
 
-      // 제품 정보 저장 (DB 업데이트)
+      // 제품 정보 저장 (day_group별 슬롯 업데이트)
       if (hasItemChanges) {
-        const itemsToUpdate = Object.values(changedItems);
-        for (const item of itemsToUpdate) {
-          const { id, ...updateData } = item;
-          await itemService.updateItem(id, updateData);
+        const dayGroupUpdates = Object.values(changedItems);
+        for (const update of dayGroupUpdates) {
+          const { itemId, dayGroup, ...productData } = update;
+          // 해당 day_group의 모든 슬롯 ID 수집
+          const dayGroupSlotIds = slots
+            .filter(s => s.item_id === itemId && s.day_group === dayGroup)
+            .map(s => s.id);
+
+          // 해당 슬롯들에 제품 정보 업데이트
+          if (dayGroupSlotIds.length > 0) {
+            const slotsToUpdateProduct = dayGroupSlotIds.map(id => ({
+              id,
+              ...productData
+            }));
+            await itemSlotService.updateSlotsBulk(slotsToUpdateProduct);
+          }
         }
       }
 
@@ -877,18 +930,21 @@ function OperatorItemSheet({
 
       setSlots(prevSlots => {
         return prevSlots.map(slot => {
-          const changes = changedSlots[slot.id];
-          if (changes) {
+          let updatedSlot = slot;
+
+          // 슬롯(구매자) 변경사항 적용
+          const slotChangesData = changedSlots[slot.id];
+          if (slotChangesData) {
             // slot 필드와 buyer 필드 분리
-            const slotChanges = {};
+            const slotFieldChanges = {};
             const buyerChanges = {};
 
-            Object.entries(changes).forEach(([key, value]) => {
+            Object.entries(slotChangesData).forEach(([key, value]) => {
               if (key === 'id') return; // id는 제외
               if (buyerFields.includes(key)) {
                 buyerChanges[key] = value;
               } else {
-                slotChanges[key] = value;
+                slotFieldChanges[key] = value;
               }
             });
 
@@ -897,9 +953,21 @@ function OperatorItemSheet({
               ? { ...slot.buyer, ...buyerChanges }
               : Object.keys(buyerChanges).length > 0 ? buyerChanges : null;
 
-            return { ...slot, ...slotChanges, buyer: updatedBuyer };
+            updatedSlot = { ...updatedSlot, ...slotFieldChanges, buyer: updatedBuyer };
           }
-          return slot;
+
+          // day_group별 제품 정보 변경사항 적용 (슬롯에 직접 저장)
+          const dayGroupKey = `${slot.item_id}_${slot.day_group}`;
+          const productChangesData = changedItems[dayGroupKey];
+          if (productChangesData) {
+            const { itemId, dayGroup, ...productFieldChanges } = productChangesData;
+            updatedSlot = {
+              ...updatedSlot,
+              ...productFieldChanges
+            };
+          }
+
+          return updatedSlot;
         });
       });
 
@@ -919,7 +987,15 @@ function OperatorItemSheet({
 
     } catch (error) {
       console.error('Failed to save changes:', error);
-      alert('저장 실패: ' + error.message);
+      // 서버 에러 메시지 추출
+      const serverMessage = error.response?.data?.message || error.response?.data?.error || error.message;
+
+      // 저장 실패 시 변경사항 상태 초기화 (다음 저장에 영향 주지 않도록)
+      setChangedSlots({});
+      setChangedItems({});
+
+      // 에러 메시지 표시
+      setSnackbar({ open: true, message: `저장 실패: ${serverMessage}` });
     } finally {
       setSaving(false);
     }
@@ -1423,6 +1499,16 @@ function OperatorItemSheet({
             엑셀 다운로드
           </Button>
         </Box>
+        {/* 중앙 저장 안내 */}
+        <Box sx={{
+          color: '#ff5252',
+          fontWeight: 'bold',
+          fontSize: '0.85rem',
+          textAlign: 'center',
+          flex: 1
+        }}>
+          작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!
+        </Box>
         {saving && (
           <Box sx={{ fontSize: '0.85rem', color: '#1976d2', fontWeight: 'bold' }}>
             저장 중...
@@ -1738,6 +1824,23 @@ function OperatorItemSheet({
             }}
             copyPaste={true}
             fillHandle={true}
+            beforeCopy={(data, coords) => {
+              // URL 형식의 데이터 복사 시 하이퍼링크 형식으로 변환
+              // col11 뿐 아니라 모든 셀에서 URL 패턴을 감지하여 처리
+              const urlPattern = /^(https?:\/\/|www\.|[a-zA-Z0-9-]+\.(com|co\.kr|kr|net|org|io|shop|store))/i;
+
+              for (let i = 0; i < data.length; i++) {
+                for (let j = 0; j < data[i].length; j++) {
+                  const value = data[i][j];
+                  if (value && typeof value === 'string' && value.trim()) {
+                    if (urlPattern.test(value.trim())) {
+                      const url = value.startsWith('http') ? value : `https://${value}`;
+                      data[i][j] = url;
+                    }
+                  }
+                }
+              }
+            }}
             beforePaste={(data, coords) => {
               // 주문번호 컬럼(col6, 인덱스 6)에서만 슬래시 파싱 적용
               // 슬래시 구분: 주문번호/구매자/수취인/아이디/연락처/주소/계좌/금액 → col6~col13
@@ -2087,6 +2190,6 @@ function OperatorItemSheet({
       </Dialog>
     </Box>
   );
-}
+});
 
 export default OperatorItemSheet;

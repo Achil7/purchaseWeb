@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { MonthlyBrand, Campaign, Item, User, Buyer, Image } = require('../models');
+const { MonthlyBrand, Campaign, Item, User, Buyer, Image, ItemSlot, CampaignOperator } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
 const { Op } = require('sequelize');
 
@@ -122,7 +122,7 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
             {
               model: Item,
               as: 'items',
-              attributes: ['id', 'product_name', 'status']
+              attributes: ['id', 'product_name', 'status', 'daily_purchase_count']
             }
           ]
         }
@@ -133,9 +133,66 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
       ]
     });
 
+    // 각 캠페인별 배정 상태 계산
+    const monthlyBrandsWithAssignment = await Promise.all(
+      monthlyBrands.map(async (mb) => {
+        const mbData = mb.toJSON();
+
+        // 각 캠페인별 배정 상태 계산
+        if (mbData.campaigns && mbData.campaigns.length > 0) {
+          mbData.campaigns = await Promise.all(
+            mbData.campaigns.map(async (campaign) => {
+              // 품목이 없으면 배정 완료로 간주 (배정할 것이 없음)
+              if (!campaign.items || campaign.items.length === 0) {
+                return {
+                  ...campaign,
+                  isFullyAssigned: true,
+                  assignmentStatus: 'no_items'
+                };
+              }
+
+              // 각 품목별 day_group 수 계산 (daily_purchase_count 기반)
+              let totalRequiredSlots = 0;
+              const itemDayGroups = [];
+
+              for (const item of campaign.items) {
+                const dailyCount = item.daily_purchase_count || '1';
+                const dayGroupCount = dailyCount.toString().split('/').length;
+                totalRequiredSlots += dayGroupCount;
+
+                // 각 day_group 저장
+                for (let dg = 1; dg <= dayGroupCount; dg++) {
+                  itemDayGroups.push({ itemId: item.id, dayGroup: dg });
+                }
+              }
+
+              // 해당 캠페인의 실제 배정된 slot 수 조회
+              const assignedCount = await CampaignOperator.count({
+                where: {
+                  campaign_id: campaign.id
+                }
+              });
+
+              const isFullyAssigned = assignedCount >= totalRequiredSlots && totalRequiredSlots > 0;
+
+              return {
+                ...campaign,
+                isFullyAssigned,
+                assignmentStatus: isFullyAssigned ? 'complete' : 'incomplete',
+                totalRequiredSlots,
+                assignedCount
+              };
+            })
+          );
+        }
+
+        return mbData;
+      })
+    );
+
     res.json({
       success: true,
-      data: monthlyBrands
+      data: monthlyBrandsWithAssignment
     });
   } catch (error) {
     console.error('Get all monthly brands error:', error);

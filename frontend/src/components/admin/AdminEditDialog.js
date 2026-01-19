@@ -50,7 +50,7 @@ function AdminEditDialog({ open, onClose, onSave, campaign, item }) {
     product_price: '',
     shipping_deadline: '',
     review_guide: '',
-    courier_service_yn: true,
+    courier_service_yn: '',
     notes: '',
     registered_at: getKoreanDateTime()
   });
@@ -111,7 +111,7 @@ function AdminEditDialog({ open, onClose, onSave, campaign, item }) {
         product_price: item.product_price || '',
         shipping_deadline: item.shipping_deadline || '',
         review_guide: item.review_guide || '',
-        courier_service_yn: item.courier_service_yn ?? true,
+        courier_service_yn: item.courier_service_yn || '',
         notes: item.notes || '',
         registered_at: registeredAt
       });
@@ -215,7 +215,7 @@ function AdminEditDialog({ open, onClose, onSave, campaign, item }) {
           product_price: itemForm.product_price ? parseFloat(itemForm.product_price) : null,
           shipping_deadline: itemForm.shipping_deadline || null,
           review_guide: itemForm.review_guide || null,
-          courier_service_yn: itemForm.courier_service_yn,
+          courier_service_yn: itemForm.courier_service_yn || null,
           notes: itemForm.notes || null,
           registered_at: itemForm.registered_at ? new Date(itemForm.registered_at).toISOString() : new Date().toISOString()
         };
@@ -479,15 +479,12 @@ function AdminEditDialog({ open, onClose, onSave, campaign, item }) {
                     <TextField
                       label="택배대행"
                       name="courier_service_yn"
-                      select
                       size="small"
                       value={itemForm.courier_service_yn}
                       onChange={handleItemChange}
                       sx={{ minWidth: 100 }}
-                    >
-                      <MenuItem value={true}>Y</MenuItem>
-                      <MenuItem value={false}>N</MenuItem>
-                    </TextField>
+                      placeholder="Y/N"
+                    />
                   </Box>
 
                   {/* 상품 URL */}

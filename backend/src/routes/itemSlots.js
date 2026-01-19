@@ -32,6 +32,13 @@ router.get('/operator/campaign/:campaignId', authenticate, authorize(['operator'
 router.get('/operator/my-assigned', authenticate, authorize(['operator', 'admin']), itemSlotController.getMyAssignedSlots);
 
 /**
+ * @route   GET /api/item-slots/by-date
+ * @desc    날짜별 슬롯 조회 (날짜별 작업 페이지용)
+ * @access  Private (Operator, Sales, Admin)
+ */
+router.get('/by-date', authenticate, authorize(['operator', 'sales', 'admin']), itemSlotController.getSlotsByDate);
+
+/**
  * @route   POST /api/item-slots
  * @desc    슬롯 추가 (구매자 행 추가)
  * @access  Private (Sales, Admin, Operator)

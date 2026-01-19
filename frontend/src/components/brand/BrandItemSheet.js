@@ -374,7 +374,7 @@ function BrandItemSheet({
         col7: item.product_price || '',  // 가격 (합쳐진 제품은 텍스트 그대로 표시)
         col8: item.total_purchase_count || '',  // 총건수
         col9: item.daily_purchase_count || '',  // 일건수
-        col10: item.courier_service_yn ? 'Y' : 'N',  // 택배대행
+        col10: item.courier_service_yn || '',  // 택배대행
         col11: item.product_url || '',  // URL
         col12: '',  // 빈칸 (기존 플랫폼 위치)
         col13: item.notes || ''  // 특이사항
@@ -950,6 +950,23 @@ function BrandItemSheet({
             }}
             copyPaste={true}
             cells={cellsRenderer}
+            beforeCopy={(data, coords) => {
+              // URL 형식의 데이터 복사 시 하이퍼링크 형식으로 변환
+              // col11 뿐 아니라 모든 셀에서 URL 패턴을 감지하여 처리
+              const urlPattern = /^(https?:\/\/|www\.|[a-zA-Z0-9-]+\.(com|co\.kr|kr|net|org|io|shop|store))/i;
+
+              for (let i = 0; i < data.length; i++) {
+                for (let j = 0; j < data[i].length; j++) {
+                  const value = data[i][j];
+                  if (value && typeof value === 'string' && value.trim()) {
+                    if (urlPattern.test(value.trim())) {
+                      const url = value.startsWith('http') ? value : `https://${value}`;
+                      data[i][j] = url;
+                    }
+                  }
+                }
+              }
+            }}
             afterOnCellMouseUp={(event, coords) => {
               // 리뷰 보기 링크 클릭 시 갤러리 팝업
               const target = event.target;

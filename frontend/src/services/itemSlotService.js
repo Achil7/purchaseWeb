@@ -105,6 +105,20 @@ export const splitDayGroup = async (slotId) => {
   return response.data;
 };
 
+/**
+ * 날짜별 슬롯 조회 (날짜별 작업 페이지용)
+ * @param date - 날짜 (yyyy-mm-dd 또는 yy-mm-dd 형식)
+ * @param viewAsUserId - Admin이 특정 사용자의 데이터 조회할 때 사용
+ */
+export const getSlotsByDate = async (date, viewAsUserId = null) => {
+  const params = { date };
+  if (viewAsUserId) {
+    params.viewAsUserId = viewAsUserId;
+  }
+  const response = await api.get('/item-slots/by-date', { params });
+  return response.data;
+};
+
 const itemSlotService = {
   getSlotsByItem,
   getSlotsByCampaign,
@@ -117,7 +131,8 @@ const itemSlotService = {
   deleteSlotsBulk,
   deleteSlotsByGroup,
   deleteSlotsByItem,
-  splitDayGroup
+  splitDayGroup,
+  getSlotsByDate
 };
 
 export default itemSlotService;

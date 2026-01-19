@@ -246,10 +246,50 @@ function AdminControlTower() {
         return 0;
       };
 
+      // 각 연월브랜드의 캠페인들을 먼저 정렬
       data.forEach(mb => {
         if (mb.campaigns) {
-          mb.campaigns.sort(naturalSort);
+          mb.campaigns.sort((a, b) => {
+            // 미배정(incomplete)을 먼저 표시
+            const aComplete = a.isFullyAssigned || a.assignmentStatus === 'no_items';
+            const bComplete = b.isFullyAssigned || b.assignmentStatus === 'no_items';
+
+            if (aComplete !== bComplete) {
+              return aComplete ? 1 : -1; // 미배정이 먼저
+            }
+
+            // 같은 배정 상태 내에서는 이름순
+            return naturalSort(a, b);
+          });
         }
+      });
+
+      // 연월브랜드 자체를 정렬: 미완료 연월브랜드가 위로
+      data.sort((mbA, mbB) => {
+        // 숨겨진 캠페인 제외한 리스트로 완료 여부 계산
+        const campaignsA = (mbA.campaigns || []).filter(c => !c.is_hidden);
+        const campaignsB = (mbB.campaigns || []).filter(c => !c.is_hidden);
+
+        // 연월브랜드의 모든 캠페인이 배정 완료되었는지 확인
+        const isAComplete = campaignsA.length === 0 || campaignsA.every(c =>
+          c.isFullyAssigned || c.assignmentStatus === 'no_items' || (c.items?.length || 0) === 0
+        );
+        const isBComplete = campaignsB.length === 0 || campaignsB.every(c =>
+          c.isFullyAssigned || c.assignmentStatus === 'no_items' || (c.items?.length || 0) === 0
+        );
+
+        // 미완료가 먼저
+        if (isAComplete !== isBComplete) {
+          return isAComplete ? 1 : -1;
+        }
+
+        // 같은 상태 내에서는 영업사 이름 → 연월브랜드 이름순
+        const salesNameA = mbA.creator?.name || '';
+        const salesNameB = mbB.creator?.name || '';
+        const salesCmp = salesNameA.localeCompare(salesNameB, 'ko');
+        if (salesCmp !== 0) return salesCmp;
+
+        return naturalSort(mbA, mbB);
       });
 
       setMonthlyBrands(data);
@@ -453,6 +493,13 @@ function AdminControlTower() {
                       const filteredCampaigns = campaigns.filter(c => !c.is_hidden);
                       const displayCampaignCount = filteredCampaigns.length;
 
+                      // 연월브랜드 전체 배정 완료 여부 계산
+                      const isMbFullyAssigned = displayCampaignCount === 0 || filteredCampaigns.every(c =>
+                        c.isFullyAssigned || c.assignmentStatus === 'no_items' || (c.items?.length || 0) === 0
+                      );
+                      // 품목이 있는 캠페인이 하나라도 있는지 (배정 상태 표시 여부)
+                      const hasAnyItemsInMb = filteredCampaigns.some(c => (c.items?.length || 0) > 0);
+
                       return (
                         <React.Fragment key={mb.id}>
                           {/* 연월브랜드 행 */}
@@ -492,9 +539,32 @@ function AdminControlTower() {
                               </Box>
                             </TableCell>
                             <TableCell>
-                              <Typography variant="body2" color="text.secondary">
-                                {displayCampaignCount}개 캠페인
-                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2" color="text.secondary">
+                                  {displayCampaignCount}개 캠페인
+                                </Typography>
+                                {/* 배정 상태 칩 - 품목이 있는 캠페인이 있을 때만 표시 */}
+                                {hasAnyItemsInMb && (
+                                  isMbFullyAssigned ? (
+                                    <Chip
+                                      icon={<CheckCircleIcon sx={{ fontSize: 12 }} />}
+                                      label="배정완료"
+                                      size="small"
+                                      color="success"
+                                      variant="outlined"
+                                      sx={{ fontSize: '0.65rem', height: 18, '& .MuiChip-icon': { ml: 0.3 } }}
+                                    />
+                                  ) : (
+                                    <Chip
+                                      label="배정 미완료"
+                                      size="small"
+                                      color="error"
+                                      variant="filled"
+                                      sx={{ fontSize: '0.65rem', height: 18, fontWeight: 'bold' }}
+                                    />
+                                  )
+                                )}
+                              </Box>
                             </TableCell>
                             <TableCell align="center">
                               <Typography variant="body2" color="text.secondary">-</Typography>
@@ -525,14 +595,17 @@ function AdminControlTower() {
                           {/* 캠페인 행들 (펼쳐졌을 때만 표시) */}
                           {isExpanded && filteredCampaigns.map((campaign) => {
                             const itemCount = campaign.items?.length || 0;
+                            const isFullyAssigned = campaign.isFullyAssigned || campaign.assignmentStatus === 'no_items';
+                            const isIncomplete = !isFullyAssigned && itemCount > 0;
 
                             return (
                               <TableRow
                                 hover
                                 key={campaign.id}
                                 sx={{
-                                  bgcolor: '#fafafa',
-                                  '&:hover': { bgcolor: '#f0f0f0' }
+                                  bgcolor: isIncomplete ? '#fff3f3' : '#fafafa',
+                                  '&:hover': { bgcolor: isIncomplete ? '#ffe0e0' : '#f0f0f0' },
+                                  borderLeft: isIncomplete ? '3px solid #f44336' : 'none'
                                 }}
                               >
                                 <TableCell />
@@ -563,10 +636,24 @@ function AdminControlTower() {
                                 </TableCell>
                                 <TableCell>
                                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <CampaignIcon color="action" fontSize="small" />
-                                    <Typography variant="body2" fontWeight="medium">
+                                    <CampaignIcon color={isIncomplete ? 'error' : 'action'} fontSize="small" />
+                                    <Typography
+                                      variant="body2"
+                                      fontWeight="medium"
+                                      sx={{ color: isIncomplete ? 'error.main' : 'inherit' }}
+                                    >
                                       {campaign.name}
                                     </Typography>
+                                    {/* 배정완료 칩 */}
+                                    {isFullyAssigned && itemCount > 0 && (
+                                      <Chip
+                                        icon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
+                                        label="배정완료"
+                                        size="small"
+                                        color="success"
+                                        sx={{ fontSize: '0.65rem', height: 20 }}
+                                      />
+                                    )}
                                   </Box>
                                 </TableCell>
                                 <TableCell align="center">

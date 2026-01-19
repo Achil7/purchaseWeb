@@ -1,5 +1,6 @@
 const { Item, Image, Campaign, Buyer, ItemSlot } = require('../models');
-const { sequelize } = require('../models');
+const { sequelize, Sequelize } = require('../models');
+const { Op } = Sequelize;
 const { uploadToS3, deleteFromS3 } = require('../config/s3');
 const multer = require('multer');
 const { normalizeAccountNumber } = require('../utils/accountNormalizer');
@@ -26,74 +27,146 @@ const upload = multer({
 exports.uploadMiddleware = upload.array('images', 10);
 
 /**
- * 다중 이미지 업로드 (주문번호 또는 계좌번호 매칭)
- * - 주문번호 또는 계좌번호로 구매자 매칭 (1 구매자 = 1 이미지)
- * - 같은 식별자의 구매자가 N명이면 N개 이미지까지 각각 1:1 매칭
+ * 이름으로 구매자 검색 (업로드 페이지용)
+ * - 해당 토큰의 day_group 내 구매자만 검색
+ * - 이미지가 없는 구매자만 반환
  */
-exports.uploadImages = async (req, res) => {
-  const transaction = await sequelize.transaction();
-
+exports.searchBuyersByName = async (req, res) => {
   try {
     const { token } = req.params;
-    const { account_number, order_number, is_slot_upload } = req.body;
+    const { name } = req.query;
 
-    // 토큰으로 품목 조회 (Item 토큰 먼저, 없으면 ItemSlot 토큰 시도)
-    let item = await Item.findOne({
-      where: { upload_link_token: token },
-      include: [{ model: Campaign, as: 'campaign' }],
-      transaction
-    });
-
-    // Item 토큰으로 찾지 못하면 ItemSlot 토큰으로 시도
-    if (!item) {
-      const slot = await ItemSlot.findOne({
-        where: { upload_link_token: token },
-        include: [{
-          model: Item,
-          as: 'item',
-          include: [{ model: Campaign, as: 'campaign' }]
-        }],
-        transaction
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: '이름을 입력해주세요'
       });
-
-      if (slot && slot.item) {
-        item = slot.item;
-      }
     }
 
-    if (!item) {
-      await transaction.rollback();
+    const searchName = name.trim();
+
+    // 토큰으로 ItemSlot 조회
+    const slot = await ItemSlot.findOne({
+      where: { upload_link_token: token },
+      include: [{
+        model: Item,
+        as: 'item',
+        attributes: ['id', 'product_name']
+      }]
+    });
+
+    if (!slot || !slot.item) {
       return res.status(404).json({
         success: false,
         message: '유효하지 않은 업로드 링크입니다'
       });
     }
 
-    // 주문번호 또는 계좌번호 중 하나는 필수
-    if (!order_number && !account_number) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: '주문번호 또는 계좌번호 중 하나를 입력해주세요'
-      });
-    }
+    const itemId = slot.item_id;
+    const dayGroup = slot.day_group;
 
-    // 계좌번호 정규화 (입력된 경우에만)
-    let accountNormalized = null;
-    if (account_number) {
-      accountNormalized = normalizeAccountNumber(account_number);
-      // 계좌번호가 입력되었지만 형식이 잘못된 경우 (주문번호가 없을 때만 에러)
-      if (!accountNormalized && !order_number) {
-        await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: '올바른 계좌번호 형식이 아닙니다. 숫자가 8자리 이상 포함되어야 합니다.'
-        });
+    // 해당 day_group의 모든 슬롯 ID 조회
+    const slotsInGroup = await ItemSlot.findAll({
+      where: {
+        item_id: itemId,
+        day_group: dayGroup
+      },
+      attributes: ['id', 'buyer_id']
+    });
+
+    // 슬롯에 연결된 buyer_id들
+    const slotBuyerIds = slotsInGroup
+      .map(s => s.buyer_id)
+      .filter(id => id !== null);
+
+    // 해당 item_id의 모든 구매자 조회 (이미지 정보 포함)
+    const allBuyers = await Buyer.findAll({
+      where: {
+        item_id: itemId,
+        is_temporary: false
+      },
+      include: [{
+        model: Image,
+        as: 'images',
+        attributes: ['id']
+      }],
+      order: [['created_at', 'ASC']]
+    });
+
+    // 계좌정보(account_info)에서 이름 추출하여 검색
+    // 예: "우리은행 1002-661-758359 최은지" -> "최은지"
+    // 숫자 뒤의 마지막 단어(이름) 추출
+    const extractNameFromAccount = (accountInfo) => {
+      if (!accountInfo) return null;
+      // 숫자(계좌번호) 이후의 텍스트에서 이름 추출
+      // 패턴: 숫자 뒤에 공백 후 한글 이름
+      const match = accountInfo.match(/[\d-]+\s*([가-힣]+)\s*$/);
+      return match ? match[1] : null;
+    };
+
+    // 계좌정보의 이름으로 필터링 (이미지 여부 관계없이 모두 반환)
+    const matchedBuyers = allBuyers.filter(buyer => {
+      const accountName = extractNameFromAccount(buyer.account_info);
+      // 계좌정보에서 추출한 이름과 검색어 일치 여부
+      return accountName && accountName === searchName;
+    });
+
+    // 결과 포맷 (hasImage 플래그 포함)
+    const result = matchedBuyers.map(buyer => ({
+      id: buyer.id,
+      order_number: buyer.order_number || '',
+      buyer_name: buyer.buyer_name || '',
+      recipient_name: buyer.recipient_name || '',
+      user_id: buyer.user_id || '',
+      hasImage: buyer.images && buyer.images.length > 0,
+      created_at: buyer.created_at
+    }));
+
+    res.json({
+      success: true,
+      data: result,
+      count: result.length,
+      searchName
+    });
+  } catch (error) {
+    console.error('Search buyers by name error:', error);
+    res.status(500).json({
+      success: false,
+      message: '구매자 검색 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * 다중 이미지 업로드 (buyer_ids 직접 매칭)
+ * - buyer_ids 배열로 구매자 직접 지정
+ * - buyer_ids[i] ↔ images[i] 1:1 매칭
+ */
+exports.uploadImages = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { token } = req.params;
+    const { buyer_ids } = req.body;
+
+    // buyer_ids 파싱 (문자열로 올 수 있음)
+    let buyerIds = buyer_ids;
+    if (typeof buyer_ids === 'string') {
+      try {
+        buyerIds = JSON.parse(buyer_ids);
+      } catch {
+        buyerIds = buyer_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
       }
     }
 
-    // 주문번호 정규화 (공백 제거)
-    const orderNumberNormalized = order_number ? order_number.trim() : null;
+    if (!Array.isArray(buyerIds) || buyerIds.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: '구매자를 선택해주세요'
+      });
+    }
 
     // 파일 확인
     if (!req.files || req.files.length === 0) {
@@ -104,9 +177,40 @@ exports.uploadImages = async (req, res) => {
       });
     }
 
-    // 모든 정상 구매자 조회
-    const allBuyersInItem = await Buyer.findAll({
+    // buyer_ids 개수와 이미지 개수가 일치해야 함
+    if (buyerIds.length !== req.files.length) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `선택한 주문 수(${buyerIds.length})와 이미지 수(${req.files.length})가 일치하지 않습니다`
+      });
+    }
+
+    // 토큰으로 품목 조회 (ItemSlot 토큰)
+    const slot = await ItemSlot.findOne({
+      where: { upload_link_token: token },
+      include: [{
+        model: Item,
+        as: 'item',
+        include: [{ model: Campaign, as: 'campaign' }]
+      }],
+      transaction
+    });
+
+    if (!slot || !slot.item) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: '유효하지 않은 업로드 링크입니다'
+      });
+    }
+
+    const item = slot.item;
+
+    // 선택된 구매자들 조회 및 검증
+    const buyers = await Buyer.findAll({
       where: {
+        id: { [Op.in]: buyerIds },
         item_id: item.id,
         is_temporary: false
       },
@@ -115,84 +219,43 @@ exports.uploadImages = async (req, res) => {
         as: 'images',
         attributes: ['id']
       }],
-      order: [['created_at', 'ASC']],
       transaction
     });
 
-    console.log(`[Upload] Looking for order: ${orderNumberNormalized}, account: ${accountNormalized}`);
-    console.log(`[Upload] Total buyers in item: ${allBuyersInItem.length}`);
-
-    // 구매자 매칭 (주문번호 우선, 없으면 계좌번호로)
-    const availableBuyers = allBuyersInItem.filter(buyer => {
-      // 주문번호로 매칭 (우선순위 높음)
-      if (orderNumberNormalized && buyer.order_number) {
-        const buyerOrderNorm = buyer.order_number.trim();
-        if (buyerOrderNorm === orderNumberNormalized) {
-          console.log(`[Upload] Buyer ${buyer.id}: matched by order_number "${buyerOrderNorm}"`);
-          return true;
-        }
-      }
-
-      // 계좌번호로 매칭
-      if (accountNormalized) {
-        let buyerAccountNorm = buyer.account_normalized;
-        if (!buyerAccountNorm && buyer.account_info) {
-          buyerAccountNorm = normalizeAccountNumber(buyer.account_info);
-        }
-        if (buyerAccountNorm === accountNormalized) {
-          console.log(`[Upload] Buyer ${buyer.id}: matched by account "${buyerAccountNorm}"`);
-          return true;
-        }
-      }
-
-      return false;
-    });
-
-    // 이미지가 없는 구매자만 필터링
-    const buyersWithoutImage = availableBuyers.filter(b => !b.images || b.images.length === 0);
-
-    // 등록된 구매자가 없으면 에러 반환
-    if (availableBuyers.length === 0) {
-      await transaction.rollback();
-      const identifier = orderNumberNormalized ? `주문번호 "${orderNumberNormalized}"` : `계좌번호 "${account_number}"`;
-      return res.status(400).json({
-        success: false,
-        message: `${identifier}에 해당하는 구매자가 없습니다. 먼저 구매자 정보를 등록해주세요.`,
-        code: 'BUYER_NOT_FOUND'
-      });
-    }
-
-    // 이미지를 업로드할 수 있는 구매자가 없으면 에러 반환
-    if (buyersWithoutImage.length === 0) {
+    // 모든 buyer_id가 유효한지 확인
+    if (buyers.length !== buyerIds.length) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: '해당 구매자에게 이미 이미지가 등록되어 있습니다.',
-        code: 'ALL_BUYERS_HAVE_IMAGE'
+        message: '일부 구매자를 찾을 수 없습니다'
       });
     }
 
-    // 업로드하려는 이미지 수가 매칭 가능한 구매자 수보다 많으면 에러
-    if (req.files.length > buyersWithoutImage.length) {
+    // 이미 이미지가 있는 구매자 확인
+    const buyersWithImage = buyers.filter(b => b.images && b.images.length > 0);
+    if (buyersWithImage.length > 0) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: `업로드 가능한 이미지 수를 초과했습니다. 등록된 구매자: ${buyersWithoutImage.length}명, 업로드 시도: ${req.files.length}개`,
-        code: 'EXCEED_REGISTERED_COUNT'
+        message: '이미 이미지가 등록된 주문이 포함되어 있습니다',
+        code: 'ALREADY_HAS_IMAGE'
       });
     }
 
-    // 다중 이미지 업로드 - 각 이미지를 개별 구매자에 매칭
+    // buyer_id 순서대로 매핑 생성
+    const buyerMap = {};
+    buyers.forEach(b => { buyerMap[b.id] = b; });
+
+    // 다중 이미지 업로드 - buyer_ids[i] ↔ files[i] 매칭
     const uploadedImages = [];
-    let buyerIndex = 0;
 
-    for (const file of req.files) {
-      const targetBuyer = buyersWithoutImage[buyerIndex];
-      buyerIndex++;
+    for (let i = 0; i < req.files.length; i++) {
+      const file = req.files[i];
+      const buyerId = buyerIds[i];
+      const targetBuyer = buyerMap[buyerId];
 
-      // 구매자의 account_normalized가 없으면 업데이트
-      if (accountNormalized && !targetBuyer.account_normalized) {
-        await targetBuyer.update({ account_normalized: accountNormalized }, { transaction });
+      if (!targetBuyer) {
+        continue;
       }
 
       const timestamp = Date.now();
@@ -206,7 +269,8 @@ exports.uploadImages = async (req, res) => {
       const image = await Image.create({
         item_id: item.id,
         buyer_id: targetBuyer.id,
-        account_normalized: accountNormalized,
+        order_number: targetBuyer.order_number,
+        account_normalized: targetBuyer.account_normalized,
         file_name: file.originalname,
         file_path: s3Key,
         s3_key: s3Key,
@@ -217,22 +281,22 @@ exports.uploadImages = async (req, res) => {
         uploaded_by_ip: req.ip || req.headers['x-forwarded-for'] || 'unknown'
       }, { transaction });
 
-      uploadedImages.push(image.toJSON());
+      uploadedImages.push({
+        ...image.toJSON(),
+        buyer_name: targetBuyer.buyer_name,
+        order_number: targetBuyer.order_number
+      });
     }
 
     await transaction.commit();
 
     // 타겟 달성 체크 및 브랜드 알림
     try {
-      // 현재 품목의 이미지 개수 (완료된 리뷰 수) 조회
       const completedCount = await Image.count({ where: { item_id: item.id } });
-      const targetCount = item.total_purchase_count || 0;
+      const targetCount = parseInt(item.total_purchase_count, 10) || 0;  // TEXT를 숫자로 파싱
 
-      // 이번 업로드로 타겟 달성한 경우에만 알림
       const previousCount = completedCount - uploadedImages.length;
       if (targetCount > 0 && previousCount < targetCount && completedCount >= targetCount) {
-        // 캠페인의 브랜드 사용자에게 알림
-        // campaign이 이미 include 되어 있으면 사용, 아니면 새로 조회
         let campaign = item.campaign;
         if (!campaign) {
           campaign = await Campaign.findByPk(item.campaign_id);
@@ -250,7 +314,6 @@ exports.uploadImages = async (req, res) => {
       }
     } catch (notifyError) {
       console.error('Target notification error:', notifyError);
-      // 알림 실패해도 업로드는 성공으로 처리
     }
 
     res.status(201).json({
@@ -258,7 +321,9 @@ exports.uploadImages = async (req, res) => {
       message: `${uploadedImages.length}개의 이미지가 업로드되었습니다.`,
       data: uploadedImages.map(img => ({
         id: img.id,
-        s3_url: img.s3_url
+        s3_url: img.s3_url,
+        buyer_name: img.buyer_name,
+        order_number: img.order_number
       })),
       totalUploaded: uploadedImages.length
     });

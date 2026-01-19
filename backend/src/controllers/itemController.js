@@ -525,17 +525,23 @@ exports.getMyAssignedItems = async (req, res) => {
           continue; // 이미 추가된 품목은 스킵
         }
 
+        // 빈 행 체크 함수 (주요 필드가 모두 비어있으면 빈 행)
+        const isEmptyBuyer = (b) => {
+          return !b.order_number && !b.buyer_name && !b.recipient_name && !b.user_id && !b.account_info;
+        };
+        // 실제 데이터가 있는 구매자만 필터링
+        const validBuyers = assignment.item.buyers?.filter(b => !isEmptyBuyer(b)) || [];
         // 임시 구매자(선 업로드) 카운트
-        const tempBuyerCount = assignment.item.buyers?.filter(b => b.is_temporary).length || 0;
+        const tempBuyerCount = validBuyers.filter(b => b.is_temporary).length;
         // 정상 구매자 수 (임시 제외)
-        const normalBuyerCount = assignment.item.buyers?.filter(b => !b.is_temporary).length || 0;
+        const normalBuyerCount = validBuyers.filter(b => !b.is_temporary).length;
 
         campaignMap.get(campaignId).items.push({
           id: assignment.item.id,
           product_name: assignment.item.product_name,
           status: assignment.item.status,
           keyword: assignment.item.keyword,
-          buyerCount: assignment.item.buyers?.length || 0,
+          buyerCount: validBuyers.length,
           normalBuyerCount,
           tempBuyerCount,
           assigned_at: assignment.assigned_at,
@@ -674,24 +680,30 @@ exports.getMyMonthlyBrands = async (req, res) => {
       }
 
       const item = assignment.item;
+      // 빈 행 체크 함수 (주요 필드가 모두 비어있으면 빈 행)
+      const isEmptyBuyer = (b) => {
+        return !b.order_number && !b.buyer_name && !b.recipient_name && !b.user_id && !b.account_info;
+      };
+      // 실제 데이터가 있는 구매자만 필터링
+      const validBuyers = item.buyers?.filter(b => !isEmptyBuyer(b)) || [];
       // 임시 구매자(선 업로드) 카운트
-      const tempBuyerCount = item.buyers?.filter(b => b.is_temporary).length || 0;
+      const tempBuyerCount = validBuyers.filter(b => b.is_temporary).length;
       // 정상 구매자 수 (임시 제외)
-      const normalBuyerCount = item.buyers?.filter(b => !b.is_temporary).length || 0;
+      const normalBuyerCount = validBuyers.filter(b => !b.is_temporary).length;
       // 리뷰 완료 수 (이미지가 있는 정상 구매자 수)
-      const reviewCompletedCount = item.buyers?.filter(b => !b.is_temporary && b.images && b.images.length > 0).length || 0;
+      const reviewCompletedCount = validBuyers.filter(b => !b.is_temporary && b.images && b.images.length > 0).length;
 
       mb.campaigns.get(campaign.id).items.push({
         id: item.id,
         product_name: item.product_name,
         status: item.status,
         keyword: item.keyword,
-        buyerCount: item.buyers?.length || 0,
+        buyerCount: validBuyers.length,
         normalBuyerCount,
         tempBuyerCount,
         reviewCompletedCount,
-        totalPurchaseCount: item.total_purchase_count || 0,
-        courier_service_yn: item.courier_service_yn,  // 택배대행 여부
+        totalPurchaseCount: parseInt(item.total_purchase_count, 10) || 0,  // TEXT를 숫자로 파싱
+        courier_service_yn: item.courier_service_yn,  // 택배대행 여부 (원본 TEXT 유지)
         assigned_at: assignment.assigned_at
       });
     }
@@ -1127,7 +1139,7 @@ exports.createItem = async (req, res) => {
     // 일 구매건수 기준으로 day_group 설정, 그룹별로 upload_link_token 생성
     // 일 구매건수가 슬래시로 구분된 경우 (예: "6/6", "1/3/4/2") 파싱하여 처리
     // 일 구매건수가 빈 값이면 총 구매건수와 동일하게 처리 (day_group 1개로 생성)
-    const slotCount = total_purchase_count || 0;
+    const slotCount = parseInt(total_purchase_count, 10) || 0;  // TEXT를 숫자로 파싱
     let dailyCounts = parseDailyPurchaseCounts(daily_purchase_count);
 
     // 일 구매건수가 없으면 총 구매건수를 하나의 그룹으로 처리
@@ -1263,7 +1275,7 @@ exports.createItemsBulk = async (req, res) => {
       // ItemSlot 자동 생성 (total_purchase_count 개수만큼)
       // 일 구매건수 슬래시 구분 방식으로 day_group 설정, 그룹별로 upload_link_token 생성
       // 일 구매건수가 빈 값이면 총 구매건수와 동일하게 처리 (day_group 1개로 생성)
-      const slotCount = itemData.total_purchase_count || 0;
+      const slotCount = parseInt(itemData.total_purchase_count, 10) || 0;  // TEXT를 숫자로 파싱
       if (slotCount > 0) {
         const slots = [];
         let slotNumber = 1;
@@ -1552,12 +1564,27 @@ exports.getMarginSummary = async (req, res) => {
       });
     }
 
+    // TEXT 필드를 숫자로 파싱하는 헬퍼 함수
+    const parseNumber = (value) => {
+      if (value === null || value === undefined || value === '') return 0;
+      const parsed = parseFloat(String(value).replace(/[^0-9.-]/g, ''));
+      return isNaN(parsed) ? 0 : parsed;
+    };
+
+    // 택배대행 여부를 boolean으로 판단하는 헬퍼 함수
+    const isCourierService = (value) => {
+      if (!value) return false;
+      const str = String(value).toUpperCase().trim();
+      return str === 'Y' || str === 'YES' || str === '1' || str === 'TRUE';
+    };
+
     // 마진 계산 함수
     const calculateItemMargin = (item) => {
-      const totalCount = item.total_purchase_count || 0;
-      const salePrice = item.sale_price_per_unit || 0;
-      const courierPrice = item.courier_price_per_unit || 0;
-      const courierYn = item.courier_service_yn;
+      // TEXT 필드를 숫자로 파싱
+      const totalCount = parseNumber(item.total_purchase_count);
+      const salePrice = parseNumber(item.sale_price_per_unit);
+      const courierPrice = parseNumber(item.courier_price_per_unit);
+      const courierYn = isCourierService(item.courier_service_yn);
 
       // 매출 계산 (공급가)
       const saleRevenue = salePrice * totalCount;
@@ -1565,11 +1592,11 @@ exports.getMarginSummary = async (req, res) => {
       const totalRevenue = saleRevenue + courierRevenue;
       const totalRevenueVat = Math.round(totalRevenue * 1.1);
 
-      // 지출 합계
-      const totalExpense = (item.expense_product || 0) +
-                          (item.expense_courier || 0) +
-                          (item.expense_review || 0) +
-                          (item.expense_other || 0);
+      // 지출 합계 (TEXT 필드를 숫자로 파싱)
+      const totalExpense = parseNumber(item.expense_product) +
+                          parseNumber(item.expense_courier) +
+                          parseNumber(item.expense_review) +
+                          parseNumber(item.expense_other);
 
       // 마진 (부가세 포함 매출 - 지출)
       const margin = totalRevenueVat - totalExpense;
@@ -1665,10 +1692,25 @@ exports.getItemMargin = async (req, res) => {
       });
     }
 
-    const totalCount = item.total_purchase_count || 0;
-    const salePrice = item.sale_price_per_unit || 0;
-    const courierPrice = item.courier_price_per_unit || 0;
-    const courierYn = item.courier_service_yn;
+    // TEXT 필드를 숫자로 파싱하는 헬퍼 함수
+    const parseNumber = (value) => {
+      if (value === null || value === undefined || value === '') return 0;
+      const parsed = parseFloat(String(value).replace(/[^0-9.-]/g, ''));
+      return isNaN(parsed) ? 0 : parsed;
+    };
+
+    // 택배대행 여부를 boolean으로 판단하는 헬퍼 함수
+    const isCourierService = (value) => {
+      if (!value) return false;
+      const str = String(value).toUpperCase().trim();
+      return str === 'Y' || str === 'YES' || str === '1' || str === 'TRUE';
+    };
+
+    // TEXT 필드를 숫자로 파싱
+    const totalCount = parseNumber(item.total_purchase_count);
+    const salePrice = parseNumber(item.sale_price_per_unit);
+    const courierPrice = parseNumber(item.courier_price_per_unit);
+    const courierYn = isCourierService(item.courier_service_yn);
 
     // 매출 계산
     const saleRevenue = salePrice * totalCount;
@@ -1676,11 +1718,11 @@ exports.getItemMargin = async (req, res) => {
     const totalRevenue = saleRevenue + courierRevenue;
     const totalRevenueVat = Math.round(totalRevenue * 1.1);
 
-    // 지출 합계
-    const totalExpense = (item.expense_product || 0) +
-                        (item.expense_courier || 0) +
-                        (item.expense_review || 0) +
-                        (item.expense_other || 0);
+    // 지출 합계 (TEXT 필드를 숫자로 파싱)
+    const totalExpense = parseNumber(item.expense_product) +
+                        parseNumber(item.expense_courier) +
+                        parseNumber(item.expense_review) +
+                        parseNumber(item.expense_other);
 
     // 마진
     const margin = totalRevenueVat - totalExpense;
@@ -1695,17 +1737,17 @@ exports.getItemMargin = async (req, res) => {
         total_count: totalCount,
         sale_price_per_unit: salePrice,
         courier_price_per_unit: courierPrice,
-        courier_service_yn: courierYn,
+        courier_service_yn: item.courier_service_yn, // 원본 TEXT 값 유지
         sale_revenue: saleRevenue,
         sale_revenue_vat: Math.round(saleRevenue * 1.1),
         courier_revenue: courierRevenue,
         courier_revenue_vat: Math.round(courierRevenue * 1.1),
         total_revenue: totalRevenue,
         total_revenue_vat: totalRevenueVat,
-        expense_product: item.expense_product || 0,
-        expense_courier: item.expense_courier || 0,
-        expense_review: item.expense_review || 0,
-        expense_other: item.expense_other || 0,
+        expense_product: parseNumber(item.expense_product),
+        expense_courier: parseNumber(item.expense_courier),
+        expense_review: parseNumber(item.expense_review),
+        expense_other: parseNumber(item.expense_other),
         total_expense: totalExpense,
         margin,
         margin_rate: marginRate,

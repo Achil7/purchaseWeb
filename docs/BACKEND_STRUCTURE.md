@@ -213,10 +213,42 @@ PATCH  /api/buyers/:id/payment             # 입금 확인 (총관리자만)
 
 ### 이미지 (Images)
 ```
+GET    /api/images/search-buyers/:token    # 이름으로 구매자 검색 (Public) - NEW
 POST   /api/images/upload/:token           # 토큰 기반 이미지 업로드 (Public, 최대 10개)
 POST   /api/images/upload-slot/:token      # 슬롯용 이미지 업로드 (Public)
 GET    /api/images/item/:itemId            # 이미지 목록
 DELETE /api/images/:id                     # 이미지 삭제
+```
+
+**구매자 검색 API (NEW):**
+```javascript
+// 이름으로 구매자 검색 (이미지 업로드 전 선택용)
+GET /api/images/search-buyers/:token?name=홍길동
+
+// 응답
+{
+  "success": true,
+  "data": [
+    {
+      "id": 234,
+      "date": "2026-01-14",
+      "order_number": "8100156654664",
+      "recipient_name": "홍길동",
+      "user_id": "hong1"
+    }
+  ]
+}
+```
+
+**이미지 업로드 API (변경됨):**
+```javascript
+// 기존: 주문번호/계좌번호 텍스트 입력
+// 변경: buyer_ids 배열로 직접 지정
+POST /api/images/upload/:token
+Body: {
+  buyer_ids: [234, 235],  // 선택된 구매자 ID 배열
+  images: File[]          // buyer_ids[i] ↔ images[i] 1:1 매칭
+}
 ```
 
 ### 알림 (Notifications) - NEW
@@ -340,6 +372,8 @@ GET /api/item-slots/operator/campaign/456?viewAsUserId=123
 10. ✅ **일차별(day_group) 진행자 배정** (2026-01-03)
 11. ✅ **Brand 시트 14컬럼 확장** (2026-01-10)
 12. ✅ **순번→플랫폼 컬럼 변경** (2026-01-10)
+13. ✅ **데이터 타입 TEXT 전환** (2026-01-15) - 모든 데이터 필드 유연화
+14. ✅ **이미지 업로드 방식 변경** (2026-01-15) - 이름 검색 + 선택 방식
 
 ## JWT 인증 시스템 상세
 
@@ -410,4 +444,4 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:seed:all"
 
 ---
 
-**최종 업데이트**: 2026-01-10
+**최종 업데이트**: 2026-01-15

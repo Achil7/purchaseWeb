@@ -16,32 +16,32 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 구매자 정보
     order_number: {
-      type: DataTypes.STRING(50),
-      allowNull: false
+      type: DataTypes.TEXT,
+      allowNull: true
     },
     buyer_name: {
-      type: DataTypes.STRING(100),
-      allowNull: false
+      type: DataTypes.TEXT,
+      allowNull: true
     },
     recipient_name: {
-      type: DataTypes.STRING(100),
-      allowNull: false
+      type: DataTypes.TEXT,
+      allowNull: true
     },
     user_id: {
-      type: DataTypes.STRING(100)
+      type: DataTypes.TEXT
     },
     contact: {
-      type: DataTypes.STRING(50)
+      type: DataTypes.TEXT
     },
     address: {
       type: DataTypes.TEXT
     },
     account_info: {
-      type: DataTypes.STRING(200)
+      type: DataTypes.TEXT
     },
     // 정규화된 계좌번호 (숫자만 추출)
     account_normalized: {
-      type: DataTypes.STRING(50)
+      type: DataTypes.TEXT
     },
     // 임시 구매자 여부 (선 업로드 케이스)
     is_temporary: {
@@ -49,8 +49,8 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: false
     },
     amount: {
-      type: DataTypes.INTEGER,
-      defaultValue: 0
+      type: DataTypes.TEXT,
+      defaultValue: '0'
     },
     // 입금 확인
     payment_status: {
@@ -70,12 +70,12 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 송장번호 (Sales, Admin이 입력)
     tracking_number: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     // 택배사
     courier_company: {
-      type: DataTypes.STRING(50),
+      type: DataTypes.TEXT,
       allowNull: true,
       comment: '택배사'
     },

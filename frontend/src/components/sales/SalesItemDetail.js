@@ -184,7 +184,7 @@ function SalesItemDetail() {
             </Box>
             <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
               <Typography color="text.secondary" sx={{ minWidth: 120 }}>택배대행:</Typography>
-              <Typography>{item.courier_service_yn ? 'Y (사용)' : 'N (미사용)'}</Typography>
+              <Typography>{item.courier_service_yn || '-'}</Typography>
             </Box>
           </Grid>
           <Grid item xs={12} md={6}>

@@ -1,8 +1,136 @@
 # 구현 진행 상황
 
-**최종 업데이트**: 2026-01-10
+**최종 업데이트**: 2026-01-15
 **프로젝트**: CampManager (purchaseWeb)
 **배포 URL**: https://your-domain.com
+
+---
+
+## 2026-01-15 업데이트 내역 (Phase 13)
+
+### 1. 데이터 타입 유연화 (TEXT 전환)
+
+**배경**: 엑셀 데이터에 제한이 없도록 모든 데이터 필드를 TEXT 타입으로 변경
+
+**마이그레이션**: `20260115195338-change-all-columns-to-text.js`
+
+**변경된 Item 필드:**
+- `total_purchase_count` - INTEGER → TEXT
+- `sale_price_per_unit` - DECIMAL → TEXT
+- `courier_price_per_unit` - DECIMAL → TEXT
+- `expense_product` - DECIMAL → TEXT
+- `expense_courier` - DECIMAL → TEXT
+- `expense_review` - DECIMAL → TEXT
+- `expense_other` - DECIMAL → TEXT
+- `status` - ENUM → TEXT
+
+**변경된 Buyer 필드:**
+- `order_number`, `buyer_name`, `recipient_name`, `user_id` - VARCHAR → TEXT
+- `phone_number`, `address`, `bank_account` - VARCHAR → TEXT
+- `amount` - DECIMAL → TEXT
+- `tracking_number`, `courier_company` - VARCHAR → TEXT
+
+**헬퍼 함수 추가:**
+```javascript
+// 숫자 추출 헬퍼
+const parseNumber = (value) => {
+  if (value === null || value === undefined || value === '') return 0;
+  const parsed = parseFloat(String(value).replace(/[^0-9.-]/g, ''));
+  return isNaN(parsed) ? 0 : parsed;
+};
+
+// 택배대행 여부 판단
+const isCourierService = (value) => {
+  const str = String(value).toUpperCase().trim();
+  return str === 'Y' || str === 'YES' || str === '1' || str === 'TRUE';
+};
+```
+
+**수정 파일:**
+- `backend/src/models/Item.js` - TEXT 타입으로 변경
+- `backend/src/models/Buyer.js` - TEXT 타입으로 변경
+- `frontend/src/components/admin/AdminItemExpenseDialog.js` - parseNumber, isCourierService 헬퍼 추가
+
+### 2. 빈 데이터 삭제 지원
+
+**기능**: 저장된 데이터를 비워서 저장 가능 (null로 처리)
+
+**빈 행 체크 헬퍼:**
+```javascript
+const isEmptyBuyer = (buyer) => {
+  if (!buyer) return true;
+  const fieldsToCheck = ['order_number', 'buyer_name', 'recipient_name', 'user_id',
+                         'phone_number', 'address', 'bank_account', 'amount'];
+  return fieldsToCheck.every(field => !buyer[field] || String(buyer[field]).trim() === '');
+};
+```
+
+**적용 위치:**
+- 건수 계산 시 빈 행 제외
+- 금액 합계 시 빈 행 제외
+
+### 3. 제품 테이블 즉시 업데이트
+
+**문제**: 영업사/진행자 시트에서 제품 테이블의 데이터(키워드, 건수 등)를 수정해도 저장 전까지 UI에 반영 안 됨
+
+**해결**: `changedItems` 상태를 제품 테이블 렌더링에도 적용
+
+**변경 코드:**
+```javascript
+// tableData useMemo에서 changedItems 병합
+const itemChanges = changedItems[parseInt(itemId)] || {};
+const mergedItem = { ...item, ...itemChanges };
+
+// useMemo dependency에 changedItems 추가
+}, [slots, collapsedItems, changedSlots, changedItems]);
+```
+
+**수정 파일:**
+- `frontend/src/components/operator/OperatorItemSheet.js`
+- `frontend/src/components/sales/SalesItemSheet.js`
+
+### 4. 이미지 업로드 방식 변경
+
+**기존**: 주문번호 또는 계좌번호 직접 입력 → 백엔드 자동 매칭
+**변경**: 이름으로 검색 → 결과에서 선택 → 선택한 구매자에 이미지 업로드
+
+**새 API:**
+```
+GET /api/images/search-buyers/:token?name=홍길동
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "data": [
+    { "id": 234, "date": "2026-01-14", "order_number": "8100156654664", "recipient_name": "홍길동", "user_id": "hong1" }
+  ]
+}
+```
+
+**업로드 API 변경:**
+```javascript
+// 변경 전
+Body: { account_number: "...", order_number: "...", images: File[] }
+
+// 변경 후
+Body: { buyer_ids: [234, 235], images: File[] }  // buyer_ids[i] ↔ images[i] 1:1 매칭
+```
+
+**수정 파일:**
+- `backend/src/controllers/imageController.js` - searchBuyersByName 함수 추가, uploadImages 수정
+- `backend/src/routes/images.js` - 새 라우트 추가
+- `frontend/src/components/upload/UploadPage.js` - 전면 재설계
+- `frontend/src/services/imageService.js` - searchBuyersByName 함수 추가
+
+### 5. 저장 안내 텍스트 추가
+
+**위치**: OperatorItemSheet, SalesItemSheet 시트 상단
+
+**스타일**: 빨간색 텍스트
+
+**메시지**: "작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!"
 
 ---
 

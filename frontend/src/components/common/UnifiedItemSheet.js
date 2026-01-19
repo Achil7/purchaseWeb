@@ -236,7 +236,7 @@ function UnifiedItemSheet({
           total_purchase_count: item?.total_purchase_count || '',
           daily_purchase_count: item?.daily_purchase_count || '',
           product_url: item?.product_url || '',
-          courier_service_yn: item?.courier_service_yn ? 'Y' : 'N',
+          courier_service_yn: item?.courier_service_yn || '',
           sale_price_per_unit: item?.sale_price_per_unit ? Number(item.sale_price_per_unit) : '',
           courier_price_per_unit: item?.courier_price_per_unit ? Number(item.courier_price_per_unit) : '',
           notes: slot.notes || ''
@@ -527,7 +527,8 @@ function UnifiedItemSheet({
           if (['total_purchase_count', 'sale_price_per_unit', 'courier_price_per_unit'].includes(fieldName)) {
             itemUpdates[itemId][fieldName] = newValue ? parseInt(String(newValue).replace(/[^0-9]/g, '')) : null;
           } else if (fieldName === 'courier_service_yn') {
-            itemUpdates[itemId][fieldName] = newValue === 'Y';
+            // TEXT 필드 - 'Y' 또는 원본값 그대로 저장
+            itemUpdates[itemId][fieldName] = newValue;
           } else {
             itemUpdates[itemId][fieldName] = newValue;
           }

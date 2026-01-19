@@ -81,7 +81,7 @@ Campaign (캠페인) ← created_by (영업사가 생성), monthly_brand_id 연�
   ↓
 Item (품목) ← upload_link_token 자동 생성, revenue/expense 필드 (마진 계산용)
   ↓
-ItemSlot (품목 슬롯) ← 일 구매건수별 그룹화, day_group, upload_link_token
+ItemSlot (품목 슬롯) ← 일 구매건수별 그룹화, day_group, upload_link_token, **day_group별 독립 제품 정보**
   ↓
 Buyer (구매자/리뷰어) ← 슬래시(/) 구분 데이터로 추가, is_temporary (선 업로드용)
   ↓
@@ -89,6 +89,30 @@ Image (리뷰 이미지) ← AWS S3 저장, buyer_id로 연결
 
 CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정, unique(campaign_id, item_id, day_group, operator_id)
 ```
+
+### 3. day_group별 독립 제품 정보
+
+**일마감(splitDayGroup) 시 제품 정보 독립 저장:**
+- 각 day_group은 자체 제품 정보를 ItemSlot에 저장
+- 일마감 시 현재 day_group의 제품 정보가 새 day_group 슬롯에 복사됨
+- day_group별 제품 정보 수정 시 다른 day_group에 영향 없음 (완전 독립)
+
+**ItemSlot에 저장되는 제품 정보 필드:**
+- `product_name` - 제품명
+- `purchase_option` - 구매 옵션
+- `keyword` - 키워드
+- `product_price` - 가격
+- `notes` - 특이사항
+- `platform` - 플랫폼
+- `shipping_type` - 출고 유형
+- `total_purchase_count` - 총 구매건수
+- `daily_purchase_count` - 일 구매건수
+- `courier_service_yn` - 택배대행 여부
+- `product_url` - 상품 URL
+
+**데이터 우선순위:**
+1. 슬롯에 값이 있으면 → 슬롯 값 사용
+2. 슬롯에 값이 없으면 → Item 테이블 값 사용 (하위 호환성)
 
 ---
 
@@ -183,23 +207,24 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정,
 
 **업로드 링크**: `/upload-slot/:token` (로그인 불필요)
 
+**업로드 흐름 (이름 검색 방식):**
+1. **이름 입력** → 검색 버튼 클릭
+2. **검색 결과** 테이블에서 업로드할 주문 선택 (체크박스, 복수 선택 가능)
+3. **주문별 이미지 업로드** 영역에서 각 주문에 이미지 추가
+   - 파일 선택 버튼 클릭
+   - Ctrl+V 붙여넣기 (포커스된 영역에 적용)
+   - 드래그 앤 드롭
+4. **업로드** 버튼 클릭 → AWS S3 저장
+
 **기능:**
 - 캠페인명, 품목명, 날짜 표시
-- **주문번호 또는 계좌번호 입력** (둘 중 하나 필수)
-- **다중 이미지 선택** (최대 10개, 각 이미지 최대 10MB) 또는 Ctrl+V 붙여넣기
-- AWS S3에 저장
-- buyer_id와 자동 연결 (**주문번호 우선 매칭, 없으면 계좌번호 매칭**)
+- 이미지당 최대 10MB
+- 업로드 완료된 주문은 비활성화 표시 ("업로드 완료")
+- buyer_id 직접 매칭 (선택한 주문의 ID 사용)
 
-**계좌번호 정규화:**
-```
-"국민 111-1234-123456 홍길동" → "1111234123456"
-"신한은행 110-123-456789" → "110123456789"
-모든 숫자가 아닌 문자(공백, 하이픈, 한글, 은행명) 제거
-```
-
-**선 업로드 (Pre-upload) 지원:**
-- 구매자가 진행자 등록 전에 이미지 업로드 시 → 임시 Buyer 자동 생성 (`is_temporary: true`)
-- 진행자가 같은 계좌번호/주문번호로 구매자 등록 시 → 기존 이미지 자동 연결, 임시 Buyer 삭제
+**검색 범위:**
+- 동일 슬롯 그룹 (item_id + day_group) 내 구매자만 검색
+- buyer_name 또는 recipient_name에 검색어 포함된 경우 매칭
 
 ### 6. 구매자(리뷰어) 추가 (진행자)
 
@@ -341,7 +366,7 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정,
   - `monthly_brands` - 연월브랜드 (brand_id, created_by, is_hidden)
   - `campaigns` - 캠페인 (monthly_brand_id, created_by, is_hidden)
   - `items` - 품목 (campaign_id, upload_link_token, revenue/expense 필드)
-  - `item_slots` - 품목 슬롯 (item_id, day_group, upload_link_token)
+  - `item_slots` - 품목 슬롯 (item_id, day_group, upload_link_token, **day_group별 독립 제품 정보 필드**)
   - `campaign_operators` - 품목-진행자 매핑 (unique: campaign_id, item_id, day_group, operator_id)
   - `buyers` - 구매자 (item_id, is_temporary, payment_confirmed)
   - `images` - 리뷰 이미지 (buyer_id, s3_key, s3_url)
@@ -437,6 +462,7 @@ GET    /api/item-slots/item/:itemId                        # 품목별 슬롯 �
 GET    /api/item-slots/campaign/:campaignId                # 캠페인별 슬롯 조회 (Sales, Admin, Brand)
 GET    /api/item-slots/operator/campaign/:campaignId       # Operator용 캠페인별 슬롯 - viewAsUserId 지원
 GET    /api/item-slots/operator/my-assigned                # Operator용 전체 배정된 슬롯
+GET    /api/item-slots/by-date                             # 날짜별 슬롯 조회 (날짜별 작업용)
 GET    /api/item-slots/token/:token                        # 슬롯 토큰으로 조회 (Public)
 POST   /api/item-slots                                     # 슬롯 추가
 PUT    /api/item-slots/:id                                 # 슬롯 수정
@@ -445,7 +471,7 @@ DELETE /api/item-slots/:id                                 # 슬롯 삭제
 DELETE /api/item-slots/bulk/delete                         # 다중 슬롯 삭제
 DELETE /api/item-slots/group/:itemId/:dayGroup             # 그룹별 슬롯 삭제
 DELETE /api/item-slots/item/:itemId                        # 품목의 모든 슬롯 삭제
-POST   /api/item-slots/:slotId/split-day-group             # 일 마감 (day_group 분할)
+POST   /api/item-slots/:slotId/split-day-group             # 일 마감 (day_group 분할 + 진행자 자동 배정 + 제품 정보 복사)
 ```
 
 ### Buyers
@@ -469,9 +495,10 @@ PATCH  /api/buyers/:id/courier                    # 택배사 수정 (Admin)
 
 ### Images
 ```
-GET    /api/images/item/:itemId        # 품목 이미지 목록
-POST   /api/images/upload/:token       # 다중 이미지 업로드 (Public, 최대 10개, 각 10MB)
-DELETE /api/images/:id                 # 이미지 삭제 (Operator, Admin, Sales)
+GET    /api/images/item/:itemId             # 품목 이미지 목록
+GET    /api/images/search-buyers/:token     # 이름으로 구매자 검색 (Public)
+POST   /api/images/upload/:token            # 이미지 업로드 (Public, buyer_ids 배열 지원)
+DELETE /api/images/:id                      # 이미지 삭제 (Operator, Admin, Sales)
 ```
 
 ---
@@ -529,7 +556,39 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 - [x] Operator 메모장 기능 (OperatorMemoDialog)
 - [x] Operator 선 업로드 알림 (30초 갱신)
 
-### 최신 수정 (2026-01-13)
+### 최신 수정 (2026-01-15)
+- [x] **일마감(splitDayGroup) 기능 강화**
+  - 일마감 시 새 day_group에 진행자 자동 배정 (CampaignOperator 레코드 생성)
+  - 일마감 시 제품 정보(product_name, platform, shipping_type 등)가 새 day_group 슬롯에 복사됨
+  - day_group별 제품 정보 완전 독립 (수정 시 다른 day_group에 영향 없음)
+- [x] **day_group별 독립 제품 정보 저장**
+  - ItemSlot 테이블에 제품 정보 필드 추가 (platform, shipping_type, total_purchase_count, daily_purchase_count, courier_service_yn, product_url)
+  - 제품 테이블 수정 시 해당 day_group의 모든 슬롯 업데이트
+  - 데이터 우선순위: 슬롯 값 > Item 값 (하위 호환성)
+- [x] **데이터 타입 유연화 (TEXT 전환)**
+  - Item, Buyer, ItemSlot 모델의 모든 데이터 필드를 TEXT 타입으로 변경
+  - 엑셀 데이터에 대한 제한 없음 (문자 길이, 숫자 형식 제한 제거)
+  - 마진 계산 등 필요한 경우에만 `parseNumber()` 헬퍼로 숫자 추출
+  - 택배대행 여부는 `isCourierService()` 헬퍼로 판단 (Y/YES/1/TRUE)
+- [x] **빈 데이터 삭제 지원**
+  - 저장된 데이터를 비워서 저장 가능 (null로 처리)
+  - 빈 행은 구매자 수에서 제외 (`isEmptyBuyer()` 체크)
+- [x] **제품 테이블 즉시 업데이트**
+  - 제품 데이터 수정 시 새로고침 없이 즉시 반영
+  - 저장 후에도 변경사항 유지 (다른 품목 이동 시에도 유지)
+  - `changedItems` 상태로 즉시 UI 반영
+- [x] **이미지 업로드 방식 변경**
+  - 주문번호/계좌번호 직접 입력 → 이름 검색 후 선택 방식
+  - 복수 주문 선택 시 각 주문별 개별 이미지 업로드
+  - 업로드 완료된 주문은 비활성화 표시
+- [x] **저장 안내 텍스트 추가**
+  - 진행자/영업사 시트 상단에 빨간색 경고: "작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!"
+- [x] **날짜별 작업 페이지**
+  - 새 라우트: `/operator/daily-work`, `/sales/daily-work`
+  - 특정 날짜의 모든 연월브랜드-캠페인 구매자 데이터를 한 화면에서 조회
+  - 제품 테이블에 "연월브랜드-캠페인" 컬럼 추가
+
+### 이전 수정 (2026-01-13)
 - [x] **Admin 컨트롤 타워 정리**
   - "숨김 항목" 기능 완전 제거 (진행자 배정 탭에서)
   - "새로고침" 버튼 삭제 (F5로 대체)
@@ -560,4 +619,4 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ---
 
-**최종 업데이트**: 2026-01-13
+**최종 업데이트**: 2026-01-15

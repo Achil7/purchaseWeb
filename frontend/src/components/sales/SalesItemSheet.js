@@ -324,18 +324,21 @@ function SalesItemSheet({
 
       setSlots(prevSlots => {
         return prevSlots.map(slot => {
-          const changes = changedSlots[slot.id];
-          if (changes) {
+          let updatedSlot = slot;
+
+          // 슬롯(구매자) 변경사항 적용
+          const slotChangesData = changedSlots[slot.id];
+          if (slotChangesData) {
             // slot 필드와 buyer 필드 분리
-            const slotChanges = {};
+            const slotFieldChanges = {};
             const buyerChanges = {};
 
-            Object.entries(changes).forEach(([key, value]) => {
+            Object.entries(slotChangesData).forEach(([key, value]) => {
               if (key === 'id') return; // id는 제외
               if (buyerFields.includes(key)) {
                 buyerChanges[key] = value;
               } else {
-                slotChanges[key] = value;
+                slotFieldChanges[key] = value;
               }
             });
 
@@ -344,9 +347,20 @@ function SalesItemSheet({
               ? { ...slot.buyer, ...buyerChanges }
               : Object.keys(buyerChanges).length > 0 ? buyerChanges : null;
 
-            return { ...slot, ...slotChanges, buyer: updatedBuyer };
+            updatedSlot = { ...updatedSlot, ...slotFieldChanges, buyer: updatedBuyer };
           }
-          return slot;
+
+          // 아이템(제품) 변경사항 적용
+          const itemChangesData = changedItems[slot.item_id];
+          if (itemChangesData && updatedSlot.item) {
+            const { id, ...itemFieldChanges } = itemChangesData;
+            updatedSlot = {
+              ...updatedSlot,
+              item: { ...updatedSlot.item, ...itemFieldChanges }
+            };
+          }
+
+          return updatedSlot;
         });
       });
 
@@ -366,6 +380,9 @@ function SalesItemSheet({
 
     } catch (error) {
       console.error('Save failed:', error);
+      // 저장 실패 시 변경사항 상태 초기화 (다음 저장에 영향 주지 않도록)
+      setChangedSlots({});
+      setChangedItems({});
       setSnackbar({ open: true, message: '저장 실패: ' + (error.response?.data?.message || error.message) });
     } finally {
       setSaving(false);
@@ -444,6 +461,9 @@ function SalesItemSheet({
     // 품목별로 행 생성
     Object.entries(itemGroups).forEach(([itemId, itemGroup]) => {
       const item = itemGroup.item || {};
+      // changedItems에 변경사항이 있으면 적용 (즉시 반영)
+      const itemChanges = changedItems[parseInt(itemId)] || {};
+      const mergedItem = { ...item, ...itemChanges };
 
       // 품목별 완료 상태 계산 (전체 슬롯 vs 리뷰샷 완료)
       let totalSlots = 0;
@@ -477,19 +497,19 @@ function SalesItemSheet({
         _itemId: parseInt(itemId),
         _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
         col0: '',  // 토글 버튼
-        col1: item.date || '',  // 제품 날짜 (Item 테이블)
-        col2: item.platform || '-',  // 플랫폼 (순번 대신)
-        col3: item.product_name || '',
-        col4: item.purchase_option || '',  // 옵션
-        col5: item.shipping_type || '',     // 출고
-        col6: item.keyword || '',           // 키워드
-        col7: item.product_price || '',  // 가격 (합쳐진 제품은 텍스트 그대로 표시)
-        col8: item.total_purchase_count || '',   // 총건수
-        col9: item.daily_purchase_count || '',   // 일건수
-        col10: item.courier_service_yn ? 'Y' : 'N',  // 택배대행
-        col11: item.product_url || '',      // URL
+        col1: mergedItem.date || '',  // 제품 날짜 (Item 테이블)
+        col2: mergedItem.platform || '-',  // 플랫폼 (순번 대신)
+        col3: mergedItem.product_name || '',
+        col4: mergedItem.purchase_option || '',  // 옵션
+        col5: mergedItem.shipping_type || '',     // 출고
+        col6: mergedItem.keyword || '',           // 키워드
+        col7: mergedItem.product_price || '',  // 가격 (합쳐진 제품은 텍스트 그대로 표시)
+        col8: mergedItem.total_purchase_count || '',   // 총건수
+        col9: mergedItem.daily_purchase_count || '',   // 일건수
+        col10: mergedItem.courier_service_yn || '',  // 택배대행
+        col11: mergedItem.product_url || '',      // URL
         col12: '',                          // 빈칸 (기존 플랫폼 위치)
-        col13: item.notes || '',            // 특이사항
+        col13: mergedItem.notes || '',            // 특이사항
         col14: '', col15: '', col16: '', col17: '', col18: ''
       });
 
@@ -583,7 +603,7 @@ function SalesItemSheet({
     });
 
     return { tableData: data };
-  }, [slots, items, collapsedItems, changedSlots]);
+  }, [slots, items, collapsedItems, changedSlots, changedItems]);
 
   // 상태 옵션 및 라벨 (드롭다운 + 조회용)
   const statusOptions = ['active', 'completed', 'cancelled'];
@@ -1166,6 +1186,16 @@ function SalesItemSheet({
             엑셀 다운로드
           </Button>
         </Box>
+        {/* 중앙 저장 안내 */}
+        <Box sx={{
+          color: '#ff5252',
+          fontWeight: 'bold',
+          fontSize: '0.85rem',
+          textAlign: 'center',
+          flex: 1
+        }}>
+          작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!
+        </Box>
         {saving && (
           <Box sx={{ fontSize: '0.85rem', color: '#1976d2', fontWeight: 'bold' }}>
             저장 중...
@@ -1491,6 +1521,23 @@ function SalesItemSheet({
             copyPaste={true}
             fillHandle={true}
             cells={cellsRenderer}
+            beforeCopy={(data, coords) => {
+              // URL 형식의 데이터 복사 시 하이퍼링크 형식으로 변환
+              // col11 뿐 아니라 모든 셀에서 URL 패턴을 감지하여 처리
+              const urlPattern = /^(https?:\/\/|www\.|[a-zA-Z0-9-]+\.(com|co\.kr|kr|net|org|io|shop|store))/i;
+
+              for (let i = 0; i < data.length; i++) {
+                for (let j = 0; j < data[i].length; j++) {
+                  const value = data[i][j];
+                  if (value && typeof value === 'string' && value.trim()) {
+                    if (urlPattern.test(value.trim())) {
+                      const url = value.startsWith('http') ? value : `https://${value}`;
+                      data[i][j] = url;
+                    }
+                  }
+                }
+              }
+            }}
             className="htCenter"
             autoWrapRow={false}
             autoWrapCol={false}

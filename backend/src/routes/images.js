@@ -4,8 +4,15 @@ const imageController = require('../controllers/imageController');
 const { authenticate, authorize } = require('../middleware/auth');
 
 /**
+ * @route   GET /api/images/search-buyers/:token
+ * @desc    이름으로 구매자 검색 (업로드 페이지용)
+ * @access  Public (토큰 검증)
+ */
+router.get('/search-buyers/:token', imageController.searchBuyersByName);
+
+/**
  * @route   POST /api/images/upload/:token
- * @desc    토큰 기반 다중 이미지 업로드 (계좌번호 매칭)
+ * @desc    토큰 기반 다중 이미지 업로드 (buyer_ids 직접 매칭)
  * @access  Public (토큰 검증)
  */
 router.post('/upload/:token', imageController.uploadMiddleware, imageController.uploadImages);

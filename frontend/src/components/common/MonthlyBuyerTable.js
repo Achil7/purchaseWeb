@@ -444,7 +444,7 @@ function MonthlyBuyerTable({ role = 'sales' }) {
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">택배대행</Typography>
-                  <Typography variant="body1">{selectedItem.courier_service_yn ? 'Y' : 'N'}</Typography>
+                  <Typography variant="body1">{selectedItem.courier_service_yn || '-'}</Typography>
                 </Grid>
               </Grid>
 

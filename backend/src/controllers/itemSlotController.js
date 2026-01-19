@@ -1,4 +1,4 @@
-const { ItemSlot, Item, Buyer, CampaignOperator, Campaign, User, Image } = require('../models');
+const { ItemSlot, Item, Buyer, CampaignOperator, Campaign, User, Image, MonthlyBrand } = require('../models');
 const { Op } = require('sequelize');
 const { normalizeAccountNumber } = require('../utils/accountNormalizer');
 
@@ -120,8 +120,8 @@ exports.updateSlotsBulk = async (req, res) => {
       });
     }
 
-    // 슬롯 필드 (ItemSlot 모델 기준)
-    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group'];
+    // 슬롯 필드 (ItemSlot 모델 기준) - day_group별 독립 제품 정보 필드 포함
+    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'product_url'];
     // 구매자 필드 (Buyer 모델 기준)
     const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status'];
 
@@ -140,18 +140,22 @@ exports.updateSlotsBulk = async (req, res) => {
         }
       }
 
-      // 구매자 데이터 필터링
+      // 구매자 데이터 필터링 (빈 값도 업데이트 가능하도록)
       const buyerData = {};
       let hasBuyerData = false;
+      let hasNonEmptyBuyerData = false;  // 새 Buyer 생성용 (빈 값만 있으면 생성 안 함)
       for (const field of buyerFields) {
-        if (slotData[field] !== undefined && slotData[field] !== '') {
+        if (slotData[field] !== undefined) {
           buyerData[field] = slotData[field];
           hasBuyerData = true;
+          if (slotData[field] !== '' && slotData[field] !== null) {
+            hasNonEmptyBuyerData = true;
+          }
         }
       }
 
-      // 구매자 정보가 있으면 Buyer 생성/수정
-      if (hasBuyerData) {
+      // 기존 Buyer가 있으면 업데이트 (빈 값으로 지우기 포함), 없으면 비어있지 않은 데이터가 있을 때만 생성
+      if (hasBuyerData && (slot.buyer_id || hasNonEmptyBuyerData)) {
         // 기존 buyer가 있으면 수정, 없으면 생성
         if (slot.buyer_id) {
           const existingBuyer = await Buyer.findByPk(slot.buyer_id);
@@ -160,21 +164,27 @@ exports.updateSlotsBulk = async (req, res) => {
             if (buyerData.account_info !== undefined) {
               buyerData.account_normalized = normalizeAccountNumber(buyerData.account_info);
             }
+            // 빈 값은 null로 저장 (TEXT 타입이므로 원본 유지, 빈 문자열은 null 처리)
+            Object.keys(buyerData).forEach(key => {
+              if (buyerData[key] === '') {
+                buyerData[key] = null;
+              }
+            });
             await existingBuyer.update(buyerData);
           }
-        } else {
-          // 새 Buyer 생성
+        } else if (hasNonEmptyBuyerData) {
+          // 새 Buyer 생성 (비어있지 않은 데이터가 있을 때만)
           const newBuyer = await Buyer.create({
             item_id: slot.item_id,
-            order_number: buyerData.order_number || '',
-            buyer_name: buyerData.buyer_name || '',
-            recipient_name: buyerData.recipient_name || buyerData.buyer_name || '',
+            order_number: buyerData.order_number || null,
+            buyer_name: buyerData.buyer_name || null,
+            recipient_name: buyerData.recipient_name || buyerData.buyer_name || null,
             user_id: buyerData.user_id || null,
             contact: buyerData.contact || null,
             address: buyerData.address || null,
             account_info: buyerData.account_info || null,
             account_normalized: normalizeAccountNumber(buyerData.account_info),
-            amount: buyerData.amount ? parseInt(String(buyerData.amount).replace(/[^0-9]/g, '')) || 0 : 0,
+            amount: buyerData.amount || null,  // TEXT 타입이므로 원본 유지
             shipping_delayed: buyerData.shipping_delayed || false,
             tracking_number: buyerData.tracking_number || null,
             courier_company: buyerData.courier_company || null,
@@ -260,6 +270,9 @@ exports.getSlotsByCampaign = async (req, res) => {
         'id', 'item_id', 'slot_number', 'date', 'product_name', 'purchase_option',
         'keyword', 'product_price', 'notes', 'status', 'expected_buyer', 'buyer_id',
         'day_group', 'upload_link_token', 'review_cost',
+        // day_group별 독립 제품 정보 필드
+        'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count',
+        'courier_service_yn', 'product_url',
         'created_at', 'updated_at'
       ],
       include: [
@@ -401,6 +414,9 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
         'id', 'item_id', 'slot_number', 'date', 'product_name', 'purchase_option',
         'keyword', 'product_price', 'notes', 'status', 'expected_buyer', 'buyer_id',
         'day_group', 'upload_link_token', 'review_cost',
+        // day_group별 독립 제품 정보 필드
+        'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count',
+        'courier_service_yn', 'product_url',
         'created_at', 'updated_at'
       ],
       include: [
@@ -896,6 +912,8 @@ exports.deleteSlotsByItem = async (req, res) => {
  * 일 마감 - day_group 분할
  * - 특정 슬롯을 기준으로 해당 슬롯 이후의 모든 슬롯을 새로운 day_group으로 이동
  * - 새 day_group에는 새로운 upload_link_token 생성
+ * - 기존 day_group에 배정된 진행자들을 새 day_group에도 자동 배정
+ * - 기존 day_group의 제품 정보를 새 day_group 슬롯들에 복사 (독립적인 제품 정보)
  */
 exports.splitDayGroup = async (req, res) => {
   try {
@@ -911,6 +929,45 @@ exports.splitDayGroup = async (req, res) => {
     }
 
     const { item_id, day_group: currentDayGroup, slot_number: splitSlotNumber } = targetSlot;
+
+    // 품목 정보 조회 (제품 정보 복사용)
+    const item = await Item.findByPk(item_id, {
+      attributes: [
+        'id', 'campaign_id', 'product_name', 'platform', 'shipping_type',
+        'keyword', 'product_price', 'total_purchase_count', 'daily_purchase_count',
+        'purchase_option', 'courier_service_yn', 'product_url', 'notes'
+      ]
+    });
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: '품목을 찾을 수 없습니다'
+      });
+    }
+
+    // 기존 day_group의 첫 번째 슬롯에서 제품 정보 가져오기 (이미 수정된 값이 있을 수 있음)
+    const firstSlotOfCurrentGroup = await ItemSlot.findOne({
+      where: {
+        item_id,
+        day_group: currentDayGroup
+      },
+      order: [['slot_number', 'ASC']]
+    });
+
+    // 제품 정보 결정: 슬롯에 값이 있으면 슬롯 값 사용, 없으면 Item 값 사용
+    const productInfo = {
+      product_name: firstSlotOfCurrentGroup?.product_name || item.product_name,
+      platform: firstSlotOfCurrentGroup?.platform || item.platform,
+      shipping_type: firstSlotOfCurrentGroup?.shipping_type || item.shipping_type,
+      keyword: firstSlotOfCurrentGroup?.keyword || item.keyword,
+      product_price: firstSlotOfCurrentGroup?.product_price || item.product_price,
+      total_purchase_count: firstSlotOfCurrentGroup?.total_purchase_count || item.total_purchase_count,
+      daily_purchase_count: firstSlotOfCurrentGroup?.daily_purchase_count || item.daily_purchase_count,
+      purchase_option: firstSlotOfCurrentGroup?.purchase_option || item.purchase_option,
+      courier_service_yn: firstSlotOfCurrentGroup?.courier_service_yn || item.courier_service_yn,
+      product_url: firstSlotOfCurrentGroup?.product_url || item.product_url,
+      notes: firstSlotOfCurrentGroup?.notes || item.notes
+    };
 
     // 현재 품목의 최대 day_group 조회
     const maxDayGroupResult = await ItemSlot.findOne({
@@ -940,11 +997,23 @@ exports.splitDayGroup = async (req, res) => {
       });
     }
 
-    // 해당 슬롯들의 day_group과 upload_link_token 업데이트
+    // 해당 슬롯들의 day_group, upload_link_token, 제품 정보 업데이트
     await ItemSlot.update(
       {
         day_group: newDayGroup,
-        upload_link_token: newUploadToken
+        upload_link_token: newUploadToken,
+        // 제품 정보 복사 (새 day_group은 독립적인 제품 정보를 가짐)
+        product_name: productInfo.product_name,
+        platform: productInfo.platform,
+        shipping_type: productInfo.shipping_type,
+        keyword: productInfo.keyword,
+        product_price: productInfo.product_price,
+        total_purchase_count: productInfo.total_purchase_count,
+        daily_purchase_count: productInfo.daily_purchase_count,
+        purchase_option: productInfo.purchase_option,
+        courier_service_yn: productInfo.courier_service_yn,
+        product_url: productInfo.product_url,
+        notes: productInfo.notes
       },
       {
         where: {
@@ -953,6 +1022,38 @@ exports.splitDayGroup = async (req, res) => {
       }
     );
 
+    // 기존 day_group에 배정된 진행자들을 새 day_group에도 배정
+    const existingAssignments = await CampaignOperator.findAll({
+      where: {
+        campaign_id: item.campaign_id,
+        item_id: item_id,
+        day_group: currentDayGroup
+      }
+    });
+
+    // 새 day_group에 대한 배정 생성
+    for (const assignment of existingAssignments) {
+      // 중복 확인 후 생성
+      const existing = await CampaignOperator.findOne({
+        where: {
+          campaign_id: item.campaign_id,
+          item_id: item_id,
+          day_group: newDayGroup,
+          operator_id: assignment.operator_id
+        }
+      });
+
+      if (!existing) {
+        await CampaignOperator.create({
+          campaign_id: item.campaign_id,
+          item_id: item_id,
+          day_group: newDayGroup,
+          operator_id: assignment.operator_id,
+          assigned_at: new Date()
+        });
+      }
+    }
+
     res.json({
       success: true,
       message: `${slotsToMove.length}개 행이 ${newDayGroup}일차로 분할되었습니다`,
@@ -960,7 +1061,8 @@ exports.splitDayGroup = async (req, res) => {
         originalDayGroup: currentDayGroup,
         newDayGroup,
         movedCount: slotsToMove.length,
-        splitAfterSlotNumber: splitSlotNumber
+        splitAfterSlotNumber: splitSlotNumber,
+        operatorsAssigned: existingAssignments.length
       }
     });
   } catch (error) {
@@ -968,6 +1070,327 @@ exports.splitDayGroup = async (req, res) => {
     res.status(500).json({
       success: false,
       message: '일 마감 처리 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * 날짜별 슬롯 조회 (날짜별 작업 페이지용)
+ * - Operator: 배정된 품목의 슬롯만 반환
+ * - Sales: 본인이 생성한 캠페인의 슬롯만 반환
+ * - Admin: viewAsUserId로 특정 사용자 데이터 조회 가능
+ */
+exports.getSlotsByDate = async (req, res) => {
+  try {
+    const { date } = req.query;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    // 날짜 필수 검증
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: '날짜가 필요합니다'
+      });
+    }
+
+    // 날짜 형식 검증 (yyyy-mm-dd 또는 yy-mm-dd)
+    const datePattern = /^(\d{4}|\d{2})-\d{2}-\d{2}$/;
+    if (!datePattern.test(date)) {
+      return res.status(400).json({
+        success: false,
+        message: '날짜 형식이 올바르지 않습니다 (yyyy-mm-dd 또는 yy-mm-dd)'
+      });
+    }
+
+    // 날짜 형식 변환: yyyy-mm-dd와 yy-mm-dd 양쪽 모두 검색
+    // 예: 2026-01-01 → ['2026-01-01', '26-01-01']
+    // 예: 26-01-01 → ['26-01-01', '2026-01-01']
+    const dateFormats = [date];
+    if (date.length === 10) {
+      // yyyy-mm-dd → yy-mm-dd
+      dateFormats.push(date.slice(2));
+    } else if (date.length === 8) {
+      // yy-mm-dd → 20yy-mm-dd
+      dateFormats.push('20' + date);
+    }
+
+    // Admin인 경우 viewAsUserId로 특정 사용자 조회 가능
+    let targetUserId = userId;
+    let targetRole = userRole;
+    if (userRole === 'admin' && req.query.viewAsUserId) {
+      targetUserId = parseInt(req.query.viewAsUserId, 10);
+      // viewAsUserId의 역할 조회
+      const targetUser = await User.findByPk(targetUserId, { attributes: ['role'] });
+      if (targetUser) {
+        targetRole = targetUser.role;
+      }
+    }
+
+    let slots = [];
+
+    if (targetRole === 'operator') {
+      // Operator: 배정된 품목의 슬롯만 조회
+      const assignments = await CampaignOperator.findAll({
+        where: { operator_id: targetUserId },
+        attributes: ['item_id', 'day_group']
+      });
+
+      if (assignments.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          count: 0
+        });
+      }
+
+      // 품목별 day_group 매핑 생성
+      const itemDayGroupMap = {};
+      for (const a of assignments) {
+        if (a.item_id) {
+          if (!itemDayGroupMap[a.item_id]) {
+            itemDayGroupMap[a.item_id] = [];
+          }
+          if (a.day_group === null) {
+            itemDayGroupMap[a.item_id] = null;
+          } else if (itemDayGroupMap[a.item_id] !== null) {
+            itemDayGroupMap[a.item_id].push(a.day_group);
+          }
+        }
+      }
+
+      // 배정된 품목 ID들
+      const assignedItemIds = Object.keys(itemDayGroupMap).map(id => parseInt(id, 10));
+
+      // day_group 기반 슬롯 필터링 조건 생성
+      const slotConditions = [];
+      for (const itemId of assignedItemIds) {
+        const dayGroups = itemDayGroupMap[itemId];
+        if (dayGroups === null) {
+          slotConditions.push({ item_id: itemId, date: { [Op.in]: dateFormats } });
+        } else if (dayGroups && dayGroups.length > 0) {
+          slotConditions.push({
+            item_id: itemId,
+            day_group: { [Op.in]: dayGroups },
+            date: { [Op.in]: dateFormats }
+          });
+        }
+      }
+
+      if (slotConditions.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          count: 0
+        });
+      }
+
+      slots = await ItemSlot.findAll({
+        where: { [Op.or]: slotConditions },
+        include: [
+          {
+            model: Item,
+            as: 'item',
+            attributes: [
+              'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+              'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
+              'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
+            ],
+            include: [
+              {
+                model: Campaign,
+                as: 'campaign',
+                attributes: ['id', 'name'],
+                include: [
+                  {
+                    model: MonthlyBrand,
+                    as: 'monthlyBrand',
+                    attributes: ['id', 'name']
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            model: Buyer,
+            as: 'buyer',
+            attributes: [
+              'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
+              'contact', 'address', 'account_info', 'amount', 'payment_status',
+              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company'
+            ],
+            include: [
+              {
+                model: Image,
+                as: 'images',
+                attributes: ['id', 's3_url', 'file_name', 'created_at'],
+                limit: 1,
+                order: [['created_at', 'DESC']]
+              }
+            ]
+          }
+        ],
+        order: [
+          ['item_id', 'ASC'],
+          ['day_group', 'ASC'],
+          ['slot_number', 'ASC']
+        ]
+      });
+
+    } else if (targetRole === 'sales') {
+      // Sales: 본인이 생성한 캠페인의 슬롯만 조회
+      const campaigns = await Campaign.findAll({
+        where: { created_by: targetUserId },
+        attributes: ['id']
+      });
+
+      if (campaigns.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          count: 0
+        });
+      }
+
+      const campaignIds = campaigns.map(c => c.id);
+
+      // 해당 캠페인의 모든 품목 조회
+      const items = await Item.findAll({
+        where: { campaign_id: { [Op.in]: campaignIds } },
+        attributes: ['id']
+      });
+
+      if (items.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          count: 0
+        });
+      }
+
+      const itemIds = items.map(i => i.id);
+
+      slots = await ItemSlot.findAll({
+        where: {
+          item_id: { [Op.in]: itemIds },
+          date: { [Op.in]: dateFormats }
+        },
+        include: [
+          {
+            model: Item,
+            as: 'item',
+            attributes: [
+              'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+              'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
+              'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
+            ],
+            include: [
+              {
+                model: Campaign,
+                as: 'campaign',
+                attributes: ['id', 'name'],
+                include: [
+                  {
+                    model: MonthlyBrand,
+                    as: 'monthlyBrand',
+                    attributes: ['id', 'name']
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            model: Buyer,
+            as: 'buyer',
+            attributes: [
+              'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
+              'contact', 'address', 'account_info', 'amount', 'payment_status',
+              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company'
+            ],
+            include: [
+              {
+                model: Image,
+                as: 'images',
+                attributes: ['id', 's3_url', 'file_name', 'created_at'],
+                limit: 1,
+                order: [['created_at', 'DESC']]
+              }
+            ]
+          }
+        ],
+        order: [
+          ['item_id', 'ASC'],
+          ['day_group', 'ASC'],
+          ['slot_number', 'ASC']
+        ]
+      });
+
+    } else {
+      // Admin 또는 기타: 모든 슬롯 조회
+      slots = await ItemSlot.findAll({
+        where: { date },
+        include: [
+          {
+            model: Item,
+            as: 'item',
+            attributes: [
+              'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+              'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
+              'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
+            ],
+            include: [
+              {
+                model: Campaign,
+                as: 'campaign',
+                attributes: ['id', 'name'],
+                include: [
+                  {
+                    model: MonthlyBrand,
+                    as: 'monthlyBrand',
+                    attributes: ['id', 'name']
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            model: Buyer,
+            as: 'buyer',
+            attributes: [
+              'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
+              'contact', 'address', 'account_info', 'amount', 'payment_status',
+              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company'
+            ],
+            include: [
+              {
+                model: Image,
+                as: 'images',
+                attributes: ['id', 's3_url', 'file_name', 'created_at'],
+                limit: 1,
+                order: [['created_at', 'DESC']]
+              }
+            ]
+          }
+        ],
+        order: [
+          ['item_id', 'ASC'],
+          ['day_group', 'ASC'],
+          ['slot_number', 'ASC']
+        ]
+      });
+    }
+
+    res.json({
+      success: true,
+      data: slots,
+      count: slots.length
+    });
+  } catch (error) {
+    console.error('Get slots by date error:', error);
+    res.status(500).json({
+      success: false,
+      message: '날짜별 슬롯 조회 실패',
       error: error.message
     });
   }

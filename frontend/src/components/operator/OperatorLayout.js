@@ -3,13 +3,14 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar,
   Badge, Menu, MenuItem, ListItemText, Divider, Chip, Paper,
-  List, ListItemButton, ListItemIcon, CircularProgress, Collapse, Tooltip
+  List, ListItemButton, ListItemIcon, CircularProgress, Collapse, Tooltip, Alert,
+  Tabs, Tab
 } from '@mui/material';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import NoteAltIcon from '@mui/icons-material/NoteAlt';
-import DateRangeIcon from '@mui/icons-material/DateRange';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import FolderIcon from '@mui/icons-material/Folder';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -27,11 +28,13 @@ import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import OperatorMemoDialog from './OperatorMemoDialog';
 import OperatorItemSheet from './OperatorItemSheet';
 import UnifiedItemSheet from '../common/UnifiedItemSheet';
+import DailyWorkSheet from '../common/DailyWorkSheet';
 import { itemService } from '../../services';
 
 const DRAWER_WIDTH = 280;
@@ -64,6 +67,9 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   // 선택된 캠페인 (오른쪽에 시트 표시)
   const [selectedCampaign, setSelectedCampaign] = useState(null);
 
+  // 시트 탭 상태 (0: 기본 시트, 1: 날짜별 작업)
+  const [sheetTab, setSheetTab] = useState(0);
+
   // 선 업로드 알림 관련 상태
   const [preUploads, setPreUploads] = useState([]);
   const [totalPreUploadCount, setTotalPreUploadCount] = useState(0);
@@ -87,10 +93,22 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   const [selectedForBulkDelete, setSelectedForBulkDelete] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
+  // 새로 추가된 캠페인 ID 추적 (실시간 업데이트용)
+  const [newlyAddedCampaignIds, setNewlyAddedCampaignIds] = useState(new Set());
+  const previousCampaignIdsRef = React.useRef(new Set());
+
+  // 같은 캠페인 내 새 품목 배정 알림 (시트 상단 배너용)
+  const [hasNewItemsInCurrentCampaign, setHasNewItemsInCurrentCampaign] = useState(false);
+  const previousItemCountRef = React.useRef({}); // { campaignId: itemCount }
+  const sheetRef = React.useRef(null); // OperatorItemSheet ref
+
   // 연월브랜드별 캠페인 데이터 로드
-  const loadMonthlyBrands = useCallback(async (selectedCampaignId = null) => {
+  const loadMonthlyBrands = useCallback(async (selectedCampaignId = null, isPolling = false) => {
     try {
-      setLoading(true);
+      // 최초 로드시에만 로딩 표시 (polling 중에는 로딩 표시 안함)
+      if (!isPolling) {
+        setLoading(true);
+      }
       // viewAsUserId가 있으면 해당 사용자의 데이터 조회 (Admin용)
       const response = await itemService.getMyMonthlyBrands(viewAsUserId);
       const data = response.data || [];
@@ -123,6 +141,70 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
         }
       });
 
+      // 새로 추가된 캠페인 감지 (polling 중일 때만)
+      if (isPolling) {
+        const currentCampaignIds = new Set();
+        data.forEach(mb => {
+          (mb.campaigns || []).forEach(c => currentCampaignIds.add(c.id));
+        });
+
+        const newIds = new Set();
+        currentCampaignIds.forEach(id => {
+          if (!previousCampaignIdsRef.current.has(id)) {
+            newIds.add(id);
+          }
+        });
+
+        if (newIds.size > 0) {
+          setNewlyAddedCampaignIds(prev => new Set([...prev, ...newIds]));
+          // 새로운 배정이 포함된 연월브랜드 자동 펼치기
+          data.forEach(mb => {
+            const hasNewCampaign = (mb.campaigns || []).some(c => newIds.has(c.id));
+            if (hasNewCampaign) {
+              setExpandedMonthlyBrands(prev => {
+                const newState = { ...prev, [mb.id]: true };
+                try {
+                  localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+                } catch (e) {
+                  console.error('Failed to save expanded state:', e);
+                }
+                return newState;
+              });
+            }
+          });
+        }
+
+        previousCampaignIdsRef.current = currentCampaignIds;
+
+        // 같은 캠페인 내 품목 수 변화 감지 (현재 선택된 캠페인만)
+        if (selectedCampaignId) {
+          const currentCampaign = data.flatMap(mb => mb.campaigns || [])
+            .find(c => c.id === selectedCampaignId);
+
+          const prevCount = previousItemCountRef.current[selectedCampaignId] || 0;
+          const currentCount = currentCampaign?.items?.length || 0;
+
+          // 이전에 품목이 있었고, 새로 품목이 추가된 경우에만 배너 표시
+          if (currentCount > prevCount && prevCount > 0) {
+            setHasNewItemsInCurrentCampaign(true);
+          }
+        }
+      } else {
+        // 최초 로드시 현재 캠페인 ID 저장
+        const currentCampaignIds = new Set();
+        data.forEach(mb => {
+          (mb.campaigns || []).forEach(c => currentCampaignIds.add(c.id));
+        });
+        previousCampaignIdsRef.current = currentCampaignIds;
+      }
+
+      // 모든 캠페인의 품목 수 저장 (polling, 최초 로드 모두)
+      data.forEach(mb => {
+        (mb.campaigns || []).forEach(c => {
+          previousItemCountRef.current[c.id] = c.items?.length || 0;
+        });
+      });
+
       setMonthlyBrands(data);
       // 모든 연월브랜드는 기본적으로 접힌 상태로 시작
 
@@ -139,7 +221,9 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
     } catch (err) {
       console.error('Failed to load monthly brands:', err);
     } finally {
-      setLoading(false);
+      if (!isPolling) {
+        setLoading(false);
+      }
     }
   }, [viewAsUserId]);
 
@@ -158,6 +242,18 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   useEffect(() => {
     loadMonthlyBrands();
   }, [loadMonthlyBrands]);
+
+  // 실시간 배정 업데이트 polling (60초마다) - 일반 모드에서만
+  useEffect(() => {
+    if (isAdminMode) return;
+
+    const interval = setInterval(() => {
+      // 현재 선택된 캠페인 ID 유지하면서 백그라운드 새로고침 (isPolling = true)
+      loadMonthlyBrands(selectedCampaign?.id, true);
+    }, 60000); // 60초
+
+    return () => clearInterval(interval);
+  }, [isAdminMode, loadMonthlyBrands, selectedCampaign?.id]);
 
   // 선 업로드는 일반 모드에서만 폴링
   useEffect(() => {
@@ -275,6 +371,16 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   // 캠페인 클릭 - 오른쪽에 시트 표시
   const handleCampaignClick = (campaign) => {
     setSelectedCampaign(campaign);
+    // 새로 추가된 캠페인 하이라이트 제거
+    if (newlyAddedCampaignIds.has(campaign.id)) {
+      setNewlyAddedCampaignIds(prev => {
+        const next = new Set(prev);
+        next.delete(campaign.id);
+        return next;
+      });
+    }
+    // 캠페인 변경 시 신규 품목 배너 초기화
+    setHasNewItemsInCurrentCampaign(false);
     // Embedded 모드가 아닐 때만 네비게이션 처리
     if (!isEmbedded && location.pathname !== basePathOnly && location.pathname !== `${basePathOnly}/`) {
       navigate(basePath);
@@ -301,6 +407,17 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
       await logout();
       navigate('/login', { replace: true });
     }
+  };
+
+  // 시트 새로고침 (신규 품목 배정 배너 클릭 시)
+  const handleRefreshSheet = () => {
+    setHasNewItemsInCurrentCampaign(false);
+    // 시트 ref가 있으면 loadSlots 호출, 아니면 전체 새로고침
+    if (sheetRef.current?.loadSlots) {
+      sheetRef.current.loadSlots();
+    }
+    // 캠페인 데이터도 새로고침
+    loadMonthlyBrands(selectedCampaign?.id);
   };
 
   // 연월브랜드 숨기기 (로컬 저장)
@@ -550,7 +667,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
             <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#e8eaf6', borderBottom: '1px solid #e0e0e0' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <DateRangeIcon fontSize="small" />
+                  <CalendarMonthIcon fontSize="small" />
                   {showHidden ? '숨긴 항목' : '연월브랜드'}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -649,7 +766,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                           }}
                         >
                           <ListItemIcon sx={{ minWidth: 28 }}>
-                            <DateRangeIcon fontSize="small" color={isMbHidden ? 'warning' : 'primary'} />
+                            <CalendarMonthIcon fontSize="small" color={isMbHidden ? 'warning' : 'primary'} />
                           </ListItemIcon>
                           <ListItemText
                             primary={
@@ -693,6 +810,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                                 const stats = getCampaignStats(campaign);
                                 const isSelected = selectedCampaign?.id === campaign.id;
                                 const isHidden = hiddenCampaignIds.includes(campaign.id);
+                                const isNewlyAdded = newlyAddedCampaignIds.has(campaign.id);
 
                                 return (
                                   <ListItemButton
@@ -700,9 +818,15 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                                     onClick={() => handleCampaignClick(campaign)}
                                     sx={{
                                       pl: 4, py: 0.3,
-                                      bgcolor: isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : 'inherit',
-                                      borderLeft: isSelected ? '3px solid #2c387e' : '3px solid transparent',
-                                      '&:hover': { bgcolor: isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : '#f5f5f5' }
+                                      bgcolor: isNewlyAdded ? '#e8f5e9' : isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : 'inherit',
+                                      borderLeft: isNewlyAdded ? '3px solid #4caf50' : isSelected ? '3px solid #2c387e' : '3px solid transparent',
+                                      animation: isNewlyAdded ? 'pulse 2s infinite' : 'none',
+                                      '@keyframes pulse': {
+                                        '0%': { bgcolor: '#e8f5e9' },
+                                        '50%': { bgcolor: '#c8e6c9' },
+                                        '100%': { bgcolor: '#e8f5e9' }
+                                      },
+                                      '&:hover': { bgcolor: isNewlyAdded ? '#c8e6c9' : isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : '#f5f5f5' }
                                     }}
                                   >
                                     <ListItemIcon sx={{ minWidth: 24 }}>
@@ -731,6 +855,24 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                                             </>
                                           ) : (
                                             <>
+                                              {isNewlyAdded && (
+                                                <Chip
+                                                  label="신규 배정"
+                                                  size="small"
+                                                  color="success"
+                                                  sx={{
+                                                    height: 18,
+                                                    fontSize: '0.65rem',
+                                                    fontWeight: 'bold',
+                                                    animation: 'pulse-chip 1.5s infinite',
+                                                    '@keyframes pulse-chip': {
+                                                      '0%': { transform: 'scale(1)' },
+                                                      '50%': { transform: 'scale(1.05)' },
+                                                      '100%': { transform: 'scale(1)' }
+                                                    }
+                                                  }}
+                                                />
+                                              )}
                                               {stats.isCompleted ? (
                                                 <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
                                                   <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
@@ -834,66 +976,132 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
           minHeight: 0
         }}
       >
-        {/* 캠페인이 선택되었고 기본 라우트일 때 시트 표시 */}
-        {selectedCampaign && isDefaultRoute ? (
-          <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-            {/* 캠페인 헤더 - 최소화 */}
-            <Box sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              mb: 1,
-              px: 1,
-              flexShrink: 0
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Typography variant="subtitle1" fontWeight="bold">
-                  {selectedCampaign.name}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  배정 품목 {selectedCampaign.items?.length || 0}개
-                </Typography>
-              </Box>
+        {/* 기본 라우트일 때 탭 + 시트 표시 */}
+        {isDefaultRoute ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+            {/* 탭 헤더 */}
+            <Box sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0, bgcolor: 'white' }}>
+              <Tabs
+                value={sheetTab}
+                onChange={(e, newValue) => setSheetTab(newValue)}
+                sx={{
+                  minHeight: 40,
+                  '& .MuiTab-root': { minHeight: 40, py: 0.5 }
+                }}
+              >
+                <Tab
+                  icon={<AssignmentIcon sx={{ fontSize: 18 }} />}
+                  iconPosition="start"
+                  label="캠페인 시트"
+                  sx={{ fontSize: '0.85rem' }}
+                />
+                <Tab
+                  icon={<CalendarMonthIcon sx={{ fontSize: 18 }} />}
+                  iconPosition="start"
+                  label="날짜별 작업"
+                  sx={{ fontSize: '0.85rem' }}
+                />
+              </Tabs>
             </Box>
 
-            {/* 품목 시트 (DB 슬롯 기반 엑셀 형식) */}
-            <Box sx={{ flex: 1, overflow: 'hidden' }}>
-              {USE_UNIFIED_SHEET ? (
-                <UnifiedItemSheet
-                  campaignId={selectedCampaign.id}
-                  items={selectedCampaign.items || []}
-                  onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
-                  userRole="operator"
-                  viewAsUserId={viewAsUserId}
-                />
+            {/* 탭 0: 캠페인 시트 */}
+            {sheetTab === 0 && (
+              selectedCampaign ? (
+                <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                  {/* 캠페인 헤더 - 최소화 */}
+                  <Box sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    mb: 1,
+                    px: 1,
+                    flexShrink: 0
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Typography variant="subtitle1" fontWeight="bold">
+                        {selectedCampaign.name}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        배정 품목 {selectedCampaign.items?.length || 0}개
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* 신규 품목 배정 알림 배너 */}
+                  {hasNewItemsInCurrentCampaign && (
+                    <Alert
+                      severity="info"
+                      icon={<FiberNewIcon />}
+                      action={
+                        <Button
+                          color="inherit"
+                          size="small"
+                          startIcon={<RefreshIcon />}
+                          onClick={handleRefreshSheet}
+                        >
+                          새로고침
+                        </Button>
+                      }
+                      sx={{
+                        mb: 1,
+                        mx: 1,
+                        flexShrink: 0,
+                        '& .MuiAlert-message': { display: 'flex', alignItems: 'center' }
+                      }}
+                    >
+                      현재 캠페인에 새로운 품목이 배정되었습니다.
+                    </Alert>
+                  )}
+
+                  {/* 품목 시트 (DB 슬롯 기반 엑셀 형식) */}
+                  <Box sx={{ flex: 1, overflow: 'hidden' }}>
+                    {USE_UNIFIED_SHEET ? (
+                      <UnifiedItemSheet
+                        campaignId={selectedCampaign.id}
+                        items={selectedCampaign.items || []}
+                        onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
+                        userRole="operator"
+                        viewAsUserId={viewAsUserId}
+                      />
+                    ) : (
+                      <OperatorItemSheet
+                        ref={sheetRef}
+                        campaignId={selectedCampaign.id}
+                        campaignName={selectedCampaign.name}
+                        items={selectedCampaign.items || []}
+                        onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
+                        viewAsUserId={viewAsUserId}
+                      />
+                    )}
+                  </Box>
+                </Box>
               ) : (
-                <OperatorItemSheet
-                  campaignId={selectedCampaign.id}
-                  campaignName={selectedCampaign.name}
-                  items={selectedCampaign.items || []}
-                  onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
-                  viewAsUserId={viewAsUserId}
-                />
-              )}
-            </Box>
-          </Box>
-        ) : isDefaultRoute ? (
-          // 캠페인이 선택되지 않았을 때 안내 메시지
-          <Box sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            height: '100%',
-            color: 'text.secondary'
-          }}>
-            <FolderIcon sx={{ fontSize: 80, mb: 2, opacity: 0.3 }} />
-            <Typography variant="h6" color="text.secondary">
-              왼쪽에서 캠페인을 선택하세요
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              연월브랜드를 펼쳐 캠페인을 클릭하면 배정된 품목 시트가 표시됩니다
-            </Typography>
+                // 캠페인이 선택되지 않았을 때 안내 메시지
+                <Box sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  height: '100%',
+                  color: 'text.secondary'
+                }}>
+                  <FolderIcon sx={{ fontSize: 80, mb: 2, opacity: 0.3 }} />
+                  <Typography variant="h6" color="text.secondary">
+                    왼쪽에서 캠페인을 선택하세요
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    연월브랜드를 펼쳐 캠페인을 클릭하면 배정된 품목 시트가 표시됩니다
+                  </Typography>
+                </Box>
+              )
+            )}
+
+            {/* 탭 1: 날짜별 작업 */}
+            {sheetTab === 1 && (
+              <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+                <DailyWorkSheet userRole="operator" viewAsUserId={viewAsUserId} />
+              </Box>
+            )}
           </Box>
         ) : (
           // 다른 라우트일 때 Outlet 표시

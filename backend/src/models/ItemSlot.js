@@ -25,7 +25,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING(20),
       allowNull: true
     },
-    // 품목 기본 정보 (복사됨)
+    // 품목 기본 정보 (day_group별 독립 - 일마감 시 복사됨)
     product_name: {
       type: DataTypes.TEXT,
       allowNull: true
@@ -43,6 +43,30 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     notes: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    platform: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    shipping_type: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    total_purchase_count: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    daily_purchase_count: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    courier_service_yn: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    product_url: {
       type: DataTypes.TEXT,
       allowNull: true
     },

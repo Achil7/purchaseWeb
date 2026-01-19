@@ -23,27 +23,33 @@ const getSlotByToken = async (token) => {
 };
 
 /**
+ * 이름으로 구매자 검색 (Public - 인증 불필요)
+ * @param {string} token - 업로드 토큰
+ * @param {string} name - 검색할 이름
+ */
+const searchBuyersByName = async (token, name) => {
+  const response = await axios.get(`${API_BASE_URL}/images/search-buyers/${token}`, {
+    params: { name }
+  });
+  return response.data;
+};
+
+/**
  * 다중 이미지 업로드 (Public - 인증 불필요)
  * @param {string} token - 업로드 토큰
- * @param {File[]} files - 업로드할 이미지 파일 배열
- * @param {string} accountNumber - 계좌번호 (정규화 전)
- * @param {boolean} isSlotUpload - 슬롯 토큰 업로드 여부
- * @param {string} orderNumber - 주문번호 (선택)
+ * @param {number[]} buyerIds - 선택된 구매자 ID 배열
+ * @param {File[]} files - 업로드할 이미지 파일 배열 (buyerIds와 1:1 매칭)
  */
-const uploadImages = async (token, files, accountNumber, isSlotUpload = false, orderNumber = '') => {
+const uploadImages = async (token, buyerIds, files) => {
   const formData = new FormData();
-  formData.append('account_number', accountNumber || '');
-  formData.append('order_number', orderNumber || '');
 
-  // 다중 파일 추가
+  // buyer_ids 배열 추가
+  formData.append('buyer_ids', JSON.stringify(buyerIds));
+
+  // 다중 파일 추가 (순서대로 buyerIds[i] ↔ files[i] 매칭)
   files.forEach(file => {
     formData.append('images', file);
   });
-
-  // 슬롯 업로드 여부 표시
-  if (isSlotUpload) {
-    formData.append('is_slot_upload', 'true');
-  }
 
   const response = await axios.post(
     `${API_BASE_URL}/images/upload/${token}`,
@@ -76,6 +82,7 @@ const deleteImage = async (imageId) => {
 const imageService = {
   getItemByToken,
   getSlotByToken,
+  searchBuyersByName,
   uploadImages,
   getImagesByItem,
   deleteImage

@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar, Paper,
-  List, ListItemButton, ListItemIcon, ListItemText, CircularProgress, Collapse, Chip, Tooltip
+  List, ListItemButton, ListItemIcon, ListItemText, CircularProgress, Collapse, Chip, Tooltip,
+  Tabs, Tab
 } from '@mui/material';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
-import DateRangeIcon from '@mui/icons-material/DateRange';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import FolderIcon from '@mui/icons-material/Folder';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -33,6 +34,7 @@ import SalesAddItemDialog from './SalesAddItemDialog';
 import SalesAddCampaignDialog from './SalesAddCampaignDialog';
 import SalesItemSheet from './SalesItemSheet';
 import UnifiedItemSheet from '../common/UnifiedItemSheet';
+import DailyWorkSheet from '../common/DailyWorkSheet';
 import { monthlyBrandService, itemService, campaignService } from '../../services';
 
 const DRAWER_WIDTH = 280;
@@ -76,6 +78,9 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   // 일괄 삭제용 선택 상태
   const [selectedForBulkDelete, setSelectedForBulkDelete] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // 시트 탭 상태 (0: 기본 시트, 1: 날짜별 작업)
+  const [sheetTab, setSheetTab] = useState(0);
 
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -601,7 +606,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#e8eaf6', borderBottom: '1px solid #e0e0e0' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <DateRangeIcon fontSize="small" />
+                  <CalendarMonthIcon fontSize="small" />
                   {showHidden ? '숨긴 항목' : '연월브랜드'}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -698,7 +703,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                           }}
                         >
                           <ListItemIcon sx={{ minWidth: 28 }}>
-                            <DateRangeIcon fontSize="small" color={monthlyBrand.is_hidden ? 'warning' : 'primary'} />
+                            <CalendarMonthIcon fontSize="small" color={monthlyBrand.is_hidden ? 'warning' : 'primary'} />
                           </ListItemIcon>
                           <ListItemText
                             primary={
@@ -888,84 +893,119 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           minHeight: 0
         }}
       >
-        {/* 캠페인이 선택되었고 기본 라우트일 때 시트 표시 */}
-        {selectedCampaign && isDefaultRoute ? (
-          <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-            {/* 캠페인 헤더 - 최소화 */}
-            <Box sx={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              mb: 1,
-              px: 1,
-              flexShrink: 0
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Typography variant="subtitle1" fontWeight="bold">
-                  {selectedCampaign.name}
-                </Typography>
-                <Chip
-                  label={getStatusLabel(selectedCampaign.status)}
-                  size="small"
-                  color={getStatusColor(selectedCampaign.status)}
-                  sx={{ height: 22 }}
-                />
-                <Typography variant="body2" color="text.secondary">
-                  품목 {selectedCampaign.items?.length || 0}개
-                </Typography>
-              </Box>
-              <Button
-                variant="contained"
-                color="success"
-                size="small"
-                startIcon={<AddCircleIcon />}
-                onClick={handleAddItem}
+        {isDefaultRoute ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+            {/* 탭 헤더 */}
+            <Box sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0, bgcolor: 'white' }}>
+              <Tabs
+                value={sheetTab}
+                onChange={(e, newValue) => setSheetTab(newValue)}
+                sx={{ minHeight: 42, '& .MuiTab-root': { minHeight: 42, py: 0.5 } }}
               >
-                품목 추가
-              </Button>
+                <Tab
+                  icon={<AssignmentIcon sx={{ fontSize: 18 }} />}
+                  iconPosition="start"
+                  label="캠페인 시트"
+                  sx={{ textTransform: 'none', fontSize: '0.875rem' }}
+                />
+                <Tab
+                  icon={<CalendarMonthIcon sx={{ fontSize: 18 }} />}
+                  iconPosition="start"
+                  label="날짜별 작업"
+                  sx={{ textTransform: 'none', fontSize: '0.875rem' }}
+                />
+              </Tabs>
             </Box>
 
-            {/* 품목 시트 (DB 슬롯 기반 엑셀 형식) */}
-            <Box sx={{ flex: 1, overflow: 'hidden' }}>
-              {USE_UNIFIED_SHEET ? (
-                <UnifiedItemSheet
-                  campaignId={selectedCampaign.id}
-                  items={selectedCampaign.items || []}
-                  onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
-                  userRole="sales"
-                  viewAsUserId={viewAsUserId}
-                />
+            {/* 탭 0: 캠페인 시트 */}
+            {sheetTab === 0 && (
+              selectedCampaign ? (
+                <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                  {/* 캠페인 헤더 - 최소화 */}
+                  <Box sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    mb: 1,
+                    px: 1,
+                    flexShrink: 0
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Typography variant="subtitle1" fontWeight="bold">
+                        {selectedCampaign.name}
+                      </Typography>
+                      <Chip
+                        label={getStatusLabel(selectedCampaign.status)}
+                        size="small"
+                        color={getStatusColor(selectedCampaign.status)}
+                        sx={{ height: 22 }}
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        품목 {selectedCampaign.items?.length || 0}개
+                      </Typography>
+                    </Box>
+                    <Button
+                      variant="contained"
+                      color="success"
+                      size="small"
+                      startIcon={<AddCircleIcon />}
+                      onClick={handleAddItem}
+                    >
+                      품목 추가
+                    </Button>
+                  </Box>
+
+                  {/* 품목 시트 (DB 슬롯 기반 엑셀 형식) */}
+                  <Box sx={{ flex: 1, overflow: 'hidden' }}>
+                    {USE_UNIFIED_SHEET ? (
+                      <UnifiedItemSheet
+                        campaignId={selectedCampaign.id}
+                        items={selectedCampaign.items || []}
+                        onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
+                        userRole="sales"
+                        viewAsUserId={viewAsUserId}
+                      />
+                    ) : (
+                      <SalesItemSheet
+                        campaignId={selectedCampaign.id}
+                        campaignName={selectedCampaign.name}
+                        items={selectedCampaign.items || []}
+                        onDeleteItem={handleDeleteItem}
+                        onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
+                        getStatusColor={getStatusColor}
+                        getStatusLabel={getStatusLabel}
+                        viewAsUserId={viewAsUserId}
+                      />
+                    )}
+                  </Box>
+                </Box>
               ) : (
-                <SalesItemSheet
-                  campaignId={selectedCampaign.id}
-                  campaignName={selectedCampaign.name}
-                  items={selectedCampaign.items || []}
-                  onDeleteItem={handleDeleteItem}
-                  onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
-                  getStatusColor={getStatusColor}
-                  getStatusLabel={getStatusLabel}
-                  viewAsUserId={viewAsUserId}
-                />
-              )}
-            </Box>
-          </Box>
-        ) : isDefaultRoute ? (
-          // 캠페인이 선택되지 않았을 때 안내 메시지
-          <Box sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            height: '100%',
-            color: 'text.secondary'
-          }}>
-            <FolderIcon sx={{ fontSize: 80, mb: 2, opacity: 0.3 }} />
-            <Typography variant="h6" color="text.secondary">
-              왼쪽에서 캠페인을 선택하세요
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              연월브랜드를 펼쳐 캠페인을 클릭하면 품목 시트가 표시됩니다
-            </Typography>
+                // 캠페인이 선택되지 않았을 때 안내 메시지
+                <Box sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  flex: 1,
+                  color: 'text.secondary'
+                }}>
+                  <FolderIcon sx={{ fontSize: 80, mb: 2, opacity: 0.3 }} />
+                  <Typography variant="h6" color="text.secondary">
+                    왼쪽에서 캠페인을 선택하세요
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    연월브랜드를 펼쳐 캠페인을 클릭하면 품목 시트가 표시됩니다
+                  </Typography>
+                </Box>
+              )
+            )}
+
+            {/* 탭 1: 날짜별 작업 */}
+            {sheetTab === 1 && (
+              <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+                <DailyWorkSheet userRole="sales" viewAsUserId={viewAsUserId} />
+              </Box>
+            )}
           </Box>
         ) : (
           // 다른 라우트일 때 Outlet 표시
