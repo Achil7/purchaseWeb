@@ -1,17 +1,19 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Typography, Table, TableHead, TableBody, TableRow, TableCell,
   TableContainer, Alert, Button, IconButton, Tooltip, Dialog, DialogTitle,
-  DialogContent, DialogActions, Collapse
+  DialogContent, DialogActions, Collapse, CircularProgress
 } from '@mui/material';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DescriptionIcon from '@mui/icons-material/Description';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../../context/AuthContext';
+import * as estimateService from '../../services/estimateService';
 
 // 마진 현황 접근 허용 계정
 const ALLOWED_MARGIN_USERS = ['masterkangwoo'];
@@ -36,41 +38,52 @@ function AdminMarginDashboard() {
     }
   }, [user, navigate]);
 
-  // 엑셀 업로드 관련 상태
+  // 상태
   const fileInputRef = useRef(null);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadedData, setUploadedData] = useState(null);
   const [uploadError, setUploadError] = useState('');
-
-  // 페이지에 표시할 견적서 목록 (localStorage에서 복원)
-  const [uploadedEstimates, setUploadedEstimates] = useState(() => {
-    try {
-      const saved = localStorage.getItem('uploadedEstimates');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        // Date 객체 복원
-        return parsed.map(est => ({
-          ...est,
-          createdDate: est.createdDate ? new Date(est.createdDate) : null
-        }));
-      }
-    } catch (e) {
-      console.error('localStorage 복원 실패:', e);
-    }
-    return [];
-  });
-
-  // 월별 접기/펼치기 상태
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [estimates, setEstimates] = useState([]);
   const [expandedMonths, setExpandedMonths] = useState({});
 
-  // uploadedEstimates 변경 시 localStorage에 저장
-  useEffect(() => {
+  // DB에서 견적서 목록 로드
+  const loadEstimates = useCallback(async () => {
+    setLoading(true);
     try {
-      localStorage.setItem('uploadedEstimates', JSON.stringify(uploadedEstimates));
-    } catch (e) {
-      console.error('localStorage 저장 실패:', e);
+      const data = await estimateService.getEstimates();
+      // DB 데이터를 UI 형식으로 변환
+      const converted = data.map(est => ({
+        id: est.id,
+        fileName: est.file_name,
+        companyName: est.company_name,
+        createdDate: est.estimate_date ? new Date(est.estimate_date) : null,
+        yearMonth: est.estimate_date ?
+          `${new Date(est.estimate_date).getFullYear()}-${String(new Date(est.estimate_date).getMonth() + 1).padStart(2, '0')}` :
+          '날짜없음',
+        categorySummary: {
+          review: parseFloat(est.category_review) || 0,
+          product: parseFloat(est.category_product) || 0,
+          delivery: parseFloat(est.category_delivery) || 0,
+          other: parseFloat(est.category_other) || 0
+        },
+        supplyAmount: parseFloat(est.supply_amount) || 0,
+        vatAmount: parseFloat(est.vat_amount) || 0,
+        totalAmount: parseFloat(est.total_amount) || 0
+      }));
+      setEstimates(converted);
+    } catch (error) {
+      console.error('견적서 로드 실패:', error);
+    } finally {
+      setLoading(false);
     }
-  }, [uploadedEstimates]);
+  }, []);
+
+  // 초기 로드
+  useEffect(() => {
+    loadEstimates();
+  }, [loadEstimates]);
 
   // 엑셀 날짜 숫자를 JavaScript Date로 변환
   const excelDateToJSDate = (excelDate) => {
@@ -119,30 +132,47 @@ function AdminMarginDashboard() {
   // 견적서 포맷 파싱 함수
   const parseEstimateFormat = (rows, fileName) => {
     const result = {
-      id: Date.now(),
       fileName,
       companyName: '',
+      companyContact: '',
+      companyTel: '',
+      companyEmail: '',
+      agencyName: '',
+      agencyRepresentative: '',
+      agencyTel: '',
+      agencyEmail: '',
       createdDate: null,
-      yearMonth: '', // YYYY-MM 형식
-      // 분류별 금액
+      yearMonth: '',
       categorySummary: {
         review: 0,
         product: 0,
         delivery: 0,
         other: 0
       },
-      // 계산된 금액
+      items: [],
       supplyAmount: 0,
       vatAmount: 0,
       totalAmount: 0
     };
 
-    // 고객사명 (Row 4 [0])
+    // 회사 정보 파싱
     if (rows[4]) {
       result.companyName = rows[4][0] || '';
+      result.agencyName = rows[4][3] || '';
+    }
+    if (rows[5]) {
+      result.companyContact = rows[5][1] || '';
+      result.agencyRepresentative = rows[5][5] || '';
+    }
+    if (rows[6]) {
+      result.companyTel = rows[6][1] || '';
+    }
+    if (rows[7]) {
+      result.companyEmail = rows[7][1] || '';
+      result.agencyTel = rows[7][5] || '';
     }
 
-    // 작성일자 (Row 1 [5])
+    // 작성일자
     if (rows[1] && rows[1][5]) {
       const dateValue = rows[1][5];
       if (typeof dateValue === 'number') {
@@ -155,7 +185,7 @@ function AdminMarginDashboard() {
       }
     }
 
-    // 품목 데이터 파싱 (Row 13부터)
+    // 품목 데이터 파싱
     for (let i = 13; i < rows.length; i++) {
       const row = rows[i];
       if (!row) continue;
@@ -169,6 +199,8 @@ function AdminMarginDashboard() {
         continue;
       }
 
+      const quantity = Number(row[3]) || 0;
+      const unitPrice = Number(row[4]) || 0;
       const totalPrice = Number(row[5]) || 0;
       if (totalPrice === 0) continue;
 
@@ -183,6 +215,14 @@ function AdminMarginDashboard() {
       } else if (productName.startsWith('기타작업') || productName.includes('기타')) {
         category = 'other';
       }
+
+      result.items.push({
+        name: productName,
+        category,
+        quantity,
+        unitPrice,
+        totalPrice
+      });
 
       result.categorySummary[category] += totalPrice;
     }
@@ -205,21 +245,61 @@ function AdminMarginDashboard() {
     setUploadError('');
   };
 
-  // 페이지에 표시 버튼
-  const handleAddToPage = () => {
-    if (uploadedData) {
-      setUploadedEstimates(prev => [...prev, uploadedData]);
+  // DB에 저장
+  const handleSaveToDb = async () => {
+    if (!uploadedData) return;
+
+    setSaving(true);
+    try {
+      await estimateService.createEstimate({
+        file_name: uploadedData.fileName,
+        company_name: uploadedData.companyName,
+        company_contact: uploadedData.companyContact,
+        company_tel: uploadedData.companyTel,
+        company_email: uploadedData.companyEmail,
+        agency_name: uploadedData.agencyName,
+        agency_representative: uploadedData.agencyRepresentative,
+        agency_tel: uploadedData.agencyTel,
+        agency_email: uploadedData.agencyEmail,
+        category_review: uploadedData.categorySummary.review,
+        category_product: uploadedData.categorySummary.product,
+        category_delivery: uploadedData.categorySummary.delivery,
+        category_other: uploadedData.categorySummary.other,
+        supply_amount: uploadedData.supplyAmount,
+        vat_amount: uploadedData.vatAmount,
+        total_amount: uploadedData.totalAmount,
+        items: uploadedData.items,
+        estimate_date: uploadedData.createdDate?.toISOString().split('T')[0]
+      });
+
+      // 목록 새로고침
+      await loadEstimates();
+
       // 해당 월 자동 펼치기
       if (uploadedData.yearMonth) {
         setExpandedMonths(prev => ({ ...prev, [uploadedData.yearMonth]: true }));
       }
+
       handleUploadDialogClose();
+    } catch (error) {
+      console.error('저장 실패:', error);
+      setUploadError('저장에 실패했습니다: ' + error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
   // 견적서 삭제
-  const handleDeleteEstimate = (id) => {
-    setUploadedEstimates(prev => prev.filter(est => est.id !== id));
+  const handleDeleteEstimate = async (id) => {
+    if (!window.confirm('정말 삭제하시겠습니까?')) return;
+
+    try {
+      await estimateService.deleteEstimate(id);
+      await loadEstimates();
+    } catch (error) {
+      console.error('삭제 실패:', error);
+      alert('삭제에 실패했습니다.');
+    }
   };
 
   // 월별 토글
@@ -234,7 +314,7 @@ function AdminMarginDashboard() {
   const groupedByMonth = useMemo(() => {
     const groups = {};
 
-    uploadedEstimates.forEach(est => {
+    estimates.forEach(est => {
       const ym = est.yearMonth || '날짜없음';
       if (!groups[ym]) {
         groups[ym] = {
@@ -267,21 +347,7 @@ function AdminMarginDashboard() {
 
     // 월 정렬 (최신순)
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [uploadedEstimates]);
-
-  // 분류별 행 렌더링
-  const renderCategoryRow = (label, supply, color) => {
-    const vat = supply * 0.1;
-    const total = supply + vat;
-    return (
-      <TableRow>
-        <TableCell sx={{ color, fontWeight: 'bold', width: 100 }}>{label}</TableCell>
-        <TableCell align="right">{formatAmount(supply)}</TableCell>
-        <TableCell align="right">{formatAmount(vat)}</TableCell>
-        <TableCell align="right" sx={{ fontWeight: 'bold' }}>{formatAmount(total)}</TableCell>
-      </TableRow>
-    );
-  };
+  }, [estimates]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -289,13 +355,23 @@ function AdminMarginDashboard() {
         <Typography variant="h5" fontWeight="bold">
           견적서 관리 (매출)
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<UploadFileIcon />}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          견적서 업로드
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={loadEstimates}
+            disabled={loading}
+          >
+            새로고침
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<UploadFileIcon />}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            견적서 업로드
+          </Button>
+        </Box>
         <input
           type="file"
           ref={fileInputRef}
@@ -305,8 +381,15 @@ function AdminMarginDashboard() {
         />
       </Box>
 
+      {/* 로딩 */}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
       {/* 업로드된 견적서가 없을 때 */}
-      {uploadedEstimates.length === 0 && (
+      {!loading && estimates.length === 0 && (
         <Paper sx={{ p: 4, textAlign: 'center', bgcolor: '#f5f5f5' }}>
           <DescriptionIcon sx={{ fontSize: 60, color: '#bdbdbd', mb: 2 }} />
           <Typography variant="h6" color="text.secondary" gutterBottom>
@@ -319,7 +402,7 @@ function AdminMarginDashboard() {
       )}
 
       {/* 월별 그룹화된 견적서 목록 */}
-      {groupedByMonth.map(([yearMonth, { estimates, totals }]) => (
+      {!loading && groupedByMonth.map(([yearMonth, { estimates: monthEstimates, totals }]) => (
         <Paper key={yearMonth} sx={{ mb: 2 }}>
           {/* 월 헤더 */}
           <Box
@@ -336,7 +419,7 @@ function AdminMarginDashboard() {
             }}
           >
             <Typography variant="h6" fontWeight="bold">
-              {yearMonth} ({estimates.length}건)
+              {yearMonth} ({monthEstimates.length}건)
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
               <Typography variant="body2">
@@ -390,7 +473,7 @@ function AdminMarginDashboard() {
 
             {/* 개별 견적서 목록 */}
             <Box sx={{ p: 2 }}>
-              {estimates.map((est) => (
+              {monthEstimates.map((est) => (
                 <Paper key={est.id} variant="outlined" sx={{ mb: 1, p: 1.5 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                     <Box>
@@ -421,7 +504,7 @@ function AdminMarginDashboard() {
                       <TableBody>
                         {Object.entries(CATEGORIES).map(([key, { label, color }]) => {
                           const supply = est.categorySummary[key];
-                          if (supply === 0) return null; // 0인 항목은 숨김
+                          if (supply === 0) return null;
                           const vat = supply * 0.1;
                           return (
                             <TableRow key={key}>
@@ -505,8 +588,8 @@ function AdminMarginDashboard() {
         <DialogActions>
           <Button onClick={handleUploadDialogClose}>닫기</Button>
           {uploadedData && !uploadError && (
-            <Button variant="contained" onClick={handleAddToPage}>
-              추가
+            <Button variant="contained" onClick={handleSaveToDb} disabled={saving}>
+              {saving ? '저장 중...' : 'DB에 저장'}
             </Button>
           )}
         </DialogActions>

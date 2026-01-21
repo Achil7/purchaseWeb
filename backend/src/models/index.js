@@ -36,6 +36,7 @@ db.UserMemo = require('./UserMemo')(sequelize, Sequelize.DataTypes);
 db.ItemSlot = require('./ItemSlot')(sequelize, Sequelize.DataTypes);
 db.SheetMemo = require('./SheetMemo')(sequelize, Sequelize.DataTypes);
 db.BrandSales = require('./BrandSales')(sequelize, Sequelize.DataTypes);
+db.Estimate = require('./Estimate')(sequelize, Sequelize.DataTypes);
 
 // 모델 관계 설정
 Object.keys(db).forEach((modelName) => {
