@@ -116,7 +116,7 @@ function OperatorMemoDialog({ open, onClose }) {
     <>
       <Dialog
         open={open}
-        onClose={handleClose}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') handleClose(); }}
         maxWidth="md"
         fullWidth
         PaperProps={{

@@ -14,6 +14,7 @@ function ProfileEditDialog({ open, onClose }) {
   const { user } = useAuth();
   const [activeStep, setActiveStep] = useState(0);
   const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -25,6 +26,7 @@ function ProfileEditDialog({ open, onClose }) {
     // 상태 초기화
     setActiveStep(0);
     setPassword('');
+    setUsername('');
     setName('');
     setNewPassword('');
     setConfirmPassword('');
@@ -46,6 +48,7 @@ function ProfileEditDialog({ open, onClose }) {
     try {
       await api.post('/auth/verify-password', { password });
       // 비밀번호 확인 성공 - 다음 단계로
+      setUsername(user?.username || '');
       setName(user?.name || '');
       setActiveStep(1);
     } catch (err) {
@@ -58,6 +61,11 @@ function ProfileEditDialog({ open, onClose }) {
   // 2단계: 프로필 수정
   const handleUpdateProfile = async () => {
     // 유효성 검사
+    if (!username.trim()) {
+      setError('아이디를 입력해주세요');
+      return;
+    }
+
     if (!name.trim()) {
       setError('이름을 입력해주세요');
       return;
@@ -77,7 +85,10 @@ function ProfileEditDialog({ open, onClose }) {
     setError('');
 
     try {
-      const updateData = { name: name.trim() };
+      const updateData = {
+        username: username.trim(),
+        name: name.trim()
+      };
       if (newPassword) {
         updateData.newPassword = newPassword;
       }
@@ -86,6 +97,7 @@ function ProfileEditDialog({ open, onClose }) {
 
       // localStorage의 user 정보 업데이트
       const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      savedUser.username = response.data.data.username;
       savedUser.name = response.data.data.name;
       localStorage.setItem('user', JSON.stringify(savedUser));
 
@@ -105,7 +117,7 @@ function ProfileEditDialog({ open, onClose }) {
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={(event, reason) => { if (reason !== 'backdropClick') handleClose(); }} fullWidth maxWidth="sm">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', borderBottom: '1px solid #eee' }}>
         <EditIcon color="primary" />
         내 정보 수정
@@ -160,6 +172,15 @@ function ProfileEditDialog({ open, onClose }) {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
               수정할 정보를 입력해주세요. 비밀번호를 변경하지 않으려면 비워두세요.
             </Typography>
+
+            <TextField
+              label="아이디 (로그인용) *"
+              fullWidth
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              sx={{ mb: 2 }}
+              helperText="로그인 시 사용되는 아이디입니다"
+            />
 
             <TextField
               label="이름 *"

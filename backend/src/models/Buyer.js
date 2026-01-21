@@ -139,6 +139,12 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'buyer_id',
       as: 'images'
     });
+
+    // 구매자가 연결된 슬롯 (ItemSlot.buyer_id → Buyer.id)
+    Buyer.hasOne(models.ItemSlot, {
+      foreignKey: 'buyer_id',
+      as: 'slot'
+    });
   };
 
   return Buyer;

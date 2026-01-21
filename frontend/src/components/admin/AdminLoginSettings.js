@@ -141,7 +141,7 @@ function AdminLoginSettings({ open, onClose }) {
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth>
+    <Dialog open={open} onClose={(event, reason) => { if (reason !== 'backdropClick') handleClose(); }} maxWidth="lg" fullWidth>
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h6" fontWeight="bold">로그인 페이지 설정</Typography>
         <IconButton onClick={handleClose}>

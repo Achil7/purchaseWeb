@@ -42,9 +42,26 @@ const sumDailyPurchaseCounts = (dailyCountStr) => {
   return counts.reduce((sum, n) => sum + n, 0);
 };
 
+// 필드 키워드 매칭 함수 - 라인이 특정 필드의 시작인지 확인
+const isFieldLine = (line) => {
+  const colonIndex = line.indexOf(':');
+  if (colonIndex === -1) return false;
+
+  const key = line.substring(0, colonIndex).trim().toLowerCase();
+
+  // 알려진 필드 키워드들
+  const fieldKeywords = [
+    '미출고', '실출고', '제품명', '제품', '총', '건수', '일', 'url', '상품', '확인',
+    '구매', '옵션', '가격', '리뷰', '가이드', '소구점', '택배', '대행', '키워드', '유입',
+    '출고', '마감', '비고', '플랫폼', '판매처'
+  ];
+
+  return fieldKeywords.some(kw => key.includes(kw));
+};
+
 // 단일 품목 텍스트를 파싱하는 함수
 const parseItemText = (text) => {
-  const lines = text.split('\n').filter(line => line.trim());
+  const lines = text.split('\n');
   const result = {
     product_name: '',
     shipping_type: '실출고',
@@ -62,9 +79,40 @@ const parseItemText = (text) => {
     registered_at: getKoreanDateTime()
   };
 
-  lines.forEach(line => {
+  let currentField = null;
+  let multiLineContent = [];
+
+  const saveMultiLineContent = () => {
+    if (currentField === 'review_guide' && multiLineContent.length > 0) {
+      result.review_guide = multiLineContent.join('\n');
+    }
+    multiLineContent = [];
+    currentField = null;
+  };
+
+  lines.forEach((line, index) => {
+    const trimmedLine = line.trim();
+
+    // 빈 줄은 멀티라인 컨텐츠에 포함 (리뷰가이드 내 빈줄 보존)
+    if (!trimmedLine) {
+      if (currentField === 'review_guide') {
+        multiLineContent.push('');
+      }
+      return;
+    }
+
     const colonIndex = line.indexOf(':');
-    if (colonIndex === -1) return;
+
+    // 콜론이 없거나 필드 라인이 아니면 멀티라인 컨텐츠에 추가
+    if (colonIndex === -1 || !isFieldLine(line)) {
+      if (currentField === 'review_guide') {
+        multiLineContent.push(trimmedLine);
+      }
+      return;
+    }
+
+    // 새 필드 시작 - 이전 멀티라인 컨텐츠 저장
+    saveMultiLineContent();
 
     const key = line.substring(0, colonIndex).trim().toLowerCase();
     const value = line.substring(colonIndex + 1).trim();
@@ -85,7 +133,9 @@ const parseItemText = (text) => {
     } else if (key.includes('가격')) {
       result.product_price = value.replace(/[^0-9]/g, '');
     } else if (key.includes('리뷰') || key.includes('가이드') || key.includes('소구점')) {
-      result.review_guide = value;
+      // 리뷰 가이드는 멀티라인 지원
+      currentField = 'review_guide';
+      if (value) multiLineContent.push(value);
     } else if (key.includes('택배') && key.includes('대행')) {
       // TEXT 필드 - 'Y' 또는 'N' 문자열로 저장
       result.courier_service_yn = (value.toUpperCase() === 'Y' || value.includes('사용')) ? 'Y' : 'N';
@@ -118,12 +168,15 @@ const parseItemText = (text) => {
     }
   });
 
+  // 마지막 멀티라인 필드 저장
+  saveMultiLineContent();
+
   // 특이사항 자동 생성: "리뷰가이드, 가격, 출고마감시간"
   const noteParts = [];
   if (result.review_guide) noteParts.push(result.review_guide);
   if (result.product_price) noteParts.push(`${Number(result.product_price).toLocaleString()}원`);
   if (result.shipping_deadline) noteParts.push(result.shipping_deadline);
-  result.notes = noteParts.join(', ');
+  result.notes = noteParts.join('\n\n');  // 줄바꿈으로 구분
 
   return result;
 };
@@ -559,7 +612,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
 ※ 여러 품목 추가 시 빈 줄로 구분해주세요.`;
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xl">
+    <Dialog open={open} onClose={(event, reason) => { if (reason !== 'backdropClick') onClose(); }} fullWidth maxWidth="xl">
       <DialogTitle sx={{ fontWeight: 'bold', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: 1 }}>
         {isEdit ? <EditIcon color="primary" /> : <AddCircleIcon color="success" />}
         {isEdit ? '제품 수정' : '제품 추가'}

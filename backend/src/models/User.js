@@ -71,13 +71,10 @@ module.exports = (sequelize, DataTypes) => {
     timestamps: true,
     createdAt: 'created_at',
     updatedAt: 'updated_at',
-    paranoid: true,
-    deletedAt: 'deleted_at',
     indexes: [
       { fields: ['username'] },
       { fields: ['role'] },
-      { fields: ['assigned_sales_id'] },
-      { fields: ['deleted_at'] }
+      { fields: ['assigned_sales_id'] }
     ]
   });
 

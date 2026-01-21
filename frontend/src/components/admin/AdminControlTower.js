@@ -33,7 +33,8 @@ import {
   activateUser,
   getBrandSales,
   addBrandSales,
-  removeBrandSales
+  removeBrandSales,
+  updateUser
 } from '../../services/userService';
 import { campaignService } from '../../services';
 import monthlyBrandService from '../../services/monthlyBrandService';
@@ -44,6 +45,7 @@ import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import EditIcon from '@mui/icons-material/Edit';
 
 function AdminControlTower() {
   const navigate = useNavigate();
@@ -114,6 +116,19 @@ function AdminControlTower() {
   const [allSalesUsers, setAllSalesUsers] = useState([]);
   const [selectedSalesToAdd, setSelectedSalesToAdd] = useState('');
   const [addingSales, setAddingSales] = useState(false);
+
+  // 사용자 삭제 다이얼로그 상태
+  const [userDeleteDialogOpen, setUserDeleteDialogOpen] = useState(false);
+  const [userDeleteData, setUserDeleteData] = useState(null); // { user, relatedData }
+  const [userDeleteLoading, setUserDeleteLoading] = useState(false);
+  const [delegateUserId, setDelegateUserId] = useState('');
+  const [delegateUsers, setDelegateUsers] = useState([]);
+
+  // 사용자 수정 상태
+  const [editingUser, setEditingUser] = useState(false);
+  const [editUsername, setEditUsername] = useState('');
+  const [editName, setEditName] = useState('');
+  const [savingUser, setSavingUser] = useState(false);
 
   // 영업사 변경 다이얼로그 열기
   const handleOpenSalesChangeDialog = async (campaign) => {
@@ -980,7 +995,7 @@ function AdminControlTower() {
       </Box>
 
       {/* 비밀번호 초기화 확인 다이얼로그 */}
-      <Dialog open={resetDialogOpen} onClose={() => setResetDialogOpen(false)}>
+      <Dialog open={resetDialogOpen} onClose={(event, reason) => { if (reason !== 'backdropClick') setResetDialogOpen(false); }}>
         <DialogTitle>비밀번호 초기화</DialogTitle>
         <DialogContent>
           {resetResult ? (
@@ -1037,24 +1052,103 @@ function AdminControlTower() {
       </Dialog>
 
       {/* 사용자 상세 다이얼로그 */}
-      <Dialog open={detailDialogOpen} onClose={() => setDetailDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ borderBottom: '1px solid #eee' }}>
+      <Dialog open={detailDialogOpen} onClose={(event, reason) => { if (reason !== 'backdropClick') { setDetailDialogOpen(false); setEditingUser(false); } }} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           사용자 상세 정보
+          {userDetail && !editingUser && (
+            <Tooltip title="정보 수정">
+              <IconButton
+                size="small"
+                onClick={() => {
+                  setEditUsername(userDetail.username);
+                  setEditName(userDetail.name);
+                  setEditingUser(true);
+                }}
+              >
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
           {userDetail && (
             <Box>
               {/* ID */}
               <Box sx={{ mb: 2 }}>
-                <Typography variant="caption" color="text.secondary">ID</Typography>
-                <Typography variant="body1" fontWeight="medium">{userDetail.username}</Typography>
+                <Typography variant="caption" color="text.secondary">ID (로그인용)</Typography>
+                {editingUser ? (
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    sx={{ mt: 0.5 }}
+                  />
+                ) : (
+                  <Typography variant="body1" fontWeight="medium">{userDetail.username}</Typography>
+                )}
               </Box>
 
               {/* 이름 */}
               <Box sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary">이름</Typography>
-                <Typography variant="body1" fontWeight="medium">{userDetail.name}</Typography>
+                {editingUser ? (
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    sx={{ mt: 0.5 }}
+                  />
+                ) : (
+                  <Typography variant="body1" fontWeight="medium">{userDetail.name}</Typography>
+                )}
               </Box>
+
+              {/* 수정 모드일 때 저장/취소 버튼 */}
+              {editingUser && (
+                <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    fullWidth
+                    disabled={savingUser || !editUsername.trim() || !editName.trim()}
+                    onClick={async () => {
+                      try {
+                        setSavingUser(true);
+                        await updateUser(userDetail.id, {
+                          username: editUsername.trim(),
+                          name: editName.trim()
+                        });
+                        alert('사용자 정보가 수정되었습니다.');
+                        setEditingUser(false);
+                        loadUsers();
+                        // userDetail도 업데이트
+                        setUserDetail(prev => ({
+                          ...prev,
+                          username: editUsername.trim(),
+                          name: editName.trim()
+                        }));
+                      } catch (err) {
+                        console.error('Failed to update user:', err);
+                        alert('수정 실패: ' + (err.response?.data?.message || err.message));
+                      } finally {
+                        setSavingUser(false);
+                      }
+                    }}
+                  >
+                    {savingUser ? <CircularProgress size={20} /> : '저장'}
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    onClick={() => setEditingUser(false)}
+                    disabled={savingUser}
+                  >
+                    취소
+                  </Button>
+                </Box>
+              )}
 
               {/* 비밀번호 */}
               <Box sx={{ mb: 2 }}>
@@ -1093,9 +1187,11 @@ function AdminControlTower() {
                 fullWidth
                 onClick={() => {
                   setDetailDialogOpen(false);
+                  setEditingUser(false);
                   handleResetPasswordClick(userDetail);
                 }}
                 sx={{ mt: 1 }}
+                disabled={editingUser}
               >
                 비밀번호 초기화
               </Button>
@@ -1107,6 +1203,7 @@ function AdminControlTower() {
                   color="warning"
                   startIcon={<BlockIcon />}
                   fullWidth
+                  disabled={editingUser}
                   onClick={async () => {
                     const confirmed = window.confirm(
                       `⚠️ 사용자 비활성화\n\n` +
@@ -1138,6 +1235,7 @@ function AdminControlTower() {
                   color="success"
                   startIcon={<CheckCircleIcon />}
                   fullWidth
+                  disabled={editingUser}
                   onClick={async () => {
                     const confirmed = window.confirm(
                       `사용자 활성화\n\n` +
@@ -1164,45 +1262,70 @@ function AdminControlTower() {
                 </Button>
               )}
 
-              {/* 완전 삭제 버튼 */}
+              {/* 영구 삭제 버튼 */}
               <Button
                 variant="contained"
                 color="error"
                 startIcon={<DeleteForeverIcon />}
                 fullWidth
+                disabled={editingUser}
                 onClick={async () => {
-                  const confirmed = window.confirm(
-                    `🚨 사용자 완전 삭제 경고 🚨\n\n` +
-                    `사용자: ${userDetail.name} (${userDetail.username})\n` +
-                    `역할: ${roleLabels[userDetail.role] || userDetail.role}\n\n` +
-                    `⚠️ 이 작업은 되돌릴 수 없습니다!\n` +
-                    `사용자 계정 및 관련된 모든 데이터가 영구 삭제됩니다.\n\n` +
-                    `정말로 완전히 삭제하시겠습니까?`
-                  );
-                  if (confirmed) {
-                    // 2차 확인
-                    const doubleConfirm = window.confirm(
-                      `⚠️ 최종 확인 ⚠️\n\n` +
-                      `"${userDetail.username}" 사용자를 정말 완전히 삭제하시겠습니까?\n\n` +
-                      `이 작업은 취소할 수 없습니다.`
-                    );
-                    if (doubleConfirm) {
-                      try {
-                        await deleteUser(userDetail.id);
-                        alert('사용자가 완전히 삭제되었습니다.');
-                        setDetailDialogOpen(false);
-                        setUserDetail(null);
-                        loadUsers();
-                      } catch (err) {
-                        console.error('Failed to delete user:', err);
-                        alert('삭제 실패: ' + (err.response?.data?.message || err.message));
-                      }
+                  // 역할별 경고 메시지 생성
+                  const roleNames = { admin: '총관리자', sales: '영업사', operator: '진행자', brand: '브랜드사' };
+                  const roleName = roleNames[userDetail.role] || '사용자';
+
+                  let warningMessage = `"${userDetail.name} (${userDetail.username})" ${roleName}를 영구 삭제하시겠습니까?\n\n`;
+
+                  if (userDetail.role === 'sales') {
+                    warningMessage += `⚠️ 이 영업사가 생성한 모든 데이터가 삭제됩니다:\n`;
+                    warningMessage += `   - 연월브랜드, 캠페인, 품목, 구매자 등\n\n`;
+                    warningMessage += `💡 데이터를 유지하려면 "취소" 후 다른 영업사에게 위임하세요.\n\n`;
+                  } else if (userDetail.role === 'operator') {
+                    warningMessage += `⚠️ 이 진행자의 배정 정보가 삭제됩니다:\n`;
+                    warningMessage += `   - 품목별 진행자 배정 해제\n\n`;
+                    warningMessage += `💡 배정된 품목이 있다면 다른 진행자에게 재배정하세요.\n\n`;
+                  } else if (userDetail.role === 'brand') {
+                    warningMessage += `⚠️ 이 브랜드사와 연결된 연월브랜드 정보가 해제됩니다.\n\n`;
+                  }
+
+                  warningMessage += `이 작업은 되돌릴 수 없습니다.`;
+
+                  if (!window.confirm(warningMessage)) {
+                    return;
+                  }
+
+                  try {
+                    // 먼저 연관 데이터 체크 (force 없이 호출)
+                    const response = await deleteUser(userDetail.id);
+                    // 성공하면 (연관 데이터 없음) 바로 삭제됨
+                    alert('사용자가 영구 삭제되었습니다.');
+                    setDetailDialogOpen(false);
+                    setUserDetail(null);
+                    loadUsers();
+                  } catch (err) {
+                    // 409 응답: 연관 데이터 존재
+                    if (err.response?.status === 409 && err.response?.data?.requiresAction) {
+                      const data = err.response.data;
+                      setUserDeleteData({
+                        user: data.user,
+                        relatedData: data.relatedData
+                      });
+                      // 위임 대상 사용자 목록 로드 (같은 역할)
+                      const targetRole = data.user.role === 'operator' ? 'operator' : 'sales';
+                      const usersRes = await getUsers(targetRole);
+                      const filtered = (usersRes.users || []).filter(u => u.id !== data.user.id && u.is_active);
+                      setDelegateUsers(filtered);
+                      setDelegateUserId('');
+                      setUserDeleteDialogOpen(true);
+                    } else {
+                      console.error('Failed to delete user:', err);
+                      alert('삭제 실패: ' + (err.response?.data?.message || err.message));
                     }
                   }
                 }}
                 sx={{ mt: 1 }}
               >
-                완전 삭제 (복구 불가)
+                영구 삭제 (복구 불가)
               </Button>
             </Box>
           )}
@@ -1215,7 +1338,7 @@ function AdminControlTower() {
       {/* 영업사 변경 다이얼로그 */}
       <Dialog
         open={salesChangeDialogOpen}
-        onClose={handleCloseSalesChangeDialog}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') handleCloseSalesChangeDialog(); }}
         maxWidth="sm"
         fullWidth
       >
@@ -1290,7 +1413,7 @@ function AdminControlTower() {
       {/* 삭제 확인 다이얼로그 */}
       <Dialog
         open={deleteDialogOpen}
-        onClose={handleCloseDeleteDialog}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') handleCloseDeleteDialog(); }}
         maxWidth="sm"
         fullWidth
       >
@@ -1364,6 +1487,165 @@ function AdminControlTower() {
             startIcon={deleting ? <CircularProgress size={16} /> : <DeleteIcon />}
           >
             {deleting ? '삭제 중...' : '삭제'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 사용자 삭제 확인 다이얼로그 (연관 데이터 있을 때) */}
+      <Dialog
+        open={userDeleteDialogOpen}
+        onClose={() => !userDeleteLoading && setUserDeleteDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ borderBottom: '1px solid #eee', bgcolor: '#ffebee' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <DeleteForeverIcon color="error" />
+            <Typography variant="h6" color="error">사용자 삭제 - 연관 데이터 존재</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {userDeleteData && (
+            <Box>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="body2" fontWeight="bold">
+                  {userDeleteData.user.name} ({userDeleteData.user.username})
+                </Typography>
+                <Typography variant="body2">
+                  이 사용자가 생성한 데이터가 있습니다.
+                </Typography>
+              </Alert>
+
+              <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: '#f5f5f5' }}>
+                <Typography variant="subtitle2" gutterBottom>연관 데이터 목록:</Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  {userDeleteData.relatedData.monthlyBrandsCreated > 0 && (
+                    <Typography variant="body2">
+                      • 생성한 연월브랜드: <strong>{userDeleteData.relatedData.monthlyBrandsCreated}개</strong>
+                    </Typography>
+                  )}
+                  {userDeleteData.relatedData.campaignsCreated > 0 && (
+                    <Typography variant="body2">
+                      • 생성한 캠페인: <strong>{userDeleteData.relatedData.campaignsCreated}개</strong>
+                    </Typography>
+                  )}
+                  {userDeleteData.relatedData.operatorAssignments > 0 && (
+                    <Typography variant="body2">
+                      • 진행자 배정: <strong>{userDeleteData.relatedData.operatorAssignments}건</strong>
+                    </Typography>
+                  )}
+                  {userDeleteData.relatedData.brandMonthlyBrands > 0 && (
+                    <Typography variant="body2">
+                      • 연결된 연월브랜드 (브랜드사): <strong>{userDeleteData.relatedData.brandMonthlyBrands}개</strong>
+                    </Typography>
+                  )}
+                </Box>
+              </Paper>
+
+              <Divider sx={{ my: 2 }} />
+
+              <Typography variant="subtitle2" gutterBottom>처리 방법 선택:</Typography>
+
+              {/* 위임 옵션 */}
+              {(userDeleteData.relatedData.monthlyBrandsCreated > 0 || userDeleteData.relatedData.campaignsCreated > 0) && (
+                <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                  <Typography variant="body2" gutterBottom fontWeight="bold">
+                    옵션 1: 다른 사용자에게 위임
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    연월브랜드와 캠페인을 다른 영업사에게 이전 후 삭제합니다.
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <FormControl size="small" sx={{ minWidth: 200 }}>
+                      <InputLabel>위임 대상</InputLabel>
+                      <Select
+                        value={delegateUserId}
+                        onChange={(e) => setDelegateUserId(e.target.value)}
+                        label="위임 대상"
+                        disabled={userDeleteLoading}
+                      >
+                        {delegateUsers.map(u => (
+                          <MenuItem key={u.id} value={u.id}>
+                            {u.name} ({u.username})
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      disabled={!delegateUserId || userDeleteLoading}
+                      onClick={async () => {
+                        if (!window.confirm(`${delegateUsers.find(u => u.id === delegateUserId)?.name}에게 데이터를 위임하고 사용자를 삭제하시겠습니까?`)) return;
+                        setUserDeleteLoading(true);
+                        try {
+                          await deleteUser(userDeleteData.user.id, { delegateTo: delegateUserId });
+                          alert('데이터가 위임되고 사용자가 삭제되었습니다.');
+                          setUserDeleteDialogOpen(false);
+                          setUserDeleteData(null);
+                          setDetailDialogOpen(false);
+                          setUserDetail(null);
+                          loadUsers();
+                        } catch (err) {
+                          alert('위임 실패: ' + (err.response?.data?.message || err.message));
+                        } finally {
+                          setUserDeleteLoading(false);
+                        }
+                      }}
+                    >
+                      위임 후 삭제
+                    </Button>
+                  </Box>
+                </Paper>
+              )}
+
+              {/* 모두 삭제 옵션 */}
+              <Paper variant="outlined" sx={{ p: 2, bgcolor: '#fff3e0' }}>
+                <Typography variant="body2" gutterBottom fontWeight="bold" color="error">
+                  옵션 {(userDeleteData.relatedData.monthlyBrandsCreated > 0 || userDeleteData.relatedData.campaignsCreated > 0) ? '2' : '1'}: 모두 삭제
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  사용자가 생성한 모든 데이터(연월브랜드, 캠페인, 품목, 구매자, 이미지)를 함께 삭제합니다.
+                </Typography>
+                <Alert severity="error" sx={{ mb: 1 }}>
+                  이 작업은 되돌릴 수 없습니다!
+                </Alert>
+                <Button
+                  variant="contained"
+                  color="error"
+                  disabled={userDeleteLoading}
+                  startIcon={userDeleteLoading ? <CircularProgress size={16} /> : <DeleteForeverIcon />}
+                  onClick={async () => {
+                    if (!window.confirm('정말로 모든 연관 데이터를 삭제하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다!')) return;
+                    if (!window.confirm('⚠️ 최종 확인 ⚠️\n\n삭제를 진행합니다.')) return;
+                    setUserDeleteLoading(true);
+                    try {
+                      await deleteUser(userDeleteData.user.id, { force: 'true' });
+                      alert('사용자와 모든 연관 데이터가 삭제되었습니다.');
+                      setUserDeleteDialogOpen(false);
+                      setUserDeleteData(null);
+                      setDetailDialogOpen(false);
+                      setUserDetail(null);
+                      loadUsers();
+                    } catch (err) {
+                      alert('삭제 실패: ' + (err.response?.data?.message || err.message));
+                    } finally {
+                      setUserDeleteLoading(false);
+                    }
+                  }}
+                >
+                  모두 삭제
+                </Button>
+              </Paper>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ borderTop: '1px solid #eee' }}>
+          <Button
+            onClick={() => setUserDeleteDialogOpen(false)}
+            disabled={userDeleteLoading}
+          >
+            취소
           </Button>
         </DialogActions>
       </Dialog>

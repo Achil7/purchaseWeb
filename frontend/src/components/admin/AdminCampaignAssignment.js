@@ -448,7 +448,7 @@ function AdminCampaignAssignment() {
       </Paper>
 
       {/* 일괄 배정 다이얼로그 */}
-      <Dialog open={bulkAssignDialogOpen} onClose={() => setBulkAssignDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={bulkAssignDialogOpen} onClose={(event, reason) => { if (reason !== 'backdropClick') setBulkAssignDialogOpen(false); }} maxWidth="sm" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <GroupAddIcon color="info" />

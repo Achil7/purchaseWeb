@@ -361,7 +361,8 @@ function UnifiedItemSheet({
     '특이/배송지연',
     '-/리뷰작성',
     '-/특이사항',
-    '-/-'
+    '-/-',
+    ''  // 여백 컬럼
   ];
 
   const columns = useMemo(() => {
@@ -382,7 +383,9 @@ function UnifiedItemSheet({
       { data: 'col12', type: 'text', width: savedWidths?.[12] || defaultColumnWidths[12] },
       { data: 'col13', type: 'dropdown', source: statusOptions, width: savedWidths?.[13] || defaultColumnWidths[13] },
       { data: 'col14', type: 'text', width: savedWidths?.[14] || defaultColumnWidths[14] },
-      { data: 'col15', type: 'text', width: savedWidths?.[15] || defaultColumnWidths[15] }
+      { data: 'col15', type: 'text', width: savedWidths?.[15] || defaultColumnWidths[15] },
+      // 맨 오른쪽에 여백 컬럼 추가 (컬럼 너비 조절 용이하게)
+      { data: 'col16', type: 'text', width: 50, readOnly: true }
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getSavedColumnWidths]);
@@ -978,8 +981,9 @@ function UnifiedItemSheet({
       </Box>
 
       <Paper sx={{
-        overflow: 'hidden',
+        overflow: 'auto',
         flex: 1,
+        minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
         '& .handsontable': { fontSize: '12px' },
@@ -1024,6 +1028,8 @@ function UnifiedItemSheet({
             height="calc(100vh - 160px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
+            autoRowSize={true}
+            viewportRowRenderingOffset={50}
             manualColumnResize={true}
             manualRowResize={false}
             imeFastEdit={true}
@@ -1252,7 +1258,7 @@ function UnifiedItemSheet({
       </Paper>
 
       {/* 삭제 확인 다이얼로그 */}
-      <Dialog open={deleteDialog.open} onClose={closeDeleteDialog}>
+      <Dialog open={deleteDialog.open} onClose={(event, reason) => { if (reason !== 'backdropClick') closeDeleteDialog(); }}>
         <DialogTitle>삭제 확인</DialogTitle>
         <DialogContent>
           <DialogContentText>{deleteDialog.message}</DialogContentText>
@@ -1280,7 +1286,7 @@ function UnifiedItemSheet({
       {/* 이미지 확대 팝업 */}
       <Dialog
         open={imagePopup.open}
-        onClose={() => setImagePopup({ open: false, url: '', fileName: '' })}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') setImagePopup({ open: false, url: '', fileName: '' }); }}
         maxWidth="lg"
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>

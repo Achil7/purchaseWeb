@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, IconButton, Typography, Button, Snackbar, Alert, Tooltip } from '@mui/material';
+import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography, Button, Snackbar, Alert, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DownloadIcon from '@mui/icons-material/Download';
+import InfoIcon from '@mui/icons-material/Info';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
@@ -58,6 +59,14 @@ function BrandItemSheet({
     images: [],      // 전체 이미지 배열
     currentIndex: 0, // 현재 보고 있는 이미지 인덱스
     buyer: null      // 구매자 정보
+  });
+
+  // 제품 상세 정보 팝업 상태
+  const [productDetailPopup, setProductDetailPopup] = useState({
+    open: false,
+    item: null,
+    slot: null,
+    dayGroup: null
   });
 
   // 스낵바 상태
@@ -352,17 +361,18 @@ function BrandItemSheet({
       isFirstItem = false;
 
       // 제품 헤더 행 (14개 컬럼) - 브랜드사 전용 (순번 대신 플랫폼 표시)
-      // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
+      // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, 특이사항, 상세
       data.push({
         _rowType: ROW_TYPES.PRODUCT_HEADER,
         col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
-        col7: '가격', col8: '총건수', col9: '일건수', col10: '택배대행', col11: 'URL', col12: '', col13: '특이사항'
+        col7: '가격', col8: '총건수', col9: '일건수', col10: '택배대행', col11: 'URL', col12: '특이사항', col13: '상세'
       });
 
       // 제품 데이터 행 (14개 컬럼) - 브랜드사 전용 (순번 대신 플랫폼 표시)
       data.push({
         _rowType: ROW_TYPES.PRODUCT_DATA,
         _itemId: parseInt(itemId),
+        _item: item,  // 전체 아이템 정보 저장
         _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
         col0: '',  // 토글 버튼
         col1: item.date || '',  // 날짜
@@ -376,8 +386,8 @@ function BrandItemSheet({
         col9: item.daily_purchase_count || '',  // 일건수
         col10: item.courier_service_yn || '',  // 택배대행
         col11: item.product_url || '',  // URL
-        col12: '',  // 빈칸 (기존 플랫폼 위치)
-        col13: item.notes || ''  // 특이사항
+        col12: item.notes || '',  // 특이사항
+        col13: '📋'  // 상세보기 버튼
       });
 
       // 접힌 상태가 아닐 때만 구매자 정보 표시
@@ -471,11 +481,20 @@ function BrandItemSheet({
       });
     }
 
+    // 맨 오른쪽에 여백 컬럼 추가 (컬럼 너비 조절 용이하게)
+    baseColumns.push({
+      data: 'col14',
+      type: 'text',
+      width: 50,
+      readOnly: true,
+      className: 'htCenter htMiddle'
+    });
+
     return baseColumns;
   }, [columnWidths]); // columnWidths 변경 시 컬럼 재생성
 
   // 컬럼 헤더
-  const colHeaders = Array(14).fill('');
+  const colHeaders = Array(15).fill('');
 
   // 셀 렌더러 - 행 타입별 분기
   const cellsRenderer = useCallback((row, col, prop) => {
@@ -832,7 +851,7 @@ function BrandItemSheet({
       </Box>
 
       <Paper sx={{
-        overflow: 'hidden',
+        overflow: 'auto',
         flex: 1,
         minHeight: 0,
         display: 'flex',
@@ -908,7 +927,8 @@ function BrandItemSheet({
             height="calc(100vh - 200px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
-            autoRowSize={false}
+            autoRowSize={true}
+            viewportRowRenderingOffset={50}
             manualColumnResize={true}
             manualRowResize={false}
             readOnly={true}
@@ -968,11 +988,27 @@ function BrandItemSheet({
               }
             }}
             afterOnCellMouseUp={(event, coords) => {
+              const rowData = tableData[coords.row];
+              if (!rowData) return;
+
+              // 제품 데이터 행의 col13(상세보기) 클릭 시 팝업
+              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 13) {
+                const item = rowData._item;
+                if (item) {
+                  setProductDetailPopup({
+                    open: true,
+                    item: item,
+                    slot: null,
+                    dayGroup: null
+                  });
+                }
+                return;
+              }
+
               // 리뷰 보기 링크 클릭 시 갤러리 팝업
               const target = event.target;
               if (target.tagName === 'A' && target.classList.contains('review-link')) {
                 event.preventDefault();
-                const rowData = tableData[coords.row];
                 const images = rowData?._reviewImages || [];
                 if (images.length > 0) {
                   setImagePopup({
@@ -1022,7 +1058,7 @@ function BrandItemSheet({
       {/* 이미지 갤러리 팝업 */}
       <Dialog
         open={imagePopup.open}
-        onClose={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null }); }}
         maxWidth="lg"
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
@@ -1108,6 +1144,124 @@ function BrandItemSheet({
             </Box>
           )}
         </DialogContent>
+      </Dialog>
+
+      {/* 제품 상세 정보 팝업 */}
+      <Dialog
+        open={productDetailPopup.open}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') setProductDetailPopup({ open: false, item: null, slot: null, dayGroup: null }); }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#1976d2', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InfoIcon />
+            <Typography variant="h6" fontWeight="bold">제품 상세 정보</Typography>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => setProductDetailPopup({ open: false, item: null, slot: null, dayGroup: null })}
+            sx={{ color: 'white' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {productDetailPopup.item && (
+            <Box>
+              {(() => {
+                const item = productDetailPopup.item || {};
+                const getValue = (field) => item[field] || '-';
+
+                // 가격 포맷팅 함수 - 숫자면 천단위 구분, 아니면 그대로 표시
+                const formatPrice = (price) => {
+                  if (!price || price === '-') return '-';
+                  const num = parseFloat(String(price).replace(/,/g, ''));
+                  if (!isNaN(num)) {
+                    return `${num.toLocaleString()}원`;
+                  }
+                  return `${price}원`;
+                };
+
+                const fields = [
+                  { label: '제품명', value: getValue('product_name') },
+                  { label: '플랫폼', value: getValue('platform') },
+                  { label: '상품 URL', value: getValue('product_url'), isLink: true },
+                  { label: '구매 옵션', value: getValue('purchase_option') },
+                  { label: '희망 키워드', value: getValue('keyword') },
+                  { label: '출고 유형', value: getValue('shipping_type') },
+                  { label: '총 구매 건수', value: getValue('total_purchase_count') },
+                  { label: '일 구매 건수', value: getValue('daily_purchase_count') },
+                  { label: '제품 가격', value: formatPrice(getValue('product_price')) },
+                  { label: '출고 마감 시간', value: getValue('shipping_deadline') },
+                  { label: '택배대행 Y/N', value: getValue('courier_service_yn') },
+                  { label: '리뷰 가이드', value: getValue('review_guide'), multiline: true },
+                  { label: '특이사항', value: getValue('notes'), multiline: true },
+                ];
+
+                return (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {fields.map((field, idx) => (
+                      <Box key={idx} sx={{
+                        display: 'flex',
+                        borderBottom: '1px solid #eee',
+                        pb: 1.5,
+                        flexDirection: field.multiline ? 'column' : 'row',
+                        alignItems: field.multiline ? 'flex-start' : 'center'
+                      }}>
+                        <Typography
+                          sx={{
+                            fontWeight: 'bold',
+                            color: '#555',
+                            minWidth: field.multiline ? 'auto' : 140,
+                            mb: field.multiline ? 0.5 : 0
+                          }}
+                        >
+                          {field.label}
+                        </Typography>
+                        {field.isLink && field.value !== '-' ? (
+                          <Typography
+                            component="a"
+                            href={field.value}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ color: '#1976d2', textDecoration: 'underline', wordBreak: 'break-all' }}
+                          >
+                            {field.value}
+                          </Typography>
+                        ) : field.multiline ? (
+                          <Typography
+                            sx={{
+                              whiteSpace: 'pre-wrap',
+                              bgcolor: '#f9f9f9',
+                              p: 1.5,
+                              borderRadius: 1,
+                              width: '100%',
+                              fontSize: '0.9rem',
+                              lineHeight: 1.6
+                            }}
+                          >
+                            {field.value}
+                          </Typography>
+                        ) : (
+                          <Typography>{field.value}</Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                );
+              })()}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            variant="contained"
+            onClick={() => setProductDetailPopup({ open: false, item: null, slot: null, dayGroup: null })}
+          >
+            닫기
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

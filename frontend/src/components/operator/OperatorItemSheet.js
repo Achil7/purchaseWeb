@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert, IconButton, Tooltip } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert, IconButton, Tooltip, Typography, Divider, Grid, Chip } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DownloadIcon from '@mui/icons-material/Download';
+import InfoIcon from '@mui/icons-material/Info';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
@@ -91,6 +92,13 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
     images: [],      // 전체 이미지 배열
     currentIndex: 0, // 현재 보고 있는 이미지 인덱스
     buyer: null      // 구매자 정보
+  });
+
+  // 제품 상세 정보 팝업 상태
+  const [productDetailPopup, setProductDetailPopup] = useState({
+    open: false,
+    item: null,       // Item 정보
+    dayGroup: null    // day_group 정보
   });
 
   // 이미지 갤러리 네비게이션
@@ -460,19 +468,19 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
         }
 
         // 제품 헤더 행 (19개 컬럼) - 각 일차마다 표시
-        // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
+        // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, 특이사항, 상세
         metaMap.set(data.length, { rowType: ROW_TYPES.PRODUCT_HEADER, dayGroup: parseInt(dayGroup) });
         data.push({
           _rowType: ROW_TYPES.PRODUCT_HEADER,
           _itemId: parseInt(itemId),
           _dayGroup: parseInt(dayGroup),
           col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
-          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배대행', col11: 'URL', col12: '', col13: '특이사항',
+          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배대행', col11: 'URL', col12: '특이사항', col13: '상세',
           col14: '', col15: '', col16: '', col17: '', col18: ''
         });
 
         // 제품 데이터 행 (19개 컬럼) - 각 일차마다 표시
-        // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
+        // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, 특이사항, 상세
         metaMap.set(data.length, { rowType: ROW_TYPES.PRODUCT_DATA, itemId: parseInt(itemId), dayGroup: parseInt(dayGroup) });
         data.push({
           _rowType: ROW_TYPES.PRODUCT_DATA,
@@ -491,8 +499,8 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
           col9: dayGroupProductInfo.daily_purchase_count,   // 일건수 (day_group별 독립)
           col10: dayGroupProductInfo.courier_service_yn,  // 택배대행 (day_group별 독립)
           col11: dayGroupProductInfo.product_url,    // URL (day_group별 독립)
-          col12: '',                        // 빈칸 (기존 플랫폼 위치)
-          col13: dayGroupProductInfo.notes,          // 특이사항 (day_group별 독립)
+          col12: dayGroupProductInfo.notes,          // 특이사항 (day_group별 독립)
+          col13: '📋',                        // 상세보기 버튼 (클릭 시 팝업)
           col14: '', col15: '', col16: '', col17: '', col18: ''
         });
 
@@ -731,12 +739,21 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
       });
     }
 
+    // 맨 오른쪽에 여백 컬럼 추가 (컬럼 너비 조절 용이하게)
+    baseColumns.push({
+      data: 'col20',
+      type: 'text',
+      width: 50,
+      readOnly: true,
+      className: 'htCenter htMiddle'
+    });
+
     return baseColumns;
   }, [columnWidths]); // columnWidths 변경 시 컬럼 재생성
 
   // 컬럼 헤더는 빈 배열 (manualColumnResize를 위해 헤더 행 필요)
   // 빈 문자열 배열이면 헤더는 비어있지만 리사이즈 핸들 동작
-  const colHeaders = Array(20).fill('');
+  const colHeaders = Array(21).fill('');
 
   // 구매자 컬럼 필드 매핑 (20개 컬럼 → API 필드명)
   // col0: 접기(readOnly), col1: 날짜(slot.date), col2: 순번(readOnly), col3: 제품명(readOnly), col4: 옵션(readOnly),
@@ -766,7 +783,7 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
   };
 
   // 제품 정보 컬럼 필드 매핑 (col1~col13 → API 필드명) - col0은 토글
-  // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
+  // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, 특이사항, 상세
   const itemFieldMap = {
     // col0: 토글 (readOnly)
     col1: 'date',  // 제품 날짜 (Item 테이블)
@@ -780,8 +797,8 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
     col9: 'daily_purchase_count',
     col10: 'courier_service_yn',
     col11: 'product_url',
-    // col12: 빈칸 (제거됨)
-    col13: 'notes'
+    col12: 'notes'
+    // col13: 상세보기 버튼 (readOnly)
   };
 
   // buyer 필드 목록 (slot이 아닌 buyer 객체에 속하는 필드들)
@@ -1529,8 +1546,9 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
       </Box>
 
       <Paper sx={{
-        overflow: 'hidden',
+        overflow: 'auto',
         flex: 1,
+        minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
         '& .handsontable': {
@@ -1637,7 +1655,8 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
             height="calc(100vh - 160px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
-            autoRowSize={false}
+            autoRowSize={true}
+            viewportRowRenderingOffset={50}
             manualColumnResize={true}
             manualRowResize={false}
             disableVisualSelection={false}
@@ -1904,6 +1923,26 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
                 return;
               }
 
+              // 제품 데이터 행의 col13(상세보기) 클릭 시 팝업
+              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 13) {
+                const itemId = rowData._itemId;
+                const dayGroup = rowData._dayGroup;
+                // slots에서 해당 아이템의 정보 찾기
+                const itemData = slots.find(s => s.item_id === itemId);
+                if (itemData) {
+                  // dayGroup에 해당하는 슬롯들의 정보 수집
+                  const dayGroupSlots = slots.filter(s => s.item_id === itemId && s.day_group === dayGroup);
+                  const firstSlot = dayGroupSlots[0];
+                  setProductDetailPopup({
+                    open: true,
+                    item: itemData.Item || itemData,
+                    slot: firstSlot,
+                    dayGroup: dayGroup
+                  });
+                }
+                return;
+              }
+
               // 리뷰 보기 링크 클릭 시 갤러리 팝업
               const target = event.target;
               if (target.tagName === 'A' && target.classList.contains('review-link')) {
@@ -2105,7 +2144,7 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
       </Paper>
 
       {/* 삭제 확인 다이얼로그 */}
-      <Dialog open={deleteDialog.open} onClose={closeDeleteDialog}>
+      <Dialog open={deleteDialog.open} onClose={(event, reason) => { if (reason !== 'backdropClick') closeDeleteDialog(); }}>
         <DialogTitle>삭제 확인</DialogTitle>
         <DialogContent>
           <DialogContentText>{deleteDialog.message}</DialogContentText>
@@ -2133,7 +2172,7 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
       {/* 이미지 갤러리 팝업 */}
       <Dialog
         open={imagePopup.open}
-        onClose={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null }); }}
         maxWidth="lg"
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
@@ -2187,6 +2226,127 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
             </Box>
           )}
         </DialogContent>
+      </Dialog>
+
+      {/* 제품 상세 정보 팝업 */}
+      <Dialog
+        open={productDetailPopup.open}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') setProductDetailPopup({ open: false, item: null, slot: null, dayGroup: null }); }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#1976d2', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InfoIcon />
+            <Typography variant="h6" fontWeight="bold">제품 상세 정보</Typography>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => setProductDetailPopup({ open: false, item: null, slot: null, dayGroup: null })}
+            sx={{ color: 'white' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {productDetailPopup.item && (
+            <Box>
+              {/* 슬롯(day_group별) 정보 우선, 없으면 Item 정보 */}
+              {(() => {
+                const slot = productDetailPopup.slot || {};
+                const item = productDetailPopup.item || {};
+                // 슬롯 값이 있으면 슬롯, 없으면 Item 값
+                const getValue = (field) => slot[field] || item[field] || '-';
+
+                // 가격 포맷팅 함수 - 숫자면 천단위 구분, 아니면 그대로 표시
+                const formatPrice = (price) => {
+                  if (!price || price === '-') return '-';
+                  const num = parseFloat(String(price).replace(/,/g, ''));
+                  if (!isNaN(num)) {
+                    return `${num.toLocaleString()}원`;
+                  }
+                  return `${price}원`;
+                };
+
+                const fields = [
+                  { label: '제품명', value: getValue('product_name') },
+                  { label: '플랫폼', value: getValue('platform') },
+                  { label: '상품 URL', value: getValue('product_url'), isLink: true },
+                  { label: '구매 옵션', value: getValue('purchase_option') },
+                  { label: '희망 키워드', value: getValue('keyword') },
+                  { label: '출고 유형', value: getValue('shipping_type') },
+                  { label: '총 구매 건수', value: getValue('total_purchase_count') },
+                  { label: '일 구매 건수', value: getValue('daily_purchase_count') },
+                  { label: '제품 가격', value: formatPrice(getValue('product_price')) },
+                  { label: '출고 마감 시간', value: item.shipping_deadline || '-' },
+                  { label: '택배대행 Y/N', value: getValue('courier_service_yn') },
+                  { label: '리뷰 가이드', value: item.review_guide || '-', multiline: true },
+                  { label: '특이사항', value: getValue('notes'), multiline: true },
+                ];
+
+                return (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {fields.map((field, idx) => (
+                      <Box key={idx} sx={{
+                        display: 'flex',
+                        borderBottom: '1px solid #eee',
+                        pb: 1.5,
+                        flexDirection: field.multiline ? 'column' : 'row',
+                        alignItems: field.multiline ? 'flex-start' : 'center'
+                      }}>
+                        <Typography
+                          sx={{
+                            fontWeight: 'bold',
+                            color: '#555',
+                            minWidth: field.multiline ? 'auto' : 140,
+                            mb: field.multiline ? 0.5 : 0
+                          }}
+                        >
+                          {field.label}
+                        </Typography>
+                        {field.isLink && field.value !== '-' ? (
+                          <Typography
+                            component="a"
+                            href={field.value}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ color: '#1976d2', textDecoration: 'underline', wordBreak: 'break-all' }}
+                          >
+                            {field.value}
+                          </Typography>
+                        ) : field.multiline ? (
+                          <Typography
+                            sx={{
+                              whiteSpace: 'pre-wrap',
+                              bgcolor: '#f9f9f9',
+                              p: 1.5,
+                              borderRadius: 1,
+                              width: '100%',
+                              fontSize: '0.9rem',
+                              lineHeight: 1.6
+                            }}
+                          >
+                            {field.value}
+                          </Typography>
+                        ) : (
+                          <Typography>{field.value}</Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                );
+              })()}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            variant="contained"
+            onClick={() => setProductDetailPopup({ open: false, item: null, slot: null, dayGroup: null })}
+          >
+            닫기
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

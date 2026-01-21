@@ -10,11 +10,16 @@ import {
   Alert,
   CircularProgress,
   InputAdornment,
-  IconButton
+  IconButton,
+  FormControlLabel,
+  Checkbox
 } from '@mui/material';
 import { Visibility, VisibilityOff, Login as LoginIcon } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { settingService } from '../services';
+
+const LAST_USERNAME_KEY = 'campmanager_last_username';
+const REMEMBER_USERNAME_KEY = 'campmanager_remember_username';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -23,6 +28,7 @@ const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberUsername, setRememberUsername] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -36,9 +42,21 @@ const Login = () => {
     banner_subtitle: '캠페인 관리 시스템'
   });
 
-  // 로그인 페이지 설정 로드
+  // 로그인 페이지 설정 로드 및 마지막 아이디 복원
   useEffect(() => {
     loadLoginSettings();
+
+    // 아이디 기억하기 설정 복원
+    const savedRemember = localStorage.getItem(REMEMBER_USERNAME_KEY) === 'true';
+    setRememberUsername(savedRemember);
+
+    // 기억하기가 켜져 있으면 저장된 아이디 복원
+    if (savedRemember) {
+      const lastUsername = localStorage.getItem(LAST_USERNAME_KEY);
+      if (lastUsername) {
+        setUsername(lastUsername);
+      }
+    }
   }, []);
 
   const loadLoginSettings = async () => {
@@ -72,6 +90,13 @@ const Login = () => {
       const result = await login(username, password);
 
       if (result.success) {
+        // 아이디 기억하기 설정에 따라 저장
+        if (rememberUsername) {
+          localStorage.setItem(LAST_USERNAME_KEY, username);
+        } else {
+          localStorage.removeItem(LAST_USERNAME_KEY);
+        }
+
         const user = result.data.user;
         const redirectPath = getRoleRedirect(user.role);
         navigate(redirectPath, { replace: true });
@@ -235,7 +260,7 @@ const Login = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
-                sx={{ mb: 3 }}
+                sx={{ mb: 1 }}
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
@@ -248,6 +273,23 @@ const Login = () => {
                     </InputAdornment>
                   )
                 }}
+              />
+
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={rememberUsername}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setRememberUsername(checked);
+                      localStorage.setItem(REMEMBER_USERNAME_KEY, checked.toString());
+                    }}
+                    size="small"
+                    sx={{ color: '#2c387e', '&.Mui-checked': { color: '#2c387e' } }}
+                  />
+                }
+                label={<Typography variant="body2" color="text.secondary">아이디 기억하기</Typography>}
+                sx={{ mb: 2 }}
               />
 
               <Button

@@ -38,7 +38,11 @@
       "Bash(git commit:*)",
       "Bash(git branch:*)",
       "Bash(git remote add:*)",
-      "Bash(node test-parse.js:*)"
+      "Bash(node test-parse.js:*)",
+      "Bash(node analyze-excel.js:*)",
+      "Bash(move analyze-excel.js frontend)",
+      "Bash(node analyze-template.js:*)",
+      "Bash(node parse_estimate.js:*)"
     ],
     "deny": [],
     "ask": []

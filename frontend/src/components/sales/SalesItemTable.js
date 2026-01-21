@@ -501,7 +501,7 @@ function SalesItemTable() {
       />
 
       {/* 삭제 확인 Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={handleCloseDeleteDialog}>
+      <Dialog open={deleteDialogOpen} onClose={(event, reason) => { if (reason !== 'backdropClick') handleCloseDeleteDialog(); }}>
         <DialogTitle>제품 삭제</DialogTitle>
         <DialogContent>
           <DialogContentText>

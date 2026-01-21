@@ -763,10 +763,17 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
 
   // 컬럼 설정
   const columns = useMemo(() => {
-    return Array(21).fill(null).map((_, index) => ({
+    const cols = Array(21).fill(null).map((_, index) => ({
       data: `col${index}`,
       width: columnWidths[index] || 100
     }));
+    // 맨 오른쪽에 여백 컬럼 추가 (컬럼 너비 조절 용이하게)
+    cols.push({
+      data: 'col21',
+      width: 50,
+      readOnly: true
+    });
+    return cols;
   }, [columnWidths]);
 
   // 변경사항 존재 여부
@@ -822,8 +829,9 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
 
       {/* 데이터 영역 */}
       <Paper sx={{
-        overflow: 'hidden',
+        overflow: 'auto',
         flex: 1,
+        minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
         '& .handsontable': {
@@ -896,7 +904,8 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
             height="calc(100vh - 160px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
-            autoRowSize={false}
+            autoRowSize={true}
+            viewportRowRenderingOffset={50}
             manualColumnResize={true}
             manualRowResize={false}
             disableVisualSelection={false}
@@ -958,7 +967,7 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
       {/* 이미지 팝업 */}
       <Dialog
         open={imagePopup.open}
-        onClose={() => setImagePopup({ ...imagePopup, open: false })}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') setImagePopup({ ...imagePopup, open: false }); }}
         maxWidth="md"
         fullWidth
       >

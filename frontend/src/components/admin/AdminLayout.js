@@ -130,15 +130,17 @@ function AdminLayout() {
             날짜 별 입금관리
           </Button>
 
-          {/* 마진 현황 버튼 */}
-          <Button
-            color="inherit"
-            startIcon={<TrendingUpIcon />}
-            onClick={() => navigate('/admin/margin')}
-            sx={{ mr: 2 }}
-          >
-            마진 현황
-          </Button>
+          {/* 마진 현황 버튼 - masterkangwoo 계정에서만 표시 */}
+          {user?.username === 'masterkangwoo' && (
+            <Button
+              color="inherit"
+              startIcon={<TrendingUpIcon />}
+              onClick={() => navigate('/admin/margin')}
+              sx={{ mr: 2 }}
+            >
+              마진 현황
+            </Button>
+          )}
 
           {/* 휴지통 버튼 */}
           <Button

@@ -1,4 +1,4 @@
-const { Buyer, Item, Image, User, Campaign } = require('../models');
+const { Buyer, Item, Image, User, Campaign, ItemSlot } = require('../models');
 const { sequelize, Sequelize } = require('../models');
 const { normalizeAccountNumber } = require('../utils/accountNormalizer');
 const { Op } = Sequelize;
@@ -890,6 +890,12 @@ exports.getBuyersByDate = async (req, res) => {
               attributes: ['id', 'name']
             }
           ]
+        },
+        {
+          model: ItemSlot,
+          as: 'slot',
+          attributes: ['id', 'review_cost'],
+          required: false
         }
       ],
       order: [[{ model: Image, as: 'images' }, 'created_at', 'DESC']]
@@ -906,6 +912,7 @@ exports.getBuyersByDate = async (req, res) => {
       order_number: buyer.order_number,
       buyer_name: buyer.buyer_name,
       recipient_name: buyer.recipient_name,
+      account_info: buyer.account_info,  // 계좌 추가
       amount: buyer.amount,
       tracking_number: buyer.tracking_number,
       courier_company: buyer.courier_company,
@@ -922,7 +929,8 @@ exports.getBuyersByDate = async (req, res) => {
       campaign: buyer.item?.campaign ? {
         id: buyer.item.campaign.id,
         name: buyer.item.campaign.name
-      } : null
+      } : null,
+      review_cost: buyer.slot?.review_cost || null  // 리뷰비 추가
     }));
 
     res.json({

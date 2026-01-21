@@ -236,7 +236,7 @@ function AdminEditDialog({ open, onClose, onSave, campaign, item }) {
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
+    <Dialog open={open} onClose={(event, reason) => { if (reason !== 'backdropClick') onClose(); }} fullWidth maxWidth="lg">
       <DialogTitle sx={{ fontWeight: 'bold', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: 1 }}>
         <EditIcon color="primary" />
         통합 수정

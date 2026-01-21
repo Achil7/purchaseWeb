@@ -563,7 +563,7 @@ function OperatorBuyerTable() {
       {/* 이미지 확대 Dialog */}
       <Dialog
         open={imageDialogOpen}
-        onClose={handleCloseImageDialog}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') handleCloseImageDialog(); }}
         maxWidth="lg"
       >
         <DialogContent sx={{ p: 0, position: 'relative' }}>

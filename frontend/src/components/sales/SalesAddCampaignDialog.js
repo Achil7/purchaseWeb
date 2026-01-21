@@ -19,6 +19,8 @@ function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialDa
   const isAdmin = user?.role === 'admin';
   // Admin이 영업사 대시보드를 보고 있을 때는 해당 영업사로 생성
   const effectiveUserId = viewAsUserId || user?.id;
+  // viewAsUserId가 있으면 해당 영업사처럼 동작 (Admin이 영업사 대시보드를 볼 때)
+  const isViewingAsSales = isAdmin && viewAsUserId;
 
   const emptyFormState = {
     name: '',  // 캠페인명 (영업사 직접 입력)
@@ -49,12 +51,19 @@ function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialDa
       // 연월브랜드 목록 로드
       fetchMonthlyBrands();
 
-      // Admin인 경우 영업사 목록 조회, Sales인 경우 담당 브랜드 조회
-      if (isAdmin) {
+      // Admin이 viewAsUserId로 영업사 대시보드를 볼 때는 해당 영업사의 브랜드 로드
+      if (isViewingAsSales) {
+        // viewAsUserId로 해당 영업사의 브랜드 목록 조회
+        fetchBrandsBySales(viewAsUserId);
+        // 영업사 ID 자동 설정
+        setFormData(prev => ({ ...prev, sales_id: viewAsUserId }));
+      } else if (isAdmin) {
+        // Admin이 직접 Admin 페이지에서 사용할 때
         fetchSalesUsers();
         // Admin은 영업사 선택 후 브랜드 로드
         setBrandList([]);
       } else {
+        // 일반 영업사
         fetchMyBrands();
       }
 
@@ -77,11 +86,11 @@ function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialDa
       } else {
         // 새 캠페인 생성 시 preSelectedMonthlyBrandId가 있으면 설정
         const initialMonthlyBrandId = preSelectedMonthlyBrandId || '';
-        setFormData({ ...emptyFormState, registered_at: today, monthly_brand_id: initialMonthlyBrandId });
+        setFormData({ ...emptyFormState, registered_at: today, monthly_brand_id: initialMonthlyBrandId, sales_id: isViewingAsSales ? viewAsUserId : '' });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, initialData, isAdmin, preSelectedMonthlyBrandId]);
+  }, [open, mode, initialData, isAdmin, isViewingAsSales, viewAsUserId, preSelectedMonthlyBrandId]);
 
   // preSelectedMonthlyBrandId가 있고 연월브랜드 목록이 로드되면 브랜드 자동 선택
   useEffect(() => {
@@ -118,7 +127,8 @@ function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialDa
   const fetchMonthlyBrands = async () => {
     setLoadingMonthlyBrands(true);
     try {
-      const response = await monthlyBrandService.getMonthlyBrands();
+      // viewAsUserId가 있으면 해당 영업사의 연월브랜드만 조회
+      const response = await monthlyBrandService.getMonthlyBrands(viewAsUserId);
       setMonthlyBrandList(response.data || []);
     } catch (error) {
       console.error('연월브랜드 목록 조회 실패:', error);
@@ -217,7 +227,7 @@ function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialDa
   const isEdit = mode === 'edit';
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+    <Dialog open={open} onClose={(event, reason) => { if (reason !== 'backdropClick') onClose(); }} fullWidth maxWidth="md">
       <DialogTitle sx={{ fontWeight: 'bold', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: 1 }}>
         {isEdit ? <EditIcon color="primary" /> : <AddCircleIcon color="primary" />}
         {isEdit ? '캠페인 수정' : '캠페인 추가'}
@@ -247,8 +257,8 @@ function SalesCampaignDialog({ open, onClose, onSave, mode = 'create', initialDa
           />
         </Box>
 
-        {/* Admin일 때만 영업사 선택 드롭다운 표시 (검색 가능) */}
-        {isAdmin && (
+        {/* Admin이 직접 사용할 때만 영업사 선택 드롭다운 표시 (viewAsUserId가 있으면 숨김) */}
+        {isAdmin && !isViewingAsSales && (
           <Box sx={{ mb: 2 }}>
             <Autocomplete
               options={salesList}

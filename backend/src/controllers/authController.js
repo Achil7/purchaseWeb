@@ -221,12 +221,12 @@ const verifyPassword = async (req, res) => {
 };
 
 /**
- * 프로필 수정 (name, password)
+ * 프로필 수정 (username, name, password)
  * PUT /api/auth/profile
  */
 const updateProfile = async (req, res) => {
   try {
-    const { name, newPassword } = req.body;
+    const { username, name, newPassword } = req.body;
 
     const user = await User.findByPk(req.user.id);
 
@@ -235,6 +235,21 @@ const updateProfile = async (req, res) => {
         success: false,
         message: '사용자를 찾을 수 없습니다'
       });
+    }
+
+    // username 업데이트 (중복 체크)
+    if (username && username.trim() && username.trim() !== user.username) {
+      const existingUser = await User.findOne({
+        where: { username: username.trim() },
+        paranoid: false // soft delete된 사용자도 체크
+      });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: '이미 사용 중인 아이디입니다'
+        });
+      }
+      user.username = username.trim();
     }
 
     // name 업데이트

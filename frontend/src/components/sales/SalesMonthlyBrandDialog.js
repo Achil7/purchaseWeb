@@ -215,7 +215,7 @@ function SalesMonthlyBrandDialog({ open, onClose, onSuccess, viewAsUserId = null
 
   return (
     <>
-      <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
+      <Dialog open={open} onClose={(event, reason) => { if (reason !== 'backdropClick') handleClose(); }} fullWidth maxWidth="sm">
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', borderBottom: '1px solid #eee' }}>
           <CalendarMonthIcon color="primary" />
           연월브랜드 추가

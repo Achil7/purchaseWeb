@@ -205,11 +205,20 @@ function AdminDailyPayments() {
     }
   };
 
+  // 금액을 숫자로 파싱하는 헬퍼 함수
+  const parseAmount = (amount) => {
+    if (!amount) return 0;
+    if (typeof amount === 'number') return amount;
+    // 문자열에서 숫자만 추출
+    const numStr = String(amount).replace(/[^0-9]/g, '');
+    return parseInt(numStr, 10) || 0;
+  };
+
   // 금액 합계
-  const totalAmount = buyers.reduce((sum, buyer) => sum + (buyer.amount || 0), 0);
+  const totalAmount = buyers.reduce((sum, buyer) => sum + parseAmount(buyer.amount), 0);
   const completedAmount = buyers
     .filter(b => b.payment_status === 'completed')
-    .reduce((sum, buyer) => sum + (buyer.amount || 0), 0);
+    .reduce((sum, buyer) => sum + parseAmount(buyer.amount), 0);
 
   // 날짜 포맷
   const formatDate = (date) => {
@@ -349,7 +358,9 @@ function AdminDailyPayments() {
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 100 }}>주문번호</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 80 }}>구매자</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 80 }}>수취인</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 150 }}>계좌</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 90 }}>금액</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 80 }}>리뷰비</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 120 }}>입금확인</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 80 }}>리뷰샷</TableCell>
                   </TableRow>
@@ -357,7 +368,7 @@ function AdminDailyPayments() {
                 <TableBody>
                   {buyers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} align="center" sx={{ py: 4, color: '#999' }}>
+                      <TableCell colSpan={11} align="center" sx={{ py: 4, color: '#999' }}>
                         해당 날짜에 리뷰샷을 업로드한 구매자가 없습니다.
                       </TableCell>
                     </TableRow>
@@ -384,8 +395,14 @@ function AdminDailyPayments() {
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           {buyer.recipient_name || '-'}
                         </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          {buyer.account_info || '-'}
+                        </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap', fontWeight: 'bold', color: '#1b5e20' }}>
-                          {buyer.amount ? buyer.amount.toLocaleString() : '0'}
+                          {parseAmount(buyer.amount).toLocaleString()}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', color: '#7b1fa2' }}>
+                          {buyer.review_cost ? parseAmount(buyer.review_cost).toLocaleString() : '-'}
                         </TableCell>
                         <TableCell align="center">
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
@@ -443,7 +460,7 @@ function AdminDailyPayments() {
         {/* 이미지 확대 다이얼로그 */}
         <Dialog
           open={imageDialogOpen}
-          onClose={() => setImageDialogOpen(false)}
+          onClose={(event, reason) => { if (reason !== 'backdropClick') setImageDialogOpen(false); }}
           maxWidth="lg"
         >
           <DialogContent sx={{ p: 0, position: 'relative' }}>

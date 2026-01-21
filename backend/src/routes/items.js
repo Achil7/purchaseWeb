@@ -46,13 +46,6 @@ router.get('/my-preuploads', authenticate, authorize(['operator', 'admin']), ite
 router.get('/by-brand', authenticate, authorize(['brand', 'admin']), itemController.getItemsByBrand);
 
 /**
- * @route   GET /api/items/margin-summary
- * @desc    마진 대시보드 데이터 조회 (Admin: 전체, Sales: 자신의 캠페인만)
- * @access  Private (Admin, Sales)
- */
-router.get('/margin-summary', authenticate, authorize(['admin', 'sales']), itemController.getMarginSummary);
-
-/**
  * @route   GET /api/items/by-sales
  * @desc    영업사가 생성한 캠페인의 품목 목록 (Sales용 - 일별 조회)
  * @access  Private (Sales, Admin)
@@ -128,20 +121,6 @@ router.delete('/:id/operator/:operatorId', authenticate, authorize(['admin']), i
  * @access  Private (Operator, Admin, Sales)
  */
 router.patch('/:id/deposit-name', authenticate, authorize(['operator', 'admin', 'sales']), itemController.updateDepositName);
-
-/**
- * @route   PUT /api/items/:id/expense
- * @desc    품목 지출 입력/수정
- * @access  Private (Admin only)
- */
-router.put('/:id/expense', authenticate, authorize(['admin']), itemController.updateItemExpense);
-
-/**
- * @route   GET /api/items/:id/margin
- * @desc    단일 품목 마진 조회
- * @access  Private (Admin, Sales)
- */
-router.get('/:id/margin', authenticate, authorize(['admin', 'sales']), itemController.getItemMargin);
 
 /**
  * @route   DELETE /api/items/:id

@@ -6,7 +6,6 @@ import {
   Tabs, Tab
 } from '@mui/material';
 import AssignmentIcon from '@mui/icons-material/Assignment';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -548,19 +547,6 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             sx={{ mr: 1, borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}
           >
             연월브랜드 추가
-          </Button>
-
-          {/* 마진 현황 버튼 */}
-          <Button
-            color="inherit"
-            startIcon={<TrendingUpIcon />}
-            onClick={() => {
-              setSelectedCampaign(null);
-              navigate(`${basePath}/margin`);
-            }}
-            sx={{ mr: 2 }}
-          >
-            마진 현황
           </Button>
 
           {/* 오른쪽: 프로필 정보 박스 (클릭 시 프로필 수정) */}

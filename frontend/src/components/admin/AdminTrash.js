@@ -10,7 +10,6 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import FolderIcon from '@mui/icons-material/Folder';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import InventoryIcon from '@mui/icons-material/Inventory';
-import PersonIcon from '@mui/icons-material/Person';
 import { trashService } from '../../services';
 import { useAuth } from '../../context/AuthContext';
 
@@ -216,9 +215,7 @@ function AdminTrash() {
     { label: '품목', icon: <InventoryIcon />, count: trashData?.counts?.items || 0 },
   ];
 
-  if (isAdmin) {
-    tabData.push({ label: '사용자', icon: <PersonIcon />, count: trashData?.counts?.users || 0 });
-  }
+  // 사용자 탭 제거됨 - 사용자는 휴지통 없이 즉시 삭제/비활성화
 
   return (
     <Box sx={{ p: 3 }}>
@@ -288,11 +285,10 @@ function AdminTrash() {
         {tabIndex === 0 && renderTable(trashData?.data?.monthlyBrands, 'monthlyBrand')}
         {tabIndex === 1 && renderTable(trashData?.data?.campaigns, 'campaign')}
         {tabIndex === 2 && renderTable(trashData?.data?.items, 'item', 'product_name')}
-        {tabIndex === 3 && isAdmin && renderTable(trashData?.data?.users, 'user', 'username')}
       </Paper>
 
       {/* 영구 삭제 확인 다이얼로그 */}
-      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)}>
+      <Dialog open={deleteConfirmOpen} onClose={(event, reason) => { if (reason !== 'backdropClick') setDeleteConfirmOpen(false); }}>
         <DialogTitle>⚠️ 영구 삭제 확인</DialogTitle>
         <DialogContent>
           <Typography>
@@ -311,7 +307,7 @@ function AdminTrash() {
       </Dialog>
 
       {/* 휴지통 비우기 확인 다이얼로그 */}
-      <Dialog open={emptyConfirmOpen} onClose={() => setEmptyConfirmOpen(false)}>
+      <Dialog open={emptyConfirmOpen} onClose={(event, reason) => { if (reason !== 'backdropClick') setEmptyConfirmOpen(false); }}>
         <DialogTitle>⚠️ 휴지통 비우기</DialogTitle>
         <DialogContent>
           <Typography>

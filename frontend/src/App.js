@@ -24,7 +24,6 @@ import SalesCampaignTable from './components/sales/SalesCampaignTable';
 import SalesItemTable from './components/sales/SalesItemTable';
 import SalesItemDetail from './components/sales/SalesItemDetail';
 import SalesMonthlyBuyers from './components/sales/SalesMonthlyBuyers';
-import SalesMarginDashboard from './components/sales/SalesMarginDashboard';
 
 // --- 진행자 관련 페이지 ---
 import OperatorLayout from './components/operator/OperatorLayout';
@@ -113,7 +112,6 @@ function App() {
             <Route path="campaign/:campaignId" element={<SalesItemTable />} />
             <Route path="campaign/:campaignId/item/:itemId" element={<SalesItemDetail />} />
             <Route path="daily-items" element={<SalesMonthlyBuyers />} />
-            <Route path="margin" element={<SalesMarginDashboard />} />
           </Route>
 
           {/* Admin이 진행자 페이지를 그대로 볼 수 있는 라우트 (쿼리: ?userId=xxx) */}
@@ -158,7 +156,6 @@ function App() {
             <Route path="campaign/:campaignId" element={<SalesItemTable />} />
             <Route path="campaign/:campaignId/item/:itemId" element={<SalesItemDetail />} />
             <Route path="daily-items" element={<SalesMonthlyBuyers />} />
-            <Route path="margin" element={<SalesMarginDashboard />} />
           </Route>
 
           {/* 진행자 드릴다운 구조 */}

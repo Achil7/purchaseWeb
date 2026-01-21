@@ -92,10 +92,17 @@ export const activateUser = async (id) => {
 };
 
 /**
- * 사용자 완전 삭제 (DB에서 모든 관련 데이터 삭제)
+ * 사용자 삭제 (연관 데이터 체크/위임/강제 삭제 지원)
+ * @param {number} id - 사용자 ID
+ * @param {object} options - { force: 'true', delegateTo: userId }
  */
-export const deleteUser = async (id) => {
-  const response = await api.delete(`/users/${id}`);
+export const deleteUser = async (id, options = {}) => {
+  const params = new URLSearchParams();
+  if (options.force) params.append('force', options.force);
+  if (options.delegateTo) params.append('delegateTo', options.delegateTo);
+  const queryString = params.toString();
+  const url = `/users/${id}${queryString ? `?${queryString}` : ''}`;
+  const response = await api.delete(url);
   return response.data;
 };
 
@@ -211,7 +218,7 @@ export const getBrandSales = async (brandId) => {
  * @param salesId - 영업사 사용자 ID
  */
 export const addBrandSales = async (brandId, salesId) => {
-  const response = await api.post(`/users/brands/${brandId}/sales`, { salesId });
+  const response = await api.post(`/users/brands/${brandId}/sales`, { sales_id: salesId });
   return response.data;
 };
 

@@ -66,7 +66,7 @@ purchaseweb/
 | 총관리자 | `admin` | **모든 기능** (캠페인/품목/구매자 CRUD, 진행자 배정/재배정, 입금 확인, 사용자 등록/관리, 업로드 링크 복사, 캠페인 영업사 변경, 마진 관리, **컨트롤 타워에서 모든 사용자 대시보드 조회**) |
 | 영업사 | `sales` | 연월브랜드/캠페인/품목 생성 (자신의 것만), 브랜드 등록, 구매자 조회 (수정/삭제 불가), 마진 조회 (자신의 캠페인만) |
 | 진행자 | `operator` | 배정된 품목의 구매자 CRUD, 이미지 업로드 링크 공유, 메모장 기능, 입금명 수정 가능 |
-| 브랜드사 | `brand` | 연결된 캠페인의 리뷰 현황 조회 (제한된 컬럼: 주문번호/구매자/수취인/아이디/금액/송장번호/리뷰샷 - 연락처, 계좌, 주소 제외) |
+| 브랜드사 | `brand` | 연결된 캠페인의 리뷰 현황 조회 (제한된 컬럼: 주문번호/구매자/수취인/아이디/주소/금액/송장번호/리뷰샷 - 연락처, 계좌 제외) |
 
 **중요**: 각 역할은 자신의 페이지만 접근 가능 (admin은 /admin에서 모든 역할의 기능 API 접근 가능)
 
@@ -333,8 +333,8 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정,
 - 연결된 연월브랜드의 캠페인/품목/구매자 조회 (읽기 전용)
 - **제한된 컬럼만 표시**:
   - 제품 테이블: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, 빈칸, 특이사항
-  - 구매자 테이블: 빈칸, 주문번호, 구매자, 수취인, 아이디, 금액, 송장번호, 리뷰샷
-  - **제외**: 연락처, 주소, 계좌번호
+  - 구매자 테이블: 빈칸, 주문번호, 구매자, 수취인, 아이디, 주소, 금액, 송장번호, 리뷰샷
+  - **제외**: 연락처, 계좌번호
 - **선 업로드 숨김**: is_temporary=false인 구매자만 표시
 - **진행률 표시**: 전체 구매자 수 대비 리뷰 완료 퍼센트
 
@@ -612,11 +612,29 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ## 관련 문서
 
-- [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) - DB 스키마 상세
-- [BACKEND_STRUCTURE.md](docs/BACKEND_STRUCTURE.md) - API 엔드포인트 및 구조
-- [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) - EC2 배포 가이드
-- [LOCAL_TESTING.md](docs/LOCAL_TESTING.md) - 로컬 테스트 방법
+- [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) - DB 스키마 상세
+- [docs/BACKEND_STRUCTURE.md](docs/BACKEND_STRUCTURE.md) - API 엔드포인트 및 구조
+- [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) - EC2 배포 가이드
+- [docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md) - 로컬 테스트 방법
 
 ---
 
-**최종 업데이트**: 2026-01-15
+## 개발 시 체크리스트
+
+### 컬럼 수정 시 필수 체크 항목
+시트 컬럼 순서나 구조를 변경할 때 **반드시** 아래 모든 항목을 한번에 확인하고 수정할 것:
+
+1. **헤더 행** - PRODUCT_HEADER, BUYER_HEADER 등 컬럼명 정의
+2. **데이터 행** - PRODUCT_DATA, BUYER_DATA 등 데이터 매핑
+3. **필드 매핑 객체** - itemFieldMap, buyerFieldMap, fieldMap (API 필드명 매핑)
+4. **클릭 핸들러** - `coords.col === N` 조건문 (상세보기, 링크 클릭 등)
+5. **렌더러/포맷터** - 숫자 포맷, 하이퍼링크, 특수 셀 렌더링
+6. **엑셀 다운로드** - excelExport.js의 헤더와 데이터 배열
+7. **관련 주석** - 코드 내 컬럼 순서 설명 주석
+8. **다른 시트 컴포넌트** - OperatorItemSheet, SalesItemSheet, BrandItemSheet, DailyWorkSheet, UnifiedItemSheet 등 모든 관련 시트
+9. **백엔드 API** - 필드명 기반이므로 보통 영향 없지만 확인
+10. **문서** - CLAUDE.md 정책 업데이트
+
+---
+
+**최종 업데이트**: 2026-01-20

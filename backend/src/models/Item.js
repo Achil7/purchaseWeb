@@ -118,32 +118,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true,
       comment: '택배대행 단가 (원/개)'
-    },
-    // 지출 관련 필드 (Admin 입력)
-    expense_product: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-      comment: '지출 - 제품비 (원)'
-    },
-    expense_courier: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-      comment: '지출 - 택배비 (원)'
-    },
-    expense_review: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-      comment: '지출 - 리뷰비용 (원)'
-    },
-    expense_other: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-      comment: '지출 - 기타비용 (원)'
-    },
-    expense_note: {
-      type: DataTypes.TEXT,
-      allowNull: true,
-      comment: '지출 메모'
     }
   }, {
     tableName: 'items',

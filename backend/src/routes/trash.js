@@ -72,16 +72,7 @@ router.get('/', authenticate, authorize(['admin', 'sales', 'operator']), async (
       ? items.filter(item => item.campaign?.created_by === userId)
       : items;
 
-    // 삭제된 사용자 (Admin만)
-    let users = [];
-    if (userRole === 'admin') {
-      users = await User.findAll({
-        where: { deleted_at: { [Op.ne]: null } },
-        paranoid: false,
-        attributes: ['id', 'username', 'name', 'email', 'role', 'deleted_at'],
-        order: [['deleted_at', 'DESC']]
-      });
-    }
+    // 사용자는 휴지통 없이 즉시 삭제됨 (soft delete 제거)
 
     // 30일 후 영구 삭제 예정일 계산
     const addExpiryDate = (items) => items.map(item => ({
@@ -94,15 +85,13 @@ router.get('/', authenticate, authorize(['admin', 'sales', 'operator']), async (
       data: {
         monthlyBrands: addExpiryDate(monthlyBrands),
         campaigns: addExpiryDate(campaigns),
-        items: addExpiryDate(filteredItems),
-        users: addExpiryDate(users)
+        items: addExpiryDate(filteredItems)
       },
       counts: {
         monthlyBrands: monthlyBrands.length,
         campaigns: campaigns.length,
         items: filteredItems.length,
-        users: users.length,
-        total: monthlyBrands.length + campaigns.length + filteredItems.length + users.length
+        total: monthlyBrands.length + campaigns.length + filteredItems.length
       }
     });
   } catch (error) {
@@ -278,22 +267,6 @@ router.post('/restore/:type/:id', authenticate, authorize(['admin', 'sales', 'op
 
       restoredItem = item;
 
-    } else if (type === 'user') {
-      if (userRole !== 'admin') {
-        await transaction.rollback();
-        return res.status(403).json({ success: false, message: '사용자 복원은 관리자만 가능합니다' });
-      }
-
-      const user = await User.findByPk(id, { paranoid: false });
-      if (!user) {
-        await transaction.rollback();
-        return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다' });
-      }
-
-      await user.restore({ transaction });
-      restoredCount.main = 1;
-      restoredItem = user;
-
     } else {
       await transaction.rollback();
       return res.status(400).json({ success: false, message: '유효하지 않은 타입입니다' });
@@ -406,15 +379,6 @@ router.delete('/permanent/:type/:id', authenticate, authorize(['admin']), async 
       await CampaignOperator.destroy({ where: { item_id: id }, transaction, force: true });
       await item.destroy({ transaction, force: true });
 
-    } else if (type === 'user') {
-      const user = await User.findByPk(id, { paranoid: false });
-      if (!user) {
-        await transaction.rollback();
-        return res.status(404).json({ success: false, message: '사용자를 찾을 수 없습니다' });
-      }
-
-      await user.destroy({ transaction, force: true });
-
     } else {
       await transaction.rollback();
       return res.status(400).json({ success: false, message: '유효하지 않은 타입입니다' });
@@ -448,7 +412,7 @@ router.delete('/empty', authenticate, authorize(['admin']), async (req, res) => 
 
   try {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    let deletedCounts = { monthlyBrands: 0, campaigns: 0, items: 0, slots: 0, buyers: 0, images: 0, users: 0 };
+    let deletedCounts = { monthlyBrands: 0, campaigns: 0, items: 0, slots: 0, buyers: 0, images: 0 };
 
     // 30일 지난 이미지 영구 삭제
     deletedCounts.images = await Image.destroy({
@@ -498,13 +462,7 @@ router.delete('/empty', authenticate, authorize(['admin']), async (req, res) => 
       paranoid: false
     });
 
-    // 30일 지난 사용자 영구 삭제
-    deletedCounts.users = await User.destroy({
-      where: { deleted_at: { [Op.lt]: thirtyDaysAgo } },
-      transaction,
-      force: true,
-      paranoid: false
-    });
+    // 사용자는 휴지통 없이 즉시 삭제됨 (soft delete 제거)
 
     await transaction.commit();
 

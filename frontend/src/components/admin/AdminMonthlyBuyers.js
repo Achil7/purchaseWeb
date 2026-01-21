@@ -365,7 +365,7 @@ function AdminMonthlyBuyers() {
       {/* 제품 상세 정보 다이얼로그 */}
       <Dialog
         open={detailDialogOpen}
-        onClose={handleCloseDetail}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') handleCloseDetail(); }}
         maxWidth="md"
         fullWidth
       >

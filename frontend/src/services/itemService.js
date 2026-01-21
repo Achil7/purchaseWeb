@@ -179,36 +179,6 @@ const itemService = {
       throw error;
     }
   },
-
-  // 품목 지출 입력/수정 (Admin 전용)
-  updateItemExpense: async (itemId, expenseData) => {
-    try {
-      const response = await apiClient.put(`/items/${itemId}/expense`, expenseData);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  },
-
-  // 마진 대시보드 데이터 조회 (Admin, Sales)
-  getMarginSummary: async (params = {}) => {
-    try {
-      const response = await apiClient.get('/items/margin-summary', { params });
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  },
-
-  // 단일 품목 마진 조회
-  getItemMargin: async (itemId) => {
-    try {
-      const response = await apiClient.get(`/items/${itemId}/margin`);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  },
 };
 
 export default itemService;

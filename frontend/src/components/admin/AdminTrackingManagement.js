@@ -393,7 +393,7 @@ function AdminTrackingManagement() {
         {/* 이미지 확대 다이얼로그 */}
         <Dialog
           open={imageDialogOpen}
-          onClose={() => setImageDialogOpen(false)}
+          onClose={(event, reason) => { if (reason !== 'backdropClick') setImageDialogOpen(false); }}
           maxWidth="lg"
         >
           <DialogContent sx={{ p: 0, position: 'relative' }}>

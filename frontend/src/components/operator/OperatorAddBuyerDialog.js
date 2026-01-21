@@ -142,7 +142,7 @@ function OperatorAddBuyerDialog({ open, onClose, onSave, onSaveBulk, editData = 
   const isEditMode = !!editData;
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
+    <Dialog open={open} onClose={(event, reason) => { if (reason !== 'backdropClick') onClose(); }} fullWidth maxWidth="lg">
       <DialogTitle sx={{ fontWeight: 'bold', borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: 1 }}>
         {isEditMode ? <EditIcon color="primary" /> : (isBulkMode ? <GroupAddIcon color="primary" /> : <ContentPasteIcon color="primary" />)}
         {isEditMode ? "구매자 정보 수정" : (isBulkMode ? `구매자 ${parsedBuyers.length}명 일괄 추가` : "구매자 정보 추가")}
