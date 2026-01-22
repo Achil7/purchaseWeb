@@ -440,26 +440,23 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
       const item = itemGroup.item || {};
       const mergedItem = { ...item };
 
-      // 품목별 완료 상태 계산 (전체 슬롯 vs 리뷰샷 완료)
-      let totalSlots = 0;
-      let completedSlots = 0;
-      Object.values(itemGroup.dayGroups).forEach(groupData => {
-        totalSlots += groupData.slots.length;
-        completedSlots += groupData.slots.filter(
-          slot => slot.buyer?.images?.length > 0
-        ).length;
-      });
-      const isAllCompleted = totalSlots > 0 && totalSlots === completedSlots;
-
-      // 접힌 상태 확인
-      const isCollapsed = collapsedItems.has(parseInt(itemId));
-
       // 일차별로 제품 정보 + 구매자 정보 반복
       const dayGroupKeys = Object.keys(itemGroup.dayGroups).sort((a, b) => parseInt(a) - parseInt(b));
 
       dayGroupKeys.forEach((dayGroup, dayGroupIndex) => {
         const groupData = itemGroup.dayGroups[dayGroup];
         const uploadToken = groupData.uploadToken;
+
+        // 접힌 상태 확인 (day_group별 독립)
+        const collapseKey = `${itemId}_${dayGroup}`;
+        const isCollapsed = collapsedItems.has(collapseKey);
+
+        // day_group별 완료 상태 계산 (해당 day_group의 슬롯만)
+        const totalSlots = groupData.slots.length;
+        const completedSlots = groupData.slots.filter(
+          slot => slot.buyer?.images?.length > 0
+        ).length;
+        const isAllCompleted = totalSlots > 0 && totalSlots === completedSlots;
 
         // 해당 day_group의 첫 번째 슬롯에서 날짜 가져오기 (Sales가 입력한 날짜)
         const dayGroupDate = groupData.slots[0]?.date || '';
@@ -719,14 +716,15 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
     }
   }, [changedSlots, changedItems, slots, loadSlots]);
 
-  // 개별 품목 접기/펼치기 토글
-  const toggleItemCollapse = useCallback((itemId) => {
+  // 개별 품목 접기/펼치기 토글 (item_id + day_group 조합으로 독립적 관리)
+  const toggleItemCollapse = useCallback((itemId, dayGroup) => {
+    const key = `${itemId}_${dayGroup}`;
     setCollapsedItems(prev => {
       const next = new Set(prev);
-      if (next.has(itemId)) {
-        next.delete(itemId);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(itemId);
+        next.add(key);
       }
       // localStorage에 저장
       saveCollapsedItems(next);
@@ -741,14 +739,15 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
     saveCollapsedItems(emptySet);
   }, [saveCollapsedItems]);
 
-  // 모두 접기
+  // 모두 접기 (item_id + day_group 조합)
   const collapseAll = useCallback(() => {
-    const allItemIds = slots
-      .map(s => s.item_id)
-      .filter((id, idx, arr) => arr.indexOf(id) === idx);
-    const allCollapsed = new Set(allItemIds);
-    setCollapsedItems(allCollapsed);
-    saveCollapsedItems(allCollapsed);
+    const allKeys = new Set();
+    slots.forEach(s => {
+      const key = `${s.item_id}_${s.day_group}`;
+      allKeys.add(key);
+    });
+    setCollapsedItems(allKeys);
+    saveCollapsedItems(allKeys);
   }, [slots, saveCollapsedItems]);
 
   // 기본 컬럼 너비 - 20개 컬럼
@@ -1192,7 +1191,9 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
           // col0 - 토글 아이콘 + 완료 배지 표시
           if (prop === 'col0') {
             const itemId = rowData._itemId;
-            const isCollapsed = collapsedItems.has(itemId);
+            const dayGroup = rowData._dayGroup;
+            const collapseKey = `${itemId}_${dayGroup}`;
+            const isCollapsed = collapsedItems.has(collapseKey);
             const status = rowData._completionStatus;
 
             // 완료 배지 HTML
@@ -1210,7 +1211,7 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
             td.style.cursor = 'pointer';
             td.onclick = (e) => {
               e.stopPropagation();
-              toggleItemCollapse(itemId);
+              toggleItemCollapse(itemId, dayGroup);
             };
           }
           // col2 - 플랫폼 (볼드, 파란색)
