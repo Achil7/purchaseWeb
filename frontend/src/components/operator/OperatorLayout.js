@@ -978,7 +978,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
       >
         {/* 기본 라우트일 때 탭 + 시트 표시 */}
         {isDefaultRoute ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}>
             {/* 탭 헤더 */}
             <Box sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0, bgcolor: 'white' }}>
               <Tabs
@@ -1007,7 +1007,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
             {/* 탭 0: 캠페인 시트 */}
             {sheetTab === 0 && (
               selectedCampaign ? (
-                <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}>
                   {/* 캠페인 헤더 - 최소화 */}
                   <Box sx={{
                     display: 'flex',

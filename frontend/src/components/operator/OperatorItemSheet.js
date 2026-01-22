@@ -55,6 +55,8 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
   viewAsUserId = null
 }, ref) {
   const hotRef = useRef(null);
+  const containerRef = useRef(null);
+  const [containerHeight, setContainerHeight] = useState(400); // 기본값
 
   // 슬롯 데이터
   const [slots, setSlots] = useState([]);
@@ -145,6 +147,30 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
 
   // 컬럼별 정렬 상태 (left, center, right)
   const [columnAlignments, setColumnAlignments] = useState({});
+
+  // 컨테이너 높이 측정 (ResizeObserver)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateHeight = () => {
+      const height = container.clientHeight;
+      if (height > 0) {
+        setContainerHeight(height);
+      }
+    };
+
+    // 초기 높이 설정
+    updateHeight();
+
+    // ResizeObserver로 크기 변화 감지
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
 
   // localStorage에서 컬럼 크기 로드
   const getSavedColumnWidths = useCallback(() => {
@@ -1546,12 +1572,12 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
         )}
       </Box>
 
-      <Paper sx={{
-        overflow: 'auto',
+      <Paper
+        ref={containerRef}
+        sx={{
+        overflow: 'hidden',
         flex: 1,
         minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
         '& .handsontable': {
           fontSize: '12px'
         },
@@ -1653,7 +1679,7 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
             colHeaders={colHeaders}
             rowHeaders={false}
             width="100%"
-            height="calc(100vh - 160px)"
+            height={containerHeight}
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
             autoRowSize={true}
