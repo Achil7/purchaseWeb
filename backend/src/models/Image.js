@@ -61,6 +61,28 @@ module.exports = (sequelize, DataTypes) => {
     },
     uploaded_by_ip: {
       type: DataTypes.STRING(50)
+    },
+    // 재제출 관련 필드
+    status: {
+      type: DataTypes.TEXT,
+      defaultValue: 'approved',
+      allowNull: false,
+      comment: '승인 상태 (pending: 대기, approved: 승인, rejected: 거절)'
+    },
+    resubmitted_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      comment: '재제출 시간'
+    },
+    previous_image_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'images',
+        key: 'id'
+      },
+      onDelete: 'SET NULL',
+      comment: '재제출인 경우 이전 이미지 ID'
     }
   }, {
     tableName: 'images',
@@ -74,7 +96,9 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['item_id'] },
       { fields: ['upload_token'] },
       { fields: ['account_normalized'] },
-      { fields: ['deleted_at'] }
+      { fields: ['deleted_at'] },
+      { fields: ['status'] },
+      { fields: ['previous_image_id'] }
     ]
   });
 
@@ -89,6 +113,18 @@ module.exports = (sequelize, DataTypes) => {
     Image.belongsTo(models.Item, {
       foreignKey: 'item_id',
       as: 'item'
+    });
+
+    // 이전 이미지 (재제출인 경우)
+    Image.belongsTo(models.Image, {
+      foreignKey: 'previous_image_id',
+      as: 'previousImage'
+    });
+
+    // 재제출된 이미지들
+    Image.hasMany(models.Image, {
+      foreignKey: 'previous_image_id',
+      as: 'resubmissions'
     });
   };
 

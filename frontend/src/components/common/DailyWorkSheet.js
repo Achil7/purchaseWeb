@@ -171,6 +171,29 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [changedSlots, changedItems]);
 
+  // Shift+휠 횡스크롤 핸들러
+  useEffect(() => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    const rootElement = hot.rootElement;
+    if (!rootElement) return;
+
+    const wtHolder = rootElement.querySelector('.wtHolder');
+
+    const handleWheel = (e) => {
+      if (e.shiftKey && wtHolder) {
+        e.preventDefault();
+        e.stopPropagation();
+        const scrollAmount = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+        wtHolder.scrollLeft += scrollAmount;
+      }
+    };
+
+    rootElement.addEventListener('wheel', handleWheel, { passive: false, capture: true });
+    return () => rootElement.removeEventListener('wheel', handleWheel, { capture: true });
+  }, [slots]);
+
   // 슬롯을 품목 ID와 day_group으로 그룹화
   const groupedSlots = useMemo(() => {
     const groups = {};
@@ -829,11 +852,6 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
 
       {/* 데이터 영역 */}
       <Paper sx={{
-        overflow: 'auto',
-        flex: 1,
-        minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
         '& .handsontable': {
           fontSize: '12px'
         },
@@ -898,13 +916,14 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
             ref={hotRef}
             data={tableData}
             columns={columns}
-            colHeaders={false}
+            colHeaders={Array(22).fill('')}
+            colWidths={columnWidths.length > 0 ? columnWidths : undefined}
             rowHeaders={false}
             width="100%"
-            height="calc(100vh - 160px)"
+            height="calc(100vh - 200px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
-            autoRowSize={true}
+            autoRowSize={false}
             viewportRowRenderingOffset={50}
             manualColumnResize={true}
             manualRowResize={false}

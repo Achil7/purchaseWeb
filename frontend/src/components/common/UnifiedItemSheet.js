@@ -981,27 +981,7 @@ function UnifiedItemSheet({
       </Box>
 
       <Paper sx={{
-        overflow: 'auto',
-        flex: 1,
-        minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
         '& .handsontable': { fontSize: '12px' },
-        '& .handsontable thead th': {
-          whiteSpace: 'nowrap',
-          overflow: 'visible',
-          position: 'relative',
-          paddingRight: '20px !important'
-        },
-        '& .handsontable thead th .changeType': {
-          position: 'absolute',
-          right: '2px',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          opacity: 0,
-          transition: 'opacity 0.15s ease'
-        },
-        '& .handsontable thead th:hover .changeType': { opacity: 1 },
         '& .item-separator-row': {
           backgroundColor: '#1565c0 !important',
           border: 'none !important'

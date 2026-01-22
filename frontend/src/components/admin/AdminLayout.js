@@ -12,11 +12,12 @@ import DoneAllIcon from '@mui/icons-material/DoneAll';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import AdminUserCreate from './AdminUserCreate';
 import AdminLoginSettings from './AdminLoginSettings';
-import { notificationService } from '../../services';
+import { notificationService, imageService } from '../../services';
 
 function AdminLayout() {
   const navigate = useNavigate();
@@ -30,6 +31,9 @@ function AdminLayout() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifAnchorEl, setNotifAnchorEl] = useState(null);
 
+  // 재제출 이미지 대기 카운트
+  const [pendingImageCount, setPendingImageCount] = useState(0);
+
   // 알림 목록 조회
   const loadNotifications = async () => {
     try {
@@ -38,6 +42,18 @@ function AdminLayout() {
       setUnreadCount(response.unreadCount || 0);
     } catch (error) {
       console.error('Failed to load notifications:', error);
+    }
+  };
+
+  // 재제출 이미지 대기 카운트 조회
+  const loadPendingImageCount = async () => {
+    try {
+      const response = await imageService.getPendingCount();
+      if (response.success) {
+        setPendingImageCount(response.count || 0);
+      }
+    } catch (error) {
+      console.error('Failed to load pending image count:', error);
     }
   };
 
@@ -88,8 +104,12 @@ function AdminLayout() {
 
   useEffect(() => {
     loadNotifications();
+    loadPendingImageCount();
     // 30초마다 알림 갱신
-    const interval = setInterval(loadNotifications, 30000);
+    const interval = setInterval(() => {
+      loadNotifications();
+      loadPendingImageCount();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -150,6 +170,20 @@ function AdminLayout() {
             sx={{ mr: 2 }}
           >
             휴지통
+          </Button>
+
+          {/* 이미지 재제출 승인 버튼 */}
+          <Button
+            color="inherit"
+            startIcon={
+              <Badge badgeContent={pendingImageCount} color="error">
+                <PhotoLibraryIcon />
+              </Badge>
+            }
+            onClick={() => navigate('/admin/image-approval')}
+            sx={{ mr: 2 }}
+          >
+            이미지 승인
           </Button>
 
           {/* 사용자 등록 버튼 */}

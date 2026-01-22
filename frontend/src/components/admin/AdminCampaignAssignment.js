@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
-  CircularProgress, Alert, Button, IconButton, Tooltip,
+  CircularProgress, Alert, Button, IconButton, Tooltip, Grid, Divider,
   FormControl, InputLabel, Select, MenuItem, Chip, TableContainer, Link, Breadcrumbs,
   Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
@@ -10,6 +10,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import GroupAddIcon from '@mui/icons-material/GroupAdd';
+import InfoIcon from '@mui/icons-material/Info';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getUsers } from '../../services/userService';
 import { itemService, campaignService } from '../../services';
@@ -338,7 +339,19 @@ function AdminCampaignAssignment() {
                     >
                       {isFirstRowOfItem && (
                         <TableCell rowSpan={itemRowCount} sx={{ verticalAlign: 'top', borderRight: '1px solid #e0e0e0' }}>
-                          <Typography variant="body2" fontWeight="bold">
+                          <Typography
+                            variant="body2"
+                            fontWeight="bold"
+                            sx={{
+                              cursor: 'pointer',
+                              color: '#1976d2',
+                              '&:hover': { textDecoration: 'underline' }
+                            }}
+                            onClick={() => {
+                              setSelectedItem(item);
+                              setItemDetailDialogOpen(true);
+                            }}
+                          >
                             {item.product_name}
                           </Typography>
                           {item.keyword && (
@@ -485,6 +498,89 @@ function AdminCampaignAssignment() {
             disabled={!bulkOperatorId}
           >
             일괄 배정
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 제품 상세 다이얼로그 */}
+      <Dialog
+        open={itemDetailDialogOpen}
+        onClose={() => {
+          setItemDetailDialogOpen(false);
+          setSelectedItem(null);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#1976d2', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <InfoIcon />
+          <Typography variant="h6" fontWeight="bold">제품 상세 정보</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {selectedItem && (
+            <Grid container spacing={2}>
+              {[
+                { label: '제품명', value: selectedItem.product_name || '-' },
+                { label: '플랫폼', value: selectedItem.platform || '-' },
+                { label: '상품 URL', value: selectedItem.product_url, isLink: true },
+                { label: '구매 옵션', value: selectedItem.purchase_option || '-' },
+                { label: '희망 키워드', value: selectedItem.keyword || '-' },
+                { label: '출고 유형', value: selectedItem.shipping_type || '-' },
+                { label: '총 구매 건수', value: selectedItem.total_purchase_count || '-' },
+                { label: '일 구매 건수', value: selectedItem.daily_purchase_count || '-' },
+                { label: '제품 가격', value: selectedItem.product_price ? `${Number(String(selectedItem.product_price).replace(/,/g, '')).toLocaleString()}원` : '-' },
+                { label: '출고 마감 시간', value: selectedItem.shipping_deadline || '-' },
+                { label: '택배대행 Y/N', value: selectedItem.courier_service_yn || '-' },
+                { label: '리뷰 가이드', value: selectedItem.review_guide || '-', multiline: true },
+                { label: '특이사항', value: selectedItem.notes || '-', multiline: true },
+              ].map((field, idx) => (
+                <React.Fragment key={idx}>
+                  <Grid item xs={4}>
+                    <Typography variant="body2" color="text.secondary" fontWeight="bold">
+                      {field.label}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={8}>
+                    {field.isLink && field.value && field.value !== '-' ? (
+                      <Link href={field.value} target="_blank" rel="noopener noreferrer">
+                        {field.value}
+                      </Link>
+                    ) : field.multiline ? (
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          whiteSpace: 'pre-wrap',
+                          bgcolor: '#f5f5f5',
+                          p: 1,
+                          borderRadius: 1,
+                          minHeight: 40
+                        }}
+                      >
+                        {field.value}
+                      </Typography>
+                    ) : (
+                      <Typography variant="body2">{field.value}</Typography>
+                    )}
+                  </Grid>
+                  {idx < 12 && (
+                    <Grid item xs={12}>
+                      <Divider sx={{ my: 0.5 }} />
+                    </Grid>
+                  )}
+                </React.Fragment>
+              ))}
+            </Grid>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setItemDetailDialogOpen(false);
+              setSelectedItem(null);
+            }}
+          >
+            닫기
           </Button>
         </DialogActions>
       </Dialog>

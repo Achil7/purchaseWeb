@@ -17,6 +17,7 @@ import AdminControlTower from './components/admin/AdminControlTower';
 import AdminMarginDashboard from './components/admin/AdminMarginDashboard';
 import AdminCampaignAssignment from './components/admin/AdminCampaignAssignment';
 import AdminTrash from './components/admin/AdminTrash';
+import AdminImageApproval from './components/admin/AdminImageApproval';
 
 // --- 영업사 관련 페이지 ---
 import SalesLayout from './components/sales/SalesLayout';
@@ -97,6 +98,7 @@ function App() {
             <Route path="tracking-management" element={<AdminTrackingManagement />} />
             <Route path="margin" element={<AdminMarginDashboard />} />
             <Route path="trash" element={<AdminTrash />} />
+            <Route path="image-approval" element={<AdminImageApproval />} />
           </Route>
 
           {/* Admin이 영업사 페이지를 그대로 볼 수 있는 라우트 (쿼리: ?userId=xxx) */}

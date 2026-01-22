@@ -1235,34 +1235,8 @@ function SalesItemSheet({
       </Box>
 
       <Paper sx={{
-        overflow: 'auto',
-        flex: 1,
-        minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
         '& .handsontable': {
           fontSize: '12px'
-        },
-        // 헤더 스타일 - 필터 버튼이 텍스트와 겹치지 않도록
-        '& .handsontable thead th': {
-          whiteSpace: 'nowrap',
-          overflow: 'visible',
-          position: 'relative',
-          paddingRight: '20px !important',
-          textAlign: 'center !important'
-        },
-        // 필터 버튼 hover 시에만 표시
-        '& .handsontable thead th .changeType': {
-          position: 'absolute',
-          right: '50%',
-          transform: 'translateX(50%)',
-          top: '50%',
-          marginTop: '-7px',
-          opacity: 0,
-          transition: 'opacity 0.15s ease-in-out'
-        },
-        '& .handsontable thead th:hover .changeType': {
-          opacity: 1
         },
         // 품목 구분선 행 스타일
         '& .item-separator-row': {
@@ -1341,6 +1315,7 @@ function SalesItemSheet({
             data={tableData}
             columns={columns}
             colHeaders={colHeaders}
+            colWidths={columnWidths.length > 0 ? columnWidths : undefined}
             rowHeaders={false}
             width="100%"
             height="calc(100vh - 160px)"
@@ -1654,11 +1629,27 @@ function SalesItemSheet({
                   const fieldName = fieldMap[prop];
                   if (!fieldName) return;
 
+                  const dayGroup = rowData._dayGroup;
+
                   // 사용자 입력값을 그대로 저장 (계산 시에만 숫자 추출)
+                  const dayGroupKey = dayGroup ? `${itemId}_${dayGroup}` : String(itemId);
                   setChangedItems(prev => ({
                     ...prev,
-                    [itemId]: { ...(prev[itemId] || {}), [fieldName]: newValue ?? '' }
+                    [dayGroupKey]: { ...(prev[dayGroupKey] || {}), itemId, dayGroup, [fieldName]: newValue ?? '' }
                   }));
+
+                  // 제품 데이터도 즉시 slots 상태에 반영 (Enter 후 바로 표시)
+                  setSlots(prevSlots => {
+                    return prevSlots.map(slot => {
+                      const matchItem = dayGroup
+                        ? (slot.item_id === itemId && slot.day_group === dayGroup)
+                        : (slot.item_id === itemId);
+                      if (matchItem) {
+                        return { ...slot, [fieldName]: newValue ?? '' };
+                      }
+                      return slot;
+                    });
+                  });
                 }
                 // BUYER_DATA 행 변경 처리 (19개 컬럼) - 영업사는 리뷰비 컬럼 제외
                 else if (rowData._rowType === ROW_TYPES.BUYER_DATA) {

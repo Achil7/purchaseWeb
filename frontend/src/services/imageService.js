@@ -79,13 +79,49 @@ const deleteImage = async (imageId) => {
   return response.data;
 };
 
+/**
+ * 대기 중인 재제출 이미지 목록 조회 (Admin 전용)
+ */
+const getPendingImages = async () => {
+  const response = await apiClient.get('/images/pending');
+  return response.data;
+};
+
+/**
+ * 대기 중인 재제출 이미지 개수 조회 (Admin 알림 배지용)
+ */
+const getPendingCount = async () => {
+  const response = await apiClient.get('/images/pending/count');
+  return response.data;
+};
+
+/**
+ * 재제출 이미지 승인 (Admin 전용)
+ */
+const approveImage = async (imageId) => {
+  const response = await apiClient.post(`/images/${imageId}/approve`);
+  return response.data;
+};
+
+/**
+ * 재제출 이미지 거절 (Admin 전용)
+ */
+const rejectImage = async (imageId, reason = '') => {
+  const response = await apiClient.post(`/images/${imageId}/reject`, { reason });
+  return response.data;
+};
+
 const imageService = {
   getItemByToken,
   getSlotByToken,
   searchBuyersByName,
   uploadImages,
   getImagesByItem,
-  deleteImage
+  deleteImage,
+  getPendingImages,
+  getPendingCount,
+  approveImage,
+  rejectImage
 };
 
 export default imageService;

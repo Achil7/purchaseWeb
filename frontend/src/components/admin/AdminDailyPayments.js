@@ -355,6 +355,7 @@ function AdminDailyPayments() {
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 120 }}>캠페인</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 150 }}>제품명</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 100 }}>입금명</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 100 }}>입금예정일</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 100 }}>주문번호</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 80 }}>구매자</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 80 }}>수취인</TableCell>
@@ -368,7 +369,7 @@ function AdminDailyPayments() {
                 <TableBody>
                   {buyers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={11} align="center" sx={{ py: 4, color: '#999' }}>
+                      <TableCell colSpan={12} align="center" sx={{ py: 4, color: '#999' }}>
                         해당 날짜에 리뷰샷을 업로드한 구매자가 없습니다.
                       </TableCell>
                     </TableRow>
@@ -384,7 +385,10 @@ function AdminDailyPayments() {
                           {buyer.item?.product_name || '-'}
                         </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap', color: '#1565c0', fontWeight: 'bold' }}>
-                          {buyer.item?.deposit_name || '-'}
+                          {buyer.deposit_name || buyer.item?.deposit_name || '-'}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', color: '#e65100' }}>
+                          {buyer.expected_payment_date || '-'}
                         </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           {buyer.order_number || '-'}

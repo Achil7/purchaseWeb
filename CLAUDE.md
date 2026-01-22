@@ -621,6 +621,44 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ## 개발 시 체크리스트
 
+### ⚠️ Handsontable HotTable height 절대 변경 금지
+**절대로 HotTable의 height 속성을 `100%`로 변경하지 말 것!**
+
+```jsx
+// ❌ 절대 금지 - 시트가 사라짐
+height="100%"
+
+// ✅ 올바른 설정 - 반드시 calc() 사용
+height="calc(100vh - 160px)"
+```
+
+**이유**: HotTable에 `height="100%"`를 설정하면 부모 요소(Paper)에 명시적 픽셀 높이가 없어서 Handsontable이 렌더링되지 않음. 시트 전체가 사라지는 치명적 버그 발생.
+
+**적용 대상**: OperatorItemSheet, SalesItemSheet, BrandItemSheet, DailyWorkSheet, UnifiedItemSheet 등 모든 HotTable 사용 컴포넌트
+
+---
+
+### ⚠️ Handsontable 횡스크롤바 위치 문제 - 시도한 방법들
+
+**문제**: Handsontable의 `colHeaders` 사용 시 `.wtHolder` 내부에 헤더와 데이터가 함께 있어서 횡스크롤바가 헤더 행 바로 아래에 붙음 (시트 맨 아래가 아님)
+
+**시도한 방법들과 결과**:
+
+| 방법 | 코드 | 결과 |
+|------|------|------|
+| 1. wtHolder overflowX hidden | `'& .wtHolder': { overflowX: 'hidden !important' }` | ❌ 시트 전체가 사라짐 |
+| 2. wtHolder 스크롤바만 CSS로 숨기기 | `scrollbarWidth: 'none', '&::-webkit-scrollbar': { display: 'none' }` | ❌ 시트 전체가 사라짐 |
+| 3. 커스텀 스크롤바 + useEffect 동기화 | `customScrollbarRef`, `scrollContentRef`, ResizeObserver | ❌ 시트가 사라짐 (height="100%"로 바꿔서 실패) |
+| 4. Paper에 overflowX + wtHolder visible | `overflowX: 'auto', '& .wtHolder': { overflowX: 'visible' }` | ❌ 종스크롤이 2개 생김 |
+| 5. Box wrapper + flex layout | HotTable을 Box로 감싸고 flex 사용 | ❌ height="100%"로 바꿔야 해서 실패 |
+| 6. colHeaders={false} | 헤더 행 제거 | ❌ 컬럼 리사이즈 핸들이 사라짐 |
+
+**결론**: Handsontable 구조상 `colHeaders`를 사용하면서 횡스크롤바를 시트 맨 아래로 이동시키는 것은 매우 어려움. `.wtHolder`의 overflow를 건드리면 Handsontable 렌더링이 깨짐.
+
+**현재 상태**: 횡스크롤바가 헤더 행 아래에 위치 (Handsontable 기본 동작)
+
+---
+
 ### 컬럼 수정 시 필수 체크 항목
 시트 컬럼 순서나 구조를 변경할 때 **반드시** 아래 모든 항목을 한번에 확인하고 수정할 것:
 

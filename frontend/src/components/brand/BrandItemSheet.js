@@ -851,32 +851,8 @@ function BrandItemSheet({
       </Box>
 
       <Paper sx={{
-        overflow: 'auto',
-        flex: 1,
-        minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
         '& .handsontable': {
           fontSize: '12px'
-        },
-        '& .handsontable thead th': {
-          whiteSpace: 'nowrap',
-          overflow: 'visible',
-          position: 'relative',
-          textAlign: 'center !important'
-        },
-        // 필터 버튼 hover 시에만 표시
-        '& .handsontable thead th .changeType': {
-          position: 'absolute',
-          right: '50%',
-          transform: 'translateX(50%)',
-          top: '50%',
-          marginTop: '-10px',
-          opacity: 0,
-          transition: 'opacity 0.15s ease-in-out'
-        },
-        '& .handsontable thead th:hover .changeType': {
-          opacity: 1
         },
         // 품목 구분선 행 스타일
         '& .item-separator-row': {
@@ -922,6 +898,7 @@ function BrandItemSheet({
             data={tableData}
             columns={columns}
             colHeaders={colHeaders}
+            colWidths={columnWidths.length > 0 ? columnWidths : undefined}
             rowHeaders={false}
             width="100%"
             height="calc(100vh - 200px)"

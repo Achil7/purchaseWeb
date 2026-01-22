@@ -642,7 +642,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               </Typography>
             </Box>
             {/* 시트 컴포넌트 */}
-            <Box sx={{ flex: 1, overflow: 'hidden' }}>
+            <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
               <BrandItemSheet
                 campaignId={selectedCampaign.id}
                 campaignName={selectedCampaign.name}

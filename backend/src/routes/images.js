@@ -31,4 +31,32 @@ router.get('/item/:itemId', authenticate, imageController.getImagesByItem);
  */
 router.delete('/:id', authenticate, authorize(['operator', 'admin', 'sales']), imageController.deleteImage);
 
+/**
+ * @route   GET /api/images/pending
+ * @desc    대기 중인 재제출 이미지 목록 (Admin)
+ * @access  Private (Admin)
+ */
+router.get('/pending', authenticate, authorize(['admin']), imageController.getPendingImages);
+
+/**
+ * @route   GET /api/images/pending/count
+ * @desc    대기 중인 재제출 이미지 개수 (Admin 알림 배지용)
+ * @access  Private (Admin)
+ */
+router.get('/pending/count', authenticate, authorize(['admin']), imageController.getPendingCount);
+
+/**
+ * @route   POST /api/images/:id/approve
+ * @desc    재제출 이미지 승인 (Admin)
+ * @access  Private (Admin)
+ */
+router.post('/:id/approve', authenticate, authorize(['admin']), imageController.approveImage);
+
+/**
+ * @route   POST /api/images/:id/reject
+ * @desc    재제출 이미지 거절 (Admin)
+ * @access  Private (Admin)
+ */
+router.post('/:id/reject', authenticate, authorize(['admin']), imageController.rejectImage);
+
 module.exports = router;

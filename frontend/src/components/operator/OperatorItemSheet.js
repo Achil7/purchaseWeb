@@ -445,6 +445,7 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
 
         // 우선순위: changedItems(수정 중인 값) > 슬롯 값 > Item 값
         const dayGroupProductInfo = {
+          date: dayGroupChanges.date !== undefined ? dayGroupChanges.date : (firstSlot.date || ''),  // 날짜 (ItemSlot 테이블, day_group별 독립)
           product_name: dayGroupChanges.product_name !== undefined ? dayGroupChanges.product_name : (firstSlot.product_name || mergedItem.product_name || ''),
           platform: dayGroupChanges.platform !== undefined ? dayGroupChanges.platform : (firstSlot.platform || mergedItem.platform || '-'),
           shipping_type: dayGroupChanges.shipping_type !== undefined ? dayGroupChanges.shipping_type : (firstSlot.shipping_type || mergedItem.shipping_type || ''),
@@ -488,7 +489,7 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
           _dayGroup: parseInt(dayGroup),
           _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
           col0: '',  // 토글 버튼
-          col1: mergedItem.date || '',  // 제품 날짜 (Item 테이블 - 사용자 입력, day_group별로 독립되지 않음)
+          col1: dayGroupProductInfo.date,  // 제품 날짜 (ItemSlot 테이블, day_group별 독립)
           col2: dayGroupProductInfo.platform,  // 플랫폼 (day_group별 독립)
           col3: dayGroupProductInfo.product_name,  // 제품명 (day_group별 독립)
           col4: dayGroupProductInfo.purchase_option,  // 옵션 (day_group별 독립)

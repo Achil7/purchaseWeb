@@ -1054,7 +1054,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                   )}
 
                   {/* 품목 시트 (DB 슬롯 기반 엑셀 형식) */}
-                  <Box sx={{ flex: 1, overflow: 'hidden' }}>
+                  <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                     {USE_UNIFIED_SHEET ? (
                       <UnifiedItemSheet
                         campaignId={selectedCampaign.id}

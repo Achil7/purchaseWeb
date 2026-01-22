@@ -88,6 +88,21 @@ module.exports = (sequelize, DataTypes) => {
     notes: {
       type: DataTypes.TEXT
     },
+    // 입금명 (구매자별로 다를 수 있음)
+    deposit_name: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    // 입금 예정일 (다음 영업일 기준)
+    expected_payment_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true
+    },
+    // 리뷰 이미지 제출 시간
+    review_submitted_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
     // 생성 정보
     created_by: {
       type: DataTypes.INTEGER,

@@ -918,6 +918,8 @@ exports.getBuyersByDate = async (req, res) => {
       courier_company: buyer.courier_company,
       payment_status: buyer.payment_status,
       payment_confirmed_at: buyer.payment_confirmed_at,  // 입금확인 날짜 추가
+      deposit_name: buyer.deposit_name,  // 구매자별 입금명
+      expected_payment_date: buyer.expected_payment_date,  // 입금 예정일
       created_at: buyer.created_at,
       image_uploaded_at: buyer.images && buyer.images.length > 0 ? buyer.images[0].created_at : null,
       image_url: buyer.images && buyer.images.length > 0 ? buyer.images[0].s3_url : null,

@@ -123,7 +123,7 @@ exports.updateSlotsBulk = async (req, res) => {
     // 슬롯 필드 (ItemSlot 모델 기준) - day_group별 독립 제품 정보 필드 포함
     const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'product_url'];
     // 구매자 필드 (Buyer 모델 기준)
-    const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status'];
+    const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status', 'deposit_name'];
 
     const results = [];
     for (const slotData of slots) {
@@ -188,6 +188,7 @@ exports.updateSlotsBulk = async (req, res) => {
             shipping_delayed: buyerData.shipping_delayed || false,
             tracking_number: buyerData.tracking_number || null,
             courier_company: buyerData.courier_company || null,
+            deposit_name: buyerData.deposit_name || null,
             created_by: userId
           });
           slotUpdateData.buyer_id = newBuyer.id;
@@ -250,8 +251,8 @@ exports.getSlotsByCampaign = async (req, res) => {
       model: Buyer,
       as: 'buyer',
       attributes: isBrandView
-        ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number']
-        : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company'],
+        ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number', 'expected_payment_date', 'review_submitted_at']
+        : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at'],
       include: [
         {
           model: Image,
@@ -437,7 +438,7 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
           attributes: [
             'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
             'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes',
-            'tracking_number', 'shipping_delayed', 'courier_company'
+            'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at'
           ],
           include: [
             {
@@ -1218,7 +1219,7 @@ exports.getSlotsByDate = async (req, res) => {
             attributes: [
               'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
               'contact', 'address', 'account_info', 'amount', 'payment_status',
-              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company'
+              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name'
             ],
             include: [
               {
@@ -1306,7 +1307,7 @@ exports.getSlotsByDate = async (req, res) => {
             attributes: [
               'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
               'contact', 'address', 'account_info', 'amount', 'payment_status',
-              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company'
+              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name'
             ],
             include: [
               {
@@ -1360,7 +1361,7 @@ exports.getSlotsByDate = async (req, res) => {
             attributes: [
               'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
               'contact', 'address', 'account_info', 'amount', 'payment_status',
-              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company'
+              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name'
             ],
             include: [
               {

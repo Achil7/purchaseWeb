@@ -43,7 +43,11 @@
       "Bash(move analyze-excel.js frontend)",
       "Bash(node analyze-template.js:*)",
       "Bash(node parse_estimate.js:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(docker build:*)",
+      "Bash(docker tag:*)",
+      "Bash(npx eslint:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []
