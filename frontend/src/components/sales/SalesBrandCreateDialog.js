@@ -50,8 +50,13 @@ function SalesBrandCreateDialog({ open, onClose, onSuccess, viewAsUserId = null 
       handleClose();
       if (onSuccess) onSuccess();
     } catch (err) {
-      const message = err.response?.data?.message || '브랜드 등록 중 오류가 발생했습니다';
-      setError(message);
+      // 409 상태코드는 브랜드명 중복
+      if (err.response?.status === 409) {
+        setError(err.response?.data?.error || '이미 존재하는 브랜드 이름입니다.');
+      } else {
+        const message = err.response?.data?.message || '브랜드 등록 중 오류가 발생했습니다';
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }

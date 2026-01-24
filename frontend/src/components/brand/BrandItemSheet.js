@@ -901,7 +901,7 @@ function BrandItemSheet({
             colWidths={columnWidths.length > 0 ? columnWidths : undefined}
             rowHeaders={false}
             width="100%"
-            height="calc(100vh - 200px)"
+            height="calc(100vh - 210px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
             autoRowSize={true}

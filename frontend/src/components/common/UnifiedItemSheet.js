@@ -1005,7 +1005,7 @@ function UnifiedItemSheet({
             colHeaders={colHeaders}
             rowHeaders={false}
             width="100%"
-            height="calc(100vh - 160px)"
+            height="calc(100vh - 210px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
             autoRowSize={true}

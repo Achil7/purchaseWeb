@@ -40,8 +40,23 @@ const DEFAULT_COLUMN_WIDTHS = [30, 180, 70, 60, 120, 80, 50, 80, 60, 50, 50, 50,
 function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
   const hotRef = useRef(null);
 
-  // 날짜 상태
-  const [selectedDate, setSelectedDate] = useState(null);
+  // localStorage 키 정의
+  const COLUMN_WIDTHS_KEY = `daily_work_sheet_column_widths_${userRole}`;
+  const SELECTED_DATE_KEY = `daily_work_sheet_selected_date_${userRole}_${viewAsUserId || 'self'}`;
+
+  // 날짜 상태 - localStorage에서 복원
+  const [selectedDate, setSelectedDate] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SELECTED_DATE_KEY);
+      if (saved) {
+        const date = new Date(saved);
+        return isNaN(date.getTime()) ? null : date;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  });
   const [searchDate, setSearchDate] = useState(null);
 
   // 슬롯 데이터
@@ -89,8 +104,16 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
   // 접힌 품목 ID Set
   const [collapsedItems, setCollapsedItems] = useState(new Set());
 
-  // 컬럼 크기 저장 키
-  const COLUMN_WIDTHS_KEY = `daily_work_sheet_column_widths_${userRole}`;
+  // selectedDate 변경 시 localStorage에 저장
+  useEffect(() => {
+    if (selectedDate) {
+      try {
+        localStorage.setItem(SELECTED_DATE_KEY, selectedDate.toISOString());
+      } catch (e) {
+        console.error('Failed to save selected date:', e);
+      }
+    }
+  }, [selectedDate, SELECTED_DATE_KEY]);
 
   // localStorage에서 컬럼 크기 로드
   const getSavedColumnWidths = useCallback(() => {
@@ -146,6 +169,24 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
   const handleSearch = () => {
     if (selectedDate) {
       setSearchDate(selectedDate);
+    }
+  };
+
+  // 이전 날짜로 이동 (-1일)
+  const handlePreviousDate = () => {
+    if (selectedDate) {
+      const prevDate = new Date(selectedDate);
+      prevDate.setDate(prevDate.getDate() - 1);
+      setSelectedDate(prevDate);
+    }
+  };
+
+  // 다음 날짜로 이동 (+1일)
+  const handleNextDate = () => {
+    if (selectedDate) {
+      const nextDate = new Date(selectedDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+      setSelectedDate(nextDate);
     }
   };
 
@@ -481,6 +522,12 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
 
       case ROW_TYPES.PRODUCT_DATA:
         cellProperties.readOnly = (col === 0 || col === 1); // 접기, 연월브랜드-캠페인
+
+        // col1(연월브랜드-캠페인)은 선택 불가
+        if (col === 1) {
+          cellProperties.disableVisualSelection = true;
+        }
+
         cellProperties.renderer = function(instance, td, r, c, prop, value) {
           td.className = 'product-data-row';
           td.style.backgroundColor = '#fff8e1';
@@ -494,11 +541,14 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
             td.style.textAlign = 'center';
             td.style.cursor = 'pointer';
           }
-          // col1 - 연월브랜드-캠페인 (볼드)
+          // col1 - 연월브랜드-캠페인 (볼드, 선택 불가 스타일)
           else if (prop === 'col1') {
             td.textContent = value ?? '';
             td.style.fontWeight = 'bold';
             td.style.color = '#1565c0';
+            td.style.userSelect = 'none';
+            td.style.cursor = 'default';
+            td.style.backgroundColor = '#f5f5f5';
           }
           // col3 - 플랫폼 (볼드)
           else if (prop === 'col3') {
@@ -687,9 +737,16 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
       if (type === ROW_TYPES.PRODUCT_DATA) {
         const PRODUCT_FIELD_MAP = {
           col2: 'date',
+          col3: 'platform',
+          col4: 'product_name',
           col5: 'purchase_option',
+          col6: 'shipping_type',
           col7: 'keyword',
           col8: 'product_price',
+          col9: 'total_purchase_count',
+          col10: 'daily_purchase_count',
+          col11: 'courier_service_yn',
+          col12: 'product_url',
           col14: 'notes'
         };
 
@@ -808,6 +865,15 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
       {/* 날짜 선택 영역 - 컴팩트하게 */}
       <Paper sx={{ p: 1.5, mb: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+          <IconButton
+            size="small"
+            onClick={handlePreviousDate}
+            disabled={!selectedDate}
+            title="이전 날짜"
+            sx={{ bgcolor: 'action.hover' }}
+          >
+            <ChevronLeftIcon />
+          </IconButton>
           <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={ko}>
             <DatePicker
               label="날짜"
@@ -821,6 +887,15 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
               }}
             />
           </LocalizationProvider>
+          <IconButton
+            size="small"
+            onClick={handleNextDate}
+            disabled={!selectedDate}
+            title="다음 날짜"
+            sx={{ bgcolor: 'action.hover' }}
+          >
+            <ChevronRightIcon />
+          </IconButton>
           <Button
             variant="contained"
             size="small"
@@ -920,7 +995,7 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
             colWidths={columnWidths.length > 0 ? columnWidths : undefined}
             rowHeaders={false}
             width="100%"
-            height="calc(100vh - 200px)"
+            height="calc(100vh - 210px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
             autoRowSize={false}

@@ -47,7 +47,8 @@
       "Bash(docker build:*)",
       "Bash(docker tag:*)",
       "Bash(npx eslint:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(npm test:*)"
     ],
     "deny": [],
     "ask": []

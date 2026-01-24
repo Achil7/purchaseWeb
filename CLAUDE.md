@@ -629,7 +629,7 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 height="100%"
 
 // ✅ 올바른 설정 - 반드시 calc() 사용
-height="calc(100vh - 160px)"
+height="calc(100vh - 210px)"
 ```
 
 **이유**: HotTable에 `height="100%"`를 설정하면 부모 요소(Paper)에 명시적 픽셀 높이가 없어서 Handsontable이 렌더링되지 않음. 시트 전체가 사라지는 치명적 버그 발생.

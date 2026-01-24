@@ -554,7 +554,11 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
           groupData.slots.forEach((slot, slotIndex) => {
             // changedSlots에 변경사항이 있으면 적용
             const slotChanges = changedSlots[slot.id] || {};
-            const mergedSlot = { ...slot, ...slotChanges };
+            // changedItems에 제품 정보 변경사항이 있으면 적용
+            const dayGroupKey = `${slot.item_id}_${slot.day_group}`;
+            const productChanges = changedItems[dayGroupKey] || {};
+            const { itemId, dayGroup, ...productFields } = productChanges;
+            const mergedSlot = { ...slot, ...productFields, ...slotChanges };
             const buyer = mergedSlot.buyer || {};
             const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
 

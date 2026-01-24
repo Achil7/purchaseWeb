@@ -37,6 +37,25 @@ router.get('/', authenticate, async (req, res) => {
       whereClause.role = role;
     }
 
+    // role=brand 조회 시 sales 사용자는 자신이 담당하는 브랜드만 조회
+    if (role === 'brand' && req.user.role === 'sales') {
+      const salesId = req.query.viewAsUserId || req.user.id;
+
+      // BrandSales 테이블에서 해당 영업사가 담당하는 브랜드 ID 조회
+      const brandSalesRecords = await BrandSales.findAll({
+        where: { sales_id: salesId },
+        attributes: ['brand_id'],
+        raw: true
+      });
+      const brandIds = brandSalesRecords.map(r => r.brand_id);
+
+      // assigned_sales_id 또는 BrandSales 테이블에 있는 브랜드만 필터링
+      whereClause[Op.or] = [
+        { assigned_sales_id: salesId },
+        { id: { [Op.in]: brandIds } }
+      ];
+    }
+
     const users = await User.findAll({
       where: whereClause,
       attributes: ['id', 'username', 'name', 'email', 'role', 'phone', 'is_active', 'last_login', 'created_at', 'assigned_sales_id'],
@@ -194,6 +213,35 @@ router.post('/brand', authenticate, authorize(['sales', 'admin']), async (req, r
           message: '이미 사용 중인 이메일입니다'
         });
       }
+    }
+
+    // 브랜드 이름 중복 체크 (공백 제거, 대소문자 무시)
+    const normalizedName = name.trim().replace(/\s+/g, '').toLowerCase();
+    const existingBrand = await User.findOne({
+      where: {
+        role: 'brand',
+        is_active: true,
+        [Op.and]: sequelize.where(
+          sequelize.fn('LOWER',
+            sequelize.fn('REPLACE',
+              sequelize.fn('REPLACE',
+                sequelize.fn('TRIM', sequelize.col('name')),
+                ' ', ''
+              ),
+              '\t', ''
+            )
+          ),
+          normalizedName
+        )
+      }
+    });
+
+    if (existingBrand) {
+      await transaction.rollback();
+      return res.status(409).json({
+        success: false,
+        error: '이미 존재하는 브랜드 이름입니다.'
+      });
     }
 
     // Admin이 viewAsUserId로 영업사 대신 생성하는 경우 처리
