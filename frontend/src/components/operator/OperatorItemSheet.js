@@ -56,7 +56,6 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
 }, ref) {
   const hotRef = useRef(null);
   const containerRef = useRef(null);
-  const [containerHeight, setContainerHeight] = useState(400); // 기본값
 
   // 슬롯 데이터
   const [slots, setSlots] = useState([]);
@@ -129,8 +128,15 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
   // 필터 조건 저장 (데이터 리로드 시 복원용)
   const filterConditionsRef = useRef(null);
 
-  // 접힌 품목 ID Set (기본값: 빈 Set = 모두 펼침)
-  const [collapsedItems, setCollapsedItems] = useState(new Set());
+  // 접힌 품목 ID Set (localStorage에서 초기화)
+  const [collapsedItems, setCollapsedItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`operator_itemsheet_collapsed_items_${campaignId}`);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   // 여분 행/열 개수 (기능 비활성화 - 나중에 복원 가능)
   // const SPARE_ROWS = 20;
@@ -147,30 +153,6 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
 
   // 컬럼별 정렬 상태 (left, center, right)
   const [columnAlignments, setColumnAlignments] = useState({});
-
-  // 컨테이너 높이 측정 (ResizeObserver)
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const updateHeight = () => {
-      const height = container.clientHeight;
-      if (height > 0) {
-        setContainerHeight(height);
-      }
-    };
-
-    // 초기 높이 설정
-    updateHeight();
-
-    // ResizeObserver로 크기 변화 감지
-    const resizeObserver = new ResizeObserver(updateHeight);
-    resizeObserver.observe(container);
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, []);
 
   // localStorage에서 컬럼 크기 로드
   const getSavedColumnWidths = useCallback(() => {
@@ -281,20 +263,27 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
         setSlots(newSlots);
         setChangedSlots({});
 
-        // API 응답 직후 localStorage에서 접기 상태 복원
-        const allItemIds = [...new Set(newSlots.map(s => s.item_id))];
+        // API 응답 직후 localStorage에서 접기 상태 복원 (item_id + day_group 키 형식)
+        const allKeys = new Set();
+        newSlots.forEach(s => {
+          const key = `${s.item_id}_${s.day_group}`;
+          allKeys.add(key);
+        });
+
         const collapsedKey = `operator_itemsheet_collapsed_items_${campaignId}`;
         try {
           const saved = localStorage.getItem(collapsedKey);
           if (saved) {
-            const savedIds = JSON.parse(saved);
-            const validIds = savedIds.filter(id => allItemIds.includes(id));
-            setCollapsedItems(new Set(validIds));
+            const savedKeys = JSON.parse(saved);
+            // 현재 슬롯에 존재하는 키만 필터링
+            const validKeys = savedKeys.filter(key => allKeys.has(key));
+            setCollapsedItems(new Set(validKeys));
           } else {
-            setCollapsedItems(new Set(allItemIds));
+            // 초기값: 모두 펼침 (빈 Set)
+            setCollapsedItems(new Set());
           }
         } catch (e) {
-          setCollapsedItems(new Set(allItemIds));
+          setCollapsedItems(new Set());
         }
 
         // API 응답 직후 localStorage에서 컬럼 너비 복원
@@ -833,6 +822,10 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
   // 데이터 변경 핸들러 (구매자 데이터 + 제품 정보 수정 가능)
   const handleAfterChange = useCallback((changes, source) => {
     if (!changes || source === 'loadData' || source === 'loadMemo') return;
+
+    // 변경사항이 없으면 조기 반환
+    const hasActualChanges = changes.some(([, , oldValue, newValue]) => oldValue !== newValue);
+    if (!hasActualChanges) return;
 
     const slotUpdates = { ...changedSlots };
     const itemUpdates = { ...changedItems };
@@ -1579,6 +1572,8 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
         overflow: 'hidden',
         flex: 1,
         minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
         '& .handsontable': {
           fontSize: '12px'
         },
@@ -1680,7 +1675,7 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
             colHeaders={colHeaders}
             rowHeaders={false}
             width="100%"
-            height={containerHeight}
+            height="calc(100vh - 210px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
             autoRowSize={true}
@@ -2005,7 +2000,6 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
             enterMoves={{ row: 1, col: 0 }}
             tabMoves={{ row: 0, col: 1 }}
             afterColumnResize={handleColumnResize}
-            rowHeights={23}
             autoScrollOnSelection={false}
             // afterRender - 메모 기능 비활성화
             // afterRender={() => {
