@@ -43,6 +43,8 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
   // localStorage 키 정의
   const COLUMN_WIDTHS_KEY = `daily_work_sheet_column_widths_${userRole}`;
   const SELECTED_DATE_KEY = `daily_work_sheet_selected_date_${userRole}_${viewAsUserId || 'self'}`;
+  const SEARCH_DATE_KEY = `daily_work_sheet_search_date_${userRole}_${viewAsUserId || 'self'}`;
+  const COLLAPSED_ITEMS_KEY = `daily_work_sheet_collapsed_${userRole}_${viewAsUserId || 'self'}`;
 
   // 날짜 상태 - localStorage에서 복원
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -57,7 +59,20 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
     }
     return null;
   });
-  const [searchDate, setSearchDate] = useState(null);
+
+  // 검색(조회)된 날짜 - localStorage에서 복원
+  const [searchDate, setSearchDate] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SEARCH_DATE_KEY);
+      if (saved) {
+        const date = new Date(saved);
+        return isNaN(date.getTime()) ? null : date;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  });
 
   // 슬롯 데이터
   const [slots, setSlots] = useState([]);
@@ -101,8 +116,19 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
     }));
   };
 
-  // 접힌 품목 ID Set
-  const [collapsedItems, setCollapsedItems] = useState(new Set());
+  // 접힌 품목 ID Set - localStorage에서 복원
+  const [collapsedItems, setCollapsedItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem(COLLAPSED_ITEMS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return new Set(parsed);
+      }
+    } catch {
+      return new Set();
+    }
+    return new Set();
+  });
 
   // selectedDate 변경 시 localStorage에 저장
   useEffect(() => {
@@ -114,6 +140,28 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
       }
     }
   }, [selectedDate, SELECTED_DATE_KEY]);
+
+  // searchDate 변경 시 localStorage에 저장
+  useEffect(() => {
+    try {
+      if (searchDate) {
+        localStorage.setItem(SEARCH_DATE_KEY, searchDate.toISOString());
+      } else {
+        localStorage.removeItem(SEARCH_DATE_KEY);
+      }
+    } catch (e) {
+      console.error('Failed to save search date:', e);
+    }
+  }, [searchDate, SEARCH_DATE_KEY]);
+
+  // collapsedItems 변경 시 localStorage에 저장
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSED_ITEMS_KEY, JSON.stringify([...collapsedItems]));
+    } catch (e) {
+      console.error('Failed to save collapsed items:', e);
+    }
+  }, [collapsedItems, COLLAPSED_ITEMS_KEY]);
 
   // localStorage에서 컬럼 크기 로드
   const getSavedColumnWidths = useCallback(() => {
