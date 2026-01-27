@@ -42,6 +42,119 @@ const DRAWER_WIDTH = 280;
 // 통합 시트 사용 여부 (true: UnifiedItemSheet 사용, false: 기존 OperatorItemSheet 사용)
 const USE_UNIFIED_SHEET = false;
 
+// 전역 CSS 애니메이션 (인라인 @keyframes 제거하여 성능 최적화)
+const globalStyles = `
+  @keyframes pulse-bg {
+    0% { background-color: #e8f5e9; }
+    50% { background-color: #c8e6c9; }
+    100% { background-color: #e8f5e9; }
+  }
+  @keyframes pulse-chip {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+  }
+`;
+
+// 캠페인 아이템 컴포넌트 - React.memo로 불필요한 리렌더링 방지
+const CampaignItem = React.memo(({
+  campaign, stats, isSelected, isHidden, isNewlyAdded, showHidden,
+  selectedForBulkDelete, onCampaignClick, onToggleBulkDelete,
+  onRestoreCampaign, onHideCampaign
+}) => {
+  return (
+    <ListItemButton
+      onClick={() => onCampaignClick(campaign)}
+      sx={{
+        pl: 4, py: 0.3,
+        bgcolor: isNewlyAdded ? '#e8f5e9' : isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : 'inherit',
+        borderLeft: isNewlyAdded ? '3px solid #4caf50' : isSelected ? '3px solid #2c387e' : '3px solid transparent',
+        animation: isNewlyAdded ? 'pulse-bg 2s infinite' : 'none',
+        '&:hover': { bgcolor: isNewlyAdded ? '#c8e6c9' : isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : '#f5f5f5' }
+      }}
+    >
+      <ListItemIcon sx={{ minWidth: 24 }}>
+        <FolderIcon sx={{ fontSize: 16 }} color={isHidden ? 'warning' : isSelected ? 'primary' : 'action'} />
+      </ListItemIcon>
+      <ListItemText
+        primary={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="body2" fontWeight={isSelected ? 'bold' : 'normal'} noWrap sx={{ fontSize: '0.8rem', flex: 1, color: isHidden ? 'text.secondary' : 'inherit' }}>
+              {campaign.name}
+            </Typography>
+            {showHidden ? (
+              <>
+                <IconButton size="small" onClick={(e) => onToggleBulkDelete('campaign', campaign.id, e)} sx={{ p: 0.2 }}>
+                  {selectedForBulkDelete.has(`campaign_${campaign.id}`) ? (
+                    <CheckBoxIcon sx={{ fontSize: 14, color: '#d32f2f' }} />
+                  ) : (
+                    <CheckBoxOutlineBlankIcon sx={{ fontSize: 14, color: '#999' }} />
+                  )}
+                </IconButton>
+                <Tooltip title="복구">
+                  <IconButton size="small" color="success" onClick={(e) => onRestoreCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
+                    <RestoreIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Tooltip>
+              </>
+            ) : (
+              <>
+                {isNewlyAdded && (
+                  <Chip
+                    label="신규 배정"
+                    size="small"
+                    color="success"
+                    sx={{ height: 18, fontSize: '0.65rem', fontWeight: 'bold', animation: 'pulse-chip 1.5s infinite' }}
+                  />
+                )}
+                {stats.isCompleted ? (
+                  <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
+                    <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
+                  </Tooltip>
+                ) : stats.totalPurchaseTarget > 0 ? (
+                  <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
+                    <Chip
+                      label={`${stats.completionRate}%`}
+                      size="small"
+                      sx={{
+                        height: 16, fontSize: '0.6rem',
+                        bgcolor: stats.completionRate >= 80 ? '#c8e6c9' : stats.completionRate >= 50 ? '#fff9c4' : '#ffecb3',
+                        color: stats.completionRate >= 80 ? '#2e7d32' : stats.completionRate >= 50 ? '#f57f17' : '#ff6f00',
+                        fontWeight: 'bold'
+                      }}
+                    />
+                  </Tooltip>
+                ) : (
+                  <Chip label={stats.totalItems} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
+                )}
+                {stats.newCount > 0 && (
+                  <Chip icon={<FiberNewIcon sx={{ fontSize: '0.7rem !important' }} />} label={stats.newCount} size="small" color="warning" sx={{ height: 16, fontSize: '0.6rem' }} />
+                )}
+                {stats.courierCount > 0 && (
+                  <Tooltip title={`택배대행 ${stats.courierCount}건`}>
+                    <Chip
+                      icon={<LocalShippingIcon sx={{ fontSize: '0.7rem !important' }} />}
+                      label={stats.courierCount}
+                      size="small"
+                      sx={{ height: 16, fontSize: '0.6rem', bgcolor: '#e3f2fd', color: '#1565c0', '& .MuiChip-icon': { color: '#1565c0' } }}
+                    />
+                  </Tooltip>
+                )}
+                {stats.warningCount > 0 && <WarningIcon color="error" sx={{ fontSize: 14 }} />}
+                <Tooltip title="숨기기">
+                  <IconButton size="small" color="default" onClick={(e) => onHideCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
+                    <VisibilityOffIcon sx={{ fontSize: 14, color: '#ccc' }} />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
+          </Box>
+        }
+      />
+    </ListItemButton>
+  );
+});
+
 function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = false }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -537,6 +650,17 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   const basePath = isAdminMode && viewAsUserId ? `${basePathOnly}?userId=${viewAsUserId}` : basePathOnly;
   const isDefaultRoute = isEmbedded ? true : (location.pathname === basePathOnly || location.pathname === `${basePathOnly}/`);
 
+  // 전역 CSS 스타일 주입 (컴포넌트 마운트 시 한 번만)
+  useEffect(() => {
+    const styleId = 'operator-layout-animations';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = globalStyles;
+      document.head.appendChild(style);
+    }
+  }, []);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: isEmbedded ? '100%' : '100vh', minHeight: isEmbedded ? 0 : '100vh', bgcolor: '#f5f5f5', overflow: 'hidden' }}>
 
@@ -820,129 +944,25 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                           {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
                         </ListItemButton>
 
-                        <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={150}>
+                        <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
                           <List component="div" disablePadding dense>
                             {monthlyBrand.campaigns.length > 0 ? (
-                              monthlyBrand.campaigns.map((campaign) => {
-                                const stats = getCampaignStats(campaign);
-                                const isSelected = selectedCampaign?.id === campaign.id;
-                                const isHidden = hiddenCampaignIds.includes(campaign.id);
-                                const isNewlyAdded = newlyAddedCampaignIds.has(campaign.id);
-
-                                return (
-                                  <ListItemButton
-                                    key={campaign.id}
-                                    onClick={() => handleCampaignClick(campaign)}
-                                    sx={{
-                                      pl: 4, py: 0.3,
-                                      bgcolor: isNewlyAdded ? '#e8f5e9' : isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : 'inherit',
-                                      borderLeft: isNewlyAdded ? '3px solid #4caf50' : isSelected ? '3px solid #2c387e' : '3px solid transparent',
-                                      animation: isNewlyAdded ? 'pulse 2s infinite' : 'none',
-                                      '@keyframes pulse': {
-                                        '0%': { bgcolor: '#e8f5e9' },
-                                        '50%': { bgcolor: '#c8e6c9' },
-                                        '100%': { bgcolor: '#e8f5e9' }
-                                      },
-                                      '&:hover': { bgcolor: isNewlyAdded ? '#c8e6c9' : isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : '#f5f5f5' }
-                                    }}
-                                  >
-                                    <ListItemIcon sx={{ minWidth: 24 }}>
-                                      <FolderIcon sx={{ fontSize: 16 }} color={isHidden ? 'warning' : isSelected ? 'primary' : 'action'} />
-                                    </ListItemIcon>
-                                    <ListItemText
-                                      primary={
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                          <Typography variant="body2" fontWeight={isSelected ? 'bold' : 'normal'} noWrap sx={{ fontSize: '0.8rem', flex: 1, color: isHidden ? 'text.secondary' : 'inherit' }}>
-                                            {campaign.name}
-                                          </Typography>
-                                          {showHidden ? (
-                                            <>
-                                              <IconButton size="small" onClick={(e) => toggleBulkDeleteSelection('campaign', campaign.id, e)} sx={{ p: 0.2 }}>
-                                                {selectedForBulkDelete.has(`campaign_${campaign.id}`) ? (
-                                                  <CheckBoxIcon sx={{ fontSize: 14, color: '#d32f2f' }} />
-                                                ) : (
-                                                  <CheckBoxOutlineBlankIcon sx={{ fontSize: 14, color: '#999' }} />
-                                                )}
-                                              </IconButton>
-                                              <Tooltip title="복구">
-                                                <IconButton size="small" color="success" onClick={(e) => handleRestoreCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
-                                                  <RestoreIcon sx={{ fontSize: 14 }} />
-                                                </IconButton>
-                                              </Tooltip>
-                                            </>
-                                          ) : (
-                                            <>
-                                              {isNewlyAdded && (
-                                                <Chip
-                                                  label="신규 배정"
-                                                  size="small"
-                                                  color="success"
-                                                  sx={{
-                                                    height: 18,
-                                                    fontSize: '0.65rem',
-                                                    fontWeight: 'bold',
-                                                    animation: 'pulse-chip 1.5s infinite',
-                                                    '@keyframes pulse-chip': {
-                                                      '0%': { transform: 'scale(1)' },
-                                                      '50%': { transform: 'scale(1.05)' },
-                                                      '100%': { transform: 'scale(1)' }
-                                                    }
-                                                  }}
-                                                />
-                                              )}
-                                              {stats.isCompleted ? (
-                                                <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
-                                                  <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
-                                                </Tooltip>
-                                              ) : stats.totalPurchaseTarget > 0 ? (
-                                                <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
-                                                  <Chip
-                                                    label={`${stats.completionRate}%`}
-                                                    size="small"
-                                                    sx={{
-                                                      height: 16, fontSize: '0.6rem',
-                                                      bgcolor: stats.completionRate >= 80 ? '#c8e6c9' : stats.completionRate >= 50 ? '#fff9c4' : '#ffecb3',
-                                                      color: stats.completionRate >= 80 ? '#2e7d32' : stats.completionRate >= 50 ? '#f57f17' : '#ff6f00',
-                                                      fontWeight: 'bold'
-                                                    }}
-                                                  />
-                                                </Tooltip>
-                                              ) : (
-                                                <Chip label={stats.totalItems} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
-                                              )}
-                                              {stats.newCount > 0 && (
-                                                <Chip icon={<FiberNewIcon sx={{ fontSize: '0.7rem !important' }} />} label={stats.newCount} size="small" color="warning" sx={{ height: 16, fontSize: '0.6rem' }} />
-                                              )}
-                                              {stats.courierCount > 0 && (
-                                                <Tooltip title={`택배대행 ${stats.courierCount}건`}>
-                                                  <Chip
-                                                    icon={<LocalShippingIcon sx={{ fontSize: '0.7rem !important' }} />}
-                                                    label={stats.courierCount}
-                                                    size="small"
-                                                    sx={{
-                                                      height: 16,
-                                                      fontSize: '0.6rem',
-                                                      bgcolor: '#e3f2fd',
-                                                      color: '#1565c0',
-                                                      '& .MuiChip-icon': { color: '#1565c0' }
-                                                    }}
-                                                  />
-                                                </Tooltip>
-                                              )}
-                                              {stats.warningCount > 0 && <WarningIcon color="error" sx={{ fontSize: 14 }} />}
-                                              <Tooltip title="숨기기">
-                                                <IconButton size="small" color="default" onClick={(e) => handleHideCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
-                                                  <VisibilityOffIcon sx={{ fontSize: 14, color: '#ccc' }} />
-                                                </IconButton>
-                                              </Tooltip>
-                                            </>
-                                          )}
-                                        </Box>
-                                      }
-                                    />
-                                  </ListItemButton>
-                                );
-                              })
+                              monthlyBrand.campaigns.map((campaign) => (
+                                <CampaignItem
+                                  key={campaign.id}
+                                  campaign={campaign}
+                                  stats={getCampaignStats(campaign)}
+                                  isSelected={selectedCampaign?.id === campaign.id}
+                                  isHidden={hiddenCampaignIds.includes(campaign.id)}
+                                  isNewlyAdded={newlyAddedCampaignIds.has(campaign.id)}
+                                  showHidden={showHidden}
+                                  selectedForBulkDelete={selectedForBulkDelete}
+                                  onCampaignClick={handleCampaignClick}
+                                  onToggleBulkDelete={toggleBulkDeleteSelection}
+                                  onRestoreCampaign={handleRestoreCampaign}
+                                  onHideCampaign={handleHideCampaign}
+                                />
+                              ))
                             ) : (
                               <Box sx={{ pl: 4, py: 1 }}>
                                 <Typography variant="caption" color="text.secondary">

@@ -249,7 +249,7 @@ const BUYER_HEADERS = ['', '날짜', '순번', '제품명', '옵션', '예상구
  * 컬럼 순서:
  * URL, 날짜, 순번, 품명, 옵션, 리뷰(키워드), 예상구매자, 주문번호, 구매자, 수취인, 아이디, 연락처, 주소, 금액, 리뷰비용, 리뷰작성(상태), 특이사항
  */
-const OperatorItemSheet = forwardRef(function OperatorItemSheet({
+const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   campaignId,
   campaignName = '',
   items,
@@ -876,7 +876,11 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
     return hidden;
   }, [baseTableData, collapsedItems]);
 
-  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시)
+  // hiddenRowIndices를 ref로 저장하여 useEffect에서 최신 값 참조
+  const hiddenRowIndicesRef = useRef(hiddenRowIndices);
+  hiddenRowIndicesRef.current = hiddenRowIndices;
+
+  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시에만)
   useEffect(() => {
     const hot = hotRef.current?.hotInstance;
     if (!hot) return;
@@ -887,11 +891,12 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
     // 먼저 모든 행 표시
     hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
     // 그 다음 숨길 행만 숨기기
-    if (hiddenRowIndices.length > 0) {
-      hiddenRowsPlugin.hideRows(hiddenRowIndices);
+    const indices = hiddenRowIndicesRef.current;
+    if (indices.length > 0) {
+      hiddenRowsPlugin.hideRows(indices);
     }
     hot.render();
-  }, [hiddenRowIndices]);
+  }, [collapsedItems]); // hiddenRowIndices 대신 collapsedItems만 의존
 
   // 성능 최적화: tableData를 ref로 참조하여 handleAfterChange 재생성 방지
   const tableDataRef = useRef(tableData);
@@ -2437,6 +2442,18 @@ const OperatorItemSheet = forwardRef(function OperatorItemSheet({
         </DialogActions>
       </Dialog>
     </Box>
+  );
+});
+
+// React.memo로 감싸서 부모 리렌더링 시 불필요한 리렌더링 방지
+// campaignId, viewAsUserId가 변경되지 않으면 시트가 리렌더링되지 않음
+const OperatorItemSheet = React.memo(OperatorItemSheetInner, (prevProps, nextProps) => {
+  // true 반환 = 리렌더링 하지 않음, false 반환 = 리렌더링 함
+  // campaignId, campaignName, viewAsUserId가 같으면 리렌더링 방지
+  return (
+    prevProps.campaignId === nextProps.campaignId &&
+    prevProps.campaignName === nextProps.campaignName &&
+    prevProps.viewAsUserId === nextProps.viewAsUserId
   );
 });
 

@@ -145,7 +145,7 @@ const createUnifiedBuyerDataRenderer = (tableData, statusLabels) => {
  *
  * 영업사/진행자 모두 모든 필드 수정 가능
  */
-function UnifiedItemSheet({
+function UnifiedItemSheetInner({
   campaignId,
   items,
   onRefresh,
@@ -1348,5 +1348,17 @@ function UnifiedItemSheet({
     </Box>
   );
 }
+
+// React.memo로 감싸서 부모 리렌더링 시 불필요한 리렌더링 방지
+// campaignId, userRole, viewAsUserId가 변경되지 않으면 시트가 리렌더링되지 않음
+const UnifiedItemSheet = React.memo(UnifiedItemSheetInner, (prevProps, nextProps) => {
+  // true 반환 = 리렌더링 하지 않음, false 반환 = 리렌더링 함
+  return (
+    prevProps.campaignId === nextProps.campaignId &&
+    prevProps.userRole === nextProps.userRole &&
+    prevProps.viewAsUserId === nextProps.viewAsUserId &&
+    prevProps.viewAsRole === nextProps.viewAsRole
+  );
+});
 
 export default UnifiedItemSheet;

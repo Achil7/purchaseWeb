@@ -773,7 +773,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                           {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
                         </ListItemButton>
 
-                        <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={150}>
+                        <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
                           <List component="div" disablePadding dense>
                             {filteredCampaigns.length > 0 ? (
                               filteredCampaigns.map((campaign) => {

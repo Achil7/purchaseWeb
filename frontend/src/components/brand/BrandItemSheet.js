@@ -177,7 +177,7 @@ const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 60, 120, 80, 60, 60, 60, 15
  * 제품 테이블 (14개 컬럼): 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
  * 구매자 테이블 (14개 컬럼): 빈칸, 주문번호, 구매자, 수취인, 아이디, 금액, 송장번호, 리뷰샷, ...(나머지 빈칸)
  */
-function BrandItemSheet({
+function BrandItemSheetInner({
   campaignId,
   campaignName = '',
   viewAsUserId = null
@@ -685,7 +685,11 @@ function BrandItemSheet({
     return hidden;
   }, [baseTableData, collapsedItems]);
 
-  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시)
+  // hiddenRowIndices를 ref로 저장하여 useEffect에서 최신 값 참조
+  const hiddenRowIndicesRef = useRef(hiddenRowIndices);
+  hiddenRowIndicesRef.current = hiddenRowIndices;
+
+  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시에만)
   useEffect(() => {
     const hot = hotRef.current?.hotInstance;
     if (!hot) return;
@@ -696,11 +700,12 @@ function BrandItemSheet({
     // 먼저 모든 행 표시
     hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
     // 그 다음 숨길 행만 숨기기
-    if (hiddenRowIndices.length > 0) {
-      hiddenRowsPlugin.hideRows(hiddenRowIndices);
+    const indices = hiddenRowIndicesRef.current;
+    if (indices.length > 0) {
+      hiddenRowsPlugin.hideRows(indices);
     }
     hot.render();
-  }, [hiddenRowIndices]);
+  }, [collapsedItems]); // hiddenRowIndices 대신 collapsedItems만 의존
 
   // 개별 품목(day_group별) 접기/펼치기 토글
   // 성능 최적화: localStorage 저장을 디바운스하여 I/O 지연
@@ -1322,5 +1327,16 @@ function BrandItemSheet({
     </Box>
   );
 }
+
+// React.memo로 감싸서 부모 리렌더링 시 불필요한 리렌더링 방지
+// campaignId, viewAsUserId가 변경되지 않으면 시트가 리렌더링되지 않음
+const BrandItemSheet = React.memo(BrandItemSheetInner, (prevProps, nextProps) => {
+  // true 반환 = 리렌더링 하지 않음, false 반환 = 리렌더링 함
+  return (
+    prevProps.campaignId === nextProps.campaignId &&
+    prevProps.campaignName === nextProps.campaignName &&
+    prevProps.viewAsUserId === nextProps.viewAsUserId
+  );
+});
 
 export default BrandItemSheet;

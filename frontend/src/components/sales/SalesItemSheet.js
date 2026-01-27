@@ -221,7 +221,7 @@ const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 60, 60, 100, 100, 100, 100,
  * - DB의 ItemSlot 테이블에서 데이터 조회
  * - 엑셀처럼 드래그 복사, 다중 선택, 붙여넣기 지원
  */
-const SalesItemSheet = forwardRef(function SalesItemSheet({
+const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   campaignId,
   campaignName = '',
   items,
@@ -882,7 +882,11 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
     return hidden;
   }, [baseTableData, collapsedItems]);
 
-  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시)
+  // hiddenRowIndices를 ref로 저장하여 useEffect에서 최신 값 참조
+  const hiddenRowIndicesRef = useRef(hiddenRowIndices);
+  hiddenRowIndicesRef.current = hiddenRowIndices;
+
+  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시에만)
   useEffect(() => {
     const hot = hotRef.current?.hotInstance;
     if (!hot) return;
@@ -893,11 +897,12 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
     // 먼저 모든 행 표시
     hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
     // 그 다음 숨길 행만 숨기기
-    if (hiddenRowIndices.length > 0) {
-      hiddenRowsPlugin.hideRows(hiddenRowIndices);
+    const indices = hiddenRowIndicesRef.current;
+    if (indices.length > 0) {
+      hiddenRowsPlugin.hideRows(indices);
     }
     hot.render();
-  }, [hiddenRowIndices]);
+  }, [collapsedItems]); // hiddenRowIndices 대신 collapsedItems만 의존
 
   // 성능 최적화: tableData를 ref로 참조하여 handleAfterChange 재생성 방지
   const tableDataRef = useRef(tableData);
@@ -2184,6 +2189,17 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
         </DialogActions>
       </Dialog>
     </Box>
+  );
+});
+
+// React.memo로 감싸서 부모 리렌더링 시 불필요한 리렌더링 방지
+// campaignId, viewAsUserId가 변경되지 않으면 시트가 리렌더링되지 않음
+const SalesItemSheet = React.memo(SalesItemSheetInner, (prevProps, nextProps) => {
+  // true 반환 = 리렌더링 하지 않음, false 반환 = 리렌더링 함
+  return (
+    prevProps.campaignId === nextProps.campaignId &&
+    prevProps.campaignName === nextProps.campaignName &&
+    prevProps.viewAsUserId === nextProps.viewAsUserId
   );
 });
 

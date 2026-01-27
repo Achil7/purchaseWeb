@@ -216,7 +216,7 @@ const DEFAULT_COLUMN_WIDTHS = [30, 180, 70, 60, 120, 80, 50, 80, 60, 50, 50, 50,
  * - Operator/Sales 공용
  * - 특정 날짜의 모든 연월브랜드-캠페인 데이터를 한 시트에 표시
  */
-function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
+function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   const hotRef = useRef(null);
 
   // localStorage 키 정의
@@ -1311,5 +1311,15 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
     </Box>
   );
 }
+
+// React.memo로 감싸서 부모 리렌더링 시 불필요한 리렌더링 방지
+// userRole, viewAsUserId가 변경되지 않으면 시트가 리렌더링되지 않음
+const DailyWorkSheet = React.memo(DailyWorkSheetInner, (prevProps, nextProps) => {
+  // true 반환 = 리렌더링 하지 않음, false 반환 = 리렌더링 함
+  return (
+    prevProps.userRole === nextProps.userRole &&
+    prevProps.viewAsUserId === nextProps.viewAsUserId
+  );
+});
 
 export default DailyWorkSheet;
