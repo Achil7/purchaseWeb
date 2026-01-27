@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
-  Chip, CircularProgress, Alert, TextField, IconButton, Switch, Dialog, DialogContent, Button, Tooltip
+  Chip, CircularProgress, Alert, TextField, IconButton, Switch, Button, Tooltip
 } from '@mui/material';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -9,12 +9,12 @@ import { ko } from 'date-fns/locale';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
-import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import DownloadIcon from '@mui/icons-material/Download';
 import { buyerService } from '../../services';
 import { downloadExcel, convertDailyPaymentsToExcelData } from '../../utils/excelExport';
+import ImageSwipeViewer from '../common/ImageSwipeViewer';
 
 // UTC+9 (Asia/Seoul) 오늘 날짜 가져오기
 const getKoreanToday = () => {
@@ -44,9 +44,13 @@ function AdminDailyPayments() {
   // 일괄 처리 중 상태
   const [bulkProcessing, setBulkProcessing] = useState(false);
 
-  // 이미지 확대 다이얼로그
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  // 이미지 스와이프 뷰어 상태
+  const [imagePopup, setImagePopup] = useState({
+    open: false,
+    images: [],
+    currentIndex: 0,
+    buyer: null
+  });
 
   useEffect(() => {
     loadBuyers();
@@ -132,10 +136,21 @@ function AdminDailyPayments() {
     }
   };
 
-  // 이미지 클릭
-  const handleImageClick = (imageUrl) => {
-    setSelectedImage(imageUrl);
-    setImageDialogOpen(true);
+  // 이미지 클릭 - 여러 이미지 지원
+  const handleImageClick = (buyer) => {
+    const images = buyer.images || [];
+    if (images.length === 0 && buyer.image_url) {
+      // 하위 호환성: images 배열이 없으면 image_url 사용
+      images.push({ s3_url: buyer.image_url, id: 'single' });
+    }
+    if (images.length > 0) {
+      setImagePopup({
+        open: true,
+        images: images,
+        currentIndex: 0,
+        buyer: { buyer_name: buyer.buyer_name, order_number: buyer.order_number }
+      });
+    }
   };
 
   // 일괄 입금완료 처리
@@ -432,7 +447,7 @@ function AdminDailyPayments() {
                         <TableCell align="center">
                           {buyer.image_url ? (
                             <Box
-                              onClick={() => handleImageClick(buyer.image_url)}
+                              onClick={() => handleImageClick(buyer)}
                               sx={{ cursor: 'pointer', display: 'inline-block' }}
                             >
                               <Box
@@ -461,40 +476,14 @@ function AdminDailyPayments() {
           </Paper>
         )}
 
-        {/* 이미지 확대 다이얼로그 */}
-        <Dialog
-          open={imageDialogOpen}
-          onClose={(event, reason) => { if (reason !== 'backdropClick') setImageDialogOpen(false); }}
-          maxWidth="lg"
-        >
-          <DialogContent sx={{ p: 0, position: 'relative' }}>
-            <IconButton
-              onClick={() => setImageDialogOpen(false)}
-              sx={{
-                position: 'absolute',
-                top: 8,
-                right: 8,
-                bgcolor: 'rgba(0,0,0,0.5)',
-                color: 'white',
-                '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' }
-              }}
-            >
-              <CloseIcon />
-            </IconButton>
-            {selectedImage && (
-              <Box
-                component="img"
-                src={selectedImage}
-                alt="리뷰이미지"
-                sx={{
-                  maxWidth: '95vw',
-                  maxHeight: '90vh',
-                  objectFit: 'contain'
-                }}
-              />
-            )}
-          </DialogContent>
-        </Dialog>
+        {/* 이미지 스와이프 뷰어 */}
+        <ImageSwipeViewer
+          open={imagePopup.open}
+          onClose={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
+          images={imagePopup.images}
+          initialIndex={imagePopup.currentIndex}
+          buyerInfo={imagePopup.buyer}
+        />
       </Box>
     </LocalizationProvider>
   );

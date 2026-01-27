@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar, Paper,
@@ -272,34 +272,46 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     return labelMap[status] || status;
   };
 
-  // 캠페인별 진행률 계산 (Sales가 입력한 총건수 대비 리뷰 완료 건수)
-  const getCampaignStats = (campaign) => {
-    const items = campaign.items || [];
-    let totalReviewCompleted = 0;  // 리뷰 이미지가 있는 구매자 수
-    let totalPurchaseCount = 0;    // Sales가 품목 추가 시 입력한 총건수
+  // 캠페인별 통계 캐싱 (성능 최적화)
+  const campaignStatsMap = useMemo(() => {
+    const statsMap = new Map();
+    monthlyBrands.forEach(mb => {
+      (mb.campaigns || []).forEach(campaign => {
+        const items = campaign.items || [];
+        let totalReviewCompleted = 0;
+        let totalPurchaseCount = 0;
 
-    for (const item of items) {
-      // 전체 건수: Sales가 품목 추가 시 입력한 total_purchase_count
-      totalPurchaseCount += parseInt(item.total_purchase_count) || 0;
+        for (const item of items) {
+          totalPurchaseCount += parseInt(item.total_purchase_count) || 0;
+          const buyers = item.buyers || [];
+          const realBuyers = buyers.filter(b => !b.is_temporary);
+          const reviewedBuyers = realBuyers.filter(b => b.images && b.images.length > 0);
+          totalReviewCompleted += reviewedBuyers.length;
+        }
 
-      // 리뷰 완료: 구매자가 등록되어 있고 + 리뷰샷이 업로드된 건수
-      const buyers = item.buyers || [];
-      const realBuyers = buyers.filter(b => !b.is_temporary);
-      const reviewedBuyers = realBuyers.filter(b => b.images && b.images.length > 0);
-      totalReviewCompleted += reviewedBuyers.length;
-    }
+        const isCompleted = totalPurchaseCount > 0 && totalReviewCompleted >= totalPurchaseCount;
+        const completionRate = totalPurchaseCount > 0 ? Math.round((totalReviewCompleted / totalPurchaseCount) * 100) : 0;
 
-    // 완료 여부: 100% 달성
-    const isCompleted = totalPurchaseCount > 0 && totalReviewCompleted >= totalPurchaseCount;
-    const completionRate = totalPurchaseCount > 0 ? Math.round((totalReviewCompleted / totalPurchaseCount) * 100) : 0;
+        statsMap.set(campaign.id, {
+          totalReviewCompleted,
+          totalBuyerCount: totalPurchaseCount,
+          isCompleted,
+          completionRate
+        });
+      });
+    });
+    return statsMap;
+  }, [monthlyBrands]);
 
-    return {
-      totalReviewCompleted,
-      totalBuyerCount: totalPurchaseCount,
-      isCompleted,
-      completionRate
+  // 캐싱된 통계 조회
+  const getCampaignStats = useCallback((campaign) => {
+    return campaignStatsMap.get(campaign.id) || {
+      totalReviewCompleted: 0,
+      totalBuyerCount: 0,
+      isCompleted: false,
+      completionRate: 0
     };
-  };
+  }, [campaignStatsMap]);
 
   // Outlet을 사용할지 시트를 표시할지 결정
   const isDefaultRoute = isEmbedded ? true : (location.pathname === basePathOnly || location.pathname === `${basePathOnly}/`);
@@ -520,7 +532,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                           {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
                         </ListItemButton>
 
-                        <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout="auto" unmountOnExit>
+                        <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={150}>
                           <List component="div" disablePadding dense>
                             {campaigns.length > 0 ? (
                               campaigns.map((campaign) => {

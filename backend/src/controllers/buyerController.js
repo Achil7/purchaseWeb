@@ -919,6 +919,7 @@ exports.getBuyersByDate = async (req, res) => {
       created_at: buyer.created_at,
       image_uploaded_at: buyer.images && buyer.images.length > 0 ? buyer.images[0].created_at : null,
       image_url: buyer.images && buyer.images.length > 0 ? buyer.images[0].s3_url : null,
+      images: buyer.images || [],  // 전체 이미지 배열 추가
       item: buyer.item ? {
         id: buyer.item.id,
         product_name: buyer.item.product_name,

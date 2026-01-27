@@ -2,10 +2,9 @@ import React, { useState, useCallback, useEffect, useMemo, useRef, forwardRef, u
 import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Snackbar, Alert, IconButton, Tooltip, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DownloadIcon from '@mui/icons-material/Download';
 import InfoIcon from '@mui/icons-material/Info';
+import ImageSwipeViewer from '../common/ImageSwipeViewer';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
@@ -59,7 +58,8 @@ const buyerHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-const createSalesProductDataRenderer = (tableData, collapsedItems, toggleItemCollapse, columnAlignments) => {
+// collapsedItemsRef를 사용하여 최신 접기 상태 참조 (렌더러 재생성 방지)
+const createSalesProductDataRenderer = (tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
     td.className = 'product-data-row';
@@ -68,7 +68,8 @@ const createSalesProductDataRenderer = (tableData, collapsedItems, toggleItemCol
 
     if (prop === 'col0') {
       const itemId = rowData._itemId;
-      const isCollapsed = collapsedItems.has(itemId);
+      // ref를 통해 최신 상태 참조
+      const isCollapsed = collapsedItemsRef.current.has(itemId);
       const status = rowData._completionStatus;
 
       let completionBadge = '';
@@ -285,6 +286,13 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
 
   // 접힌 품목 ID Set (기본값: 빈 Set = 모두 펼침)
   const [collapsedItems, setCollapsedItems] = useState(new Set());
+
+  // collapsedItems를 ref로도 유지 (렌더러에서 최신 상태 참조용)
+  const collapsedItemsRef = useRef(collapsedItems);
+  collapsedItemsRef.current = collapsedItems;
+
+  // localStorage 저장 디바운스용 타이머 ref
+  const saveCollapsedTimeoutRef = useRef(null);
 
   // 여분 행/열 개수 (기능 비활성화 - 나중에 복원 가능)
   // const SPARE_ROWS = 20;
@@ -842,17 +850,18 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
     return { baseTableData: data };
   }, [slots, items]); // collapsedItems 제거 - 캠페인 변경 시 재계산 방지
 
-  // 2단계: 접기 상태 적용 (가벼운 필터링만 수행)
-  const { tableData } = useMemo(() => {
-    // 접힌 품목이 없으면 그대로 반환 (최적화)
-    if (collapsedItems.size === 0) {
-      return { tableData: baseTableData };
-    }
+  // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
+  // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
+  const tableData = baseTableData;
 
-    const data = [];
+  // hiddenRows 플러그인용 숨길 행 인덱스 계산
+  const hiddenRowIndices = useMemo(() => {
+    if (collapsedItems.size === 0) return [];
+
+    const hidden = [];
     let currentCollapsedItemId = null;
 
-    baseTableData.forEach((row) => {
+    baseTableData.forEach((row, index) => {
       const itemId = row._itemId;
 
       // 제품 데이터 행에서 접힘 상태 확인
@@ -860,20 +869,35 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
         currentCollapsedItemId = collapsedItems.has(itemId) ? itemId : null;
       }
 
-      // 접힌 품목의 업로드 링크, 구매자 헤더, 구매자 데이터 행은 제외
+      // 접힌 품목의 업로드 링크, 구매자 헤더, 구매자 데이터 행은 숨김
       if (currentCollapsedItemId !== null &&
           row._itemId === currentCollapsedItemId &&
           (row._rowType === ROW_TYPES.UPLOAD_LINK_BAR ||
            row._rowType === ROW_TYPES.BUYER_HEADER ||
            row._rowType === ROW_TYPES.BUYER_DATA)) {
-        return; // skip
+        hidden.push(index);
       }
-
-      data.push(row);
     });
 
-    return { tableData: data };
+    return hidden;
   }, [baseTableData, collapsedItems]);
+
+  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시)
+  useEffect(() => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) return;
+
+    // 먼저 모든 행 표시
+    hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
+    // 그 다음 숨길 행만 숨기기
+    if (hiddenRowIndices.length > 0) {
+      hiddenRowsPlugin.hideRows(hiddenRowIndices);
+    }
+    hot.render();
+  }, [hiddenRowIndices]);
 
   // 성능 최적화: tableData를 ref로 참조하여 handleAfterChange 재생성 방지
   const tableDataRef = useRef(tableData);
@@ -961,6 +985,7 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
   }, [changedSlots, changedItems, loadSlots]);
 
   // 개별 품목 접기/펼치기 토글
+  // 성능 최적화: localStorage 저장을 디바운스하여 I/O 지연
   const toggleItemCollapse = useCallback((itemId) => {
     setCollapsedItems(prev => {
       const next = new Set(prev);
@@ -969,8 +994,15 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
       } else {
         next.add(itemId);
       }
-      // localStorage에 저장
-      saveCollapsedItems(next);
+
+      // localStorage 저장 디바운스 (300ms)
+      if (saveCollapsedTimeoutRef.current) {
+        clearTimeout(saveCollapsedTimeoutRef.current);
+      }
+      saveCollapsedTimeoutRef.current = setTimeout(() => {
+        saveCollapsedItems(next);
+      }, 300);
+
       return next;
     });
   }, [saveCollapsedItems]);
@@ -979,6 +1011,8 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
   const expandAll = useCallback(() => {
     const emptySet = new Set();
     setCollapsedItems(emptySet);
+    // 즉시 저장 (사용자 명시적 액션)
+    if (saveCollapsedTimeoutRef.current) clearTimeout(saveCollapsedTimeoutRef.current);
     saveCollapsedItems(emptySet);
   }, [saveCollapsedItems]);
 
@@ -989,6 +1023,8 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
       .filter((id, idx, arr) => arr.indexOf(id) === idx);
     const allCollapsed = new Set(allItemIds);
     setCollapsedItems(allCollapsed);
+    // 즉시 저장 (사용자 명시적 액션)
+    if (saveCollapsedTimeoutRef.current) clearTimeout(saveCollapsedTimeoutRef.current);
     saveCollapsedItems(allCollapsed);
   }, [slots, saveCollapsedItems]);
 
@@ -1099,22 +1135,31 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
       if (type === 'item') {
         // 품목 삭제
         await itemService.deleteItem(data.itemId);
+        // 로컬 상태 즉시 업데이트 - 해당 품목의 모든 슬롯 제거
+        setSlots(prev => prev.filter(slot => slot.item_id !== data.itemId));
       } else if (type === 'group') {
         // 그룹(일차) 삭제
         await itemSlotService.deleteSlotsByGroup(data.itemId, data.dayGroup);
+        // 로컬 상태 즉시 업데이트 - 해당 품목/일차의 모든 슬롯 제거
+        setSlots(prev => prev.filter(slot =>
+          !(slot.item_id === data.itemId && slot.day_group === data.dayGroup)
+        ));
       } else if (type === 'rows') {
         // 선택된 행들 삭제
         await itemSlotService.deleteSlotsBulk(data.slotIds);
+        // 로컬 상태 즉시 업데이트 - 삭제된 슬롯 ID에 해당하는 행 제거
+        setSlots(prev => prev.filter(slot => !data.slotIds.includes(slot.id)));
       }
 
       closeDeleteDialog();
+      setSnackbar({ open: true, message: '삭제되었습니다' });
 
       // 필터 상태 초기화 (삭제 후 필터가 유효하지 않을 수 있음)
       setFilteredRows(null);
       setFilteredColumns(new Set());
       filterConditionsRef.current = null;
 
-      // 데이터 새로고침
+      // 데이터 새로고침 (부모 컴포넌트 알림)
       if (onRefresh) onRefresh();
     } catch (error) {
       console.error('Delete failed:', error);
@@ -1139,21 +1184,6 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
     currentIndex: 0, // 현재 보고 있는 이미지 인덱스
     buyer: null      // 구매자 정보
   });
-
-  // 이미지 갤러리 네비게이션
-  const prevImage = () => {
-    setImagePopup(prev => ({
-      ...prev,
-      currentIndex: Math.max(0, prev.currentIndex - 1)
-    }));
-  };
-
-  const nextImage = () => {
-    setImagePopup(prev => ({
-      ...prev,
-      currentIndex: Math.min(prev.images.length - 1, prev.currentIndex + 1)
-    }));
-  };
 
   // 기본 컬럼 너비 - 19개 컬럼 (영업사는 리뷰비 컬럼 제외)
   // col0: 접기(20), col1: 날짜(60), col2: 플랫폼(70), col3: 제품명(120), col4: 옵션(80), col5: 예상구매자(80),
@@ -1188,9 +1218,10 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
 
 
   // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
+  // collapsedItemsRef를 사용하여 접기 상태 변경 시 렌더러 재생성 방지
   const productDataRenderer = useMemo(() =>
-    createSalesProductDataRenderer(tableData, collapsedItems, toggleItemCollapse, columnAlignments),
-    [tableData, collapsedItems, toggleItemCollapse, columnAlignments]
+    createSalesProductDataRenderer(tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments),
+    [tableData, toggleItemCollapse, columnAlignments]
   );
 
   const uploadLinkBarRenderer = useMemo(() =>
@@ -1273,14 +1304,24 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
     return slots.length;
   }, [slots]);
 
+  // 금액 파싱 헬퍼 함수 (숫자 또는 문자열 -> 정수)
+  const parseAmount = useCallback((value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    // 숫자 타입이면 그대로 반환
+    if (typeof value === 'number') return Math.round(value);
+    // 문자열에서 숫자만 추출 (쉼표, 공백 등 제거)
+    const numStr = String(value).replace(/[^0-9.-]/g, '');
+    const parsed = parseFloat(numStr);
+    return isNaN(parsed) ? 0 : Math.round(parsed);
+  }, []);
+
   // 금액 합산 계산 (원본 slots 기준 - 필터/접기와 무관하게 항상 전체 금액)
   const totalAmount = useMemo(() => {
     return slots.reduce((sum, slot) => {
       const buyer = slot.buyer || {};
-      const amount = parseInt(String(buyer.amount || 0).replace(/[^0-9]/g, '')) || 0;
-      return sum + amount;
+      return sum + parseAmount(buyer.amount);
     }, 0);
-  }, [slots]);
+  }, [slots, parseAmount]);
 
   // 필터링된 건수 계산 (구매자 데이터 행만)
   const filteredCount = useMemo(() => {
@@ -1297,10 +1338,9 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
     return filteredRows.reduce((sum, rowIndex) => {
       const row = tableData[rowIndex];
       if (!row || row._rowType !== ROW_TYPES.BUYER_DATA) return sum;
-      const amount = parseInt(String(row.col13 || 0).replace(/[^0-9]/g, '')) || 0;
-      return sum + amount;
+      return sum + parseAmount(row.col13);
     }, 0);
-  }, [filteredRows, tableData, totalAmount]);
+  }, [filteredRows, tableData, totalAmount, parseAmount]);
 
   if (loading) {
     return (
@@ -1513,6 +1553,10 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
             disableVisualSelection={false}
             imeFastEdit={true}
             minSpareRows={0}
+            hiddenRows={{
+              rows: hiddenRowIndices,
+              indicators: false
+            }}
             contextMenu={{
               items: {
                 copy: { name: '복사' },
@@ -1994,58 +2038,14 @@ const SalesItemSheet = forwardRef(function SalesItemSheet({
         </Alert>
       </Snackbar>
 
-      {/* 이미지 갤러리 팝업 */}
-      <Dialog
+      {/* 이미지 스와이프 뷰어 */}
+      <ImageSwipeViewer
         open={imagePopup.open}
-        onClose={(event, reason) => { if (reason !== 'backdropClick') setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null }); }}
-        maxWidth="lg"
-      >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
-          <span style={{ fontSize: '14px', color: '#666' }}>
-            리뷰 이미지 {imagePopup.images.length > 0 && `(${imagePopup.currentIndex + 1} / ${imagePopup.images.length})`}
-          </span>
-          <IconButton
-            size="small"
-            onClick={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ p: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-            {/* 왼쪽 화살표 */}
-            <IconButton
-              onClick={prevImage}
-              disabled={imagePopup.currentIndex === 0}
-              sx={{ visibility: imagePopup.images.length > 1 ? 'visible' : 'hidden' }}
-            >
-              <ChevronLeftIcon fontSize="large" />
-            </IconButton>
-
-            {/* 이미지 */}
-            {imagePopup.images.length > 0 && imagePopup.images[imagePopup.currentIndex] && (
-              <img
-                src={imagePopup.images[imagePopup.currentIndex].s3_url}
-                alt={imagePopup.images[imagePopup.currentIndex].file_name || '리뷰 이미지'}
-                style={{
-                  maxWidth: '70vw',
-                  maxHeight: '70vh',
-                  objectFit: 'contain'
-                }}
-              />
-            )}
-
-            {/* 오른쪽 화살표 */}
-            <IconButton
-              onClick={nextImage}
-              disabled={imagePopup.currentIndex === imagePopup.images.length - 1}
-              sx={{ visibility: imagePopup.images.length > 1 ? 'visible' : 'hidden' }}
-            >
-              <ChevronRightIcon fontSize="large" />
-            </IconButton>
-          </Box>
-        </DialogContent>
-      </Dialog>
+        onClose={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
+        images={imagePopup.images}
+        initialIndex={imagePopup.currentIndex}
+        buyerInfo={imagePopup.buyer}
+      />
 
       {/* 삭제 확인 다이얼로그 */}
       <Dialog

@@ -1,5 +1,6 @@
 const { ItemSlot, Item, Buyer, CampaignOperator, Campaign, User, Image, MonthlyBrand } = require('../models');
-const { Op } = require('sequelize');
+const { Op, fn, col } = require('sequelize');
+const { v4: uuidv4 } = require('uuid');
 const { normalizeAccountNumber } = require('../utils/accountNormalizer');
 
 /**
@@ -681,7 +682,7 @@ exports.createSlot = async (req, res) => {
     // 해당 그룹 내 최대 slot_number 조회
     const maxSlotResult = await ItemSlot.findOne({
       where: { item_id: itemId, day_group: targetDayGroup },
-      attributes: [[require('sequelize').fn('MAX', require('sequelize').col('slot_number')), 'maxSlot']]
+      attributes: [[fn('MAX', col('slot_number')), 'maxSlot']]
     });
     const nextSlotNumber = (maxSlotResult?.dataValues?.maxSlot || 0) + 1;
 
@@ -690,7 +691,7 @@ exports.createSlot = async (req, res) => {
       where: { item_id: itemId, day_group: targetDayGroup },
       attributes: ['upload_link_token']
     });
-    const uploadToken = existingSlot?.upload_link_token || require('uuid').v4();
+    const uploadToken = existingSlot?.upload_link_token || uuidv4();
 
     // 새 슬롯 생성
     const newSlot = await ItemSlot.create({
@@ -971,13 +972,13 @@ exports.splitDayGroup = async (req, res) => {
     // 현재 품목의 최대 day_group 조회
     const maxDayGroupResult = await ItemSlot.findOne({
       where: { item_id },
-      attributes: [[require('sequelize').fn('MAX', require('sequelize').col('day_group')), 'maxDayGroup']]
+      attributes: [[fn('MAX', col('day_group')), 'maxDayGroup']]
     });
     const maxDayGroup = maxDayGroupResult?.dataValues?.maxDayGroup || 1;
     const newDayGroup = maxDayGroup + 1;
 
     // 새로운 upload_link_token 생성
-    const newUploadToken = require('uuid').v4();
+    const newUploadToken = uuidv4();
 
     // 기준 슬롯 이후의 모든 슬롯 조회 (같은 품목, 같은 day_group, slot_number > splitSlotNumber)
     const slotsToMove = await ItemSlot.findAll({

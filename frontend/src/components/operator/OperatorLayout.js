@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar,
@@ -280,48 +280,65 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
     return assignedDateKST === todayKST ? 'new' : 'in_progress';
   };
 
-  // 캠페인의 신규/진행/경고/완료 품목 개수 계산
-  const getCampaignStats = (campaign) => {
-    const items = campaign.items || [];
-    let newCount = 0;
-    let warningCount = 0;
-    let totalReviewCompleted = 0;
-    let totalPurchaseTarget = 0;
-    let courierCount = 0;
+  // 캠페인별 통계 캐싱 (성능 최적화)
+  const campaignStatsMap = useMemo(() => {
+    const statsMap = new Map();
+    monthlyBrands.forEach(mb => {
+      (mb.campaigns || []).forEach(campaign => {
+        const items = campaign.items || [];
+        let newCount = 0;
+        let warningCount = 0;
+        let totalReviewCompleted = 0;
+        let totalPurchaseTarget = 0;
+        let courierCount = 0;
 
-    for (const item of items) {
-      const status = getAssignmentStatus(item.assigned_at);
-      if (status === 'new') {
-        newCount++;
-      } else {
-        if ((item.normalBuyerCount || 0) === 0) {
-          warningCount++;
+        for (const item of items) {
+          const status = getAssignmentStatus(item.assigned_at);
+          if (status === 'new') {
+            newCount++;
+          } else {
+            if ((item.normalBuyerCount || 0) === 0) {
+              warningCount++;
+            }
+          }
+          totalReviewCompleted += item.reviewCompletedCount || 0;
+          totalPurchaseTarget += item.totalPurchaseCount || 0;
+          if (item.courier_service_yn === 'Y' || item.courier_service_yn === true) {
+            courierCount++;
+          }
         }
-      }
-      // 리뷰 완료 수 합산
-      totalReviewCompleted += item.reviewCompletedCount || 0;
-      totalPurchaseTarget += item.totalPurchaseCount || 0;
-      // 택배대행 Y인 제품 개수
-      if (item.courier_service_yn === 'Y' || item.courier_service_yn === true) {
-        courierCount++;
-      }
-    }
 
-    // 캠페인 완료 여부: 총 구매 목표 대비 리뷰 완료 비율
-    const isCompleted = totalPurchaseTarget > 0 && totalReviewCompleted >= totalPurchaseTarget;
-    const completionRate = totalPurchaseTarget > 0 ? Math.round((totalReviewCompleted / totalPurchaseTarget) * 100) : 0;
+        const isCompleted = totalPurchaseTarget > 0 && totalReviewCompleted >= totalPurchaseTarget;
+        const completionRate = totalPurchaseTarget > 0 ? Math.round((totalReviewCompleted / totalPurchaseTarget) * 100) : 0;
 
-    return {
-      newCount,
-      warningCount,
-      totalItems: items.length,
-      totalReviewCompleted,
-      totalPurchaseTarget,
-      isCompleted,
-      completionRate,
-      courierCount
+        statsMap.set(campaign.id, {
+          newCount,
+          warningCount,
+          totalItems: items.length,
+          totalReviewCompleted,
+          totalPurchaseTarget,
+          isCompleted,
+          completionRate,
+          courierCount
+        });
+      });
+    });
+    return statsMap;
+  }, [monthlyBrands]);
+
+  // 캐싱된 통계 조회
+  const getCampaignStats = useCallback((campaign) => {
+    return campaignStatsMap.get(campaign.id) || {
+      newCount: 0,
+      warningCount: 0,
+      totalItems: 0,
+      totalReviewCompleted: 0,
+      totalPurchaseTarget: 0,
+      isCompleted: false,
+      completionRate: 0,
+      courierCount: 0
     };
-  };
+  }, [campaignStatsMap]);
 
   // 연월브랜드 확장/축소 토글
   const handleMonthlyBrandToggle = (monthlyBrandId) => {
@@ -803,7 +820,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                           {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
                         </ListItemButton>
 
-                        <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout="auto" unmountOnExit>
+                        <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={150}>
                           <List component="div" disablePadding dense>
                             {monthlyBrand.campaigns.length > 0 ? (
                               monthlyBrand.campaigns.map((campaign) => {

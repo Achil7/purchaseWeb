@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert, IconButton } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
-import CloseIcon from '@mui/icons-material/Close';
 import { HotTable } from '@handsontable/react';
+import ImageSwipeViewer from './ImageSwipeViewer';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
 import itemSlotService from '../../services/itemSlotService';
@@ -182,8 +182,8 @@ function UnifiedItemSheet({
   // 스낵바 상태
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  // 이미지 확대 팝업 상태
-  const [imagePopup, setImagePopup] = useState({ open: false, url: '', fileName: '' });
+  // 이미지 스와이프 뷰어 상태
+  const [imagePopup, setImagePopup] = useState({ open: false, images: [], currentIndex: 0, buyer: null });
 
   // 필터링된 행 인덱스
   const [filteredRows, setFilteredRows] = useState(null);
@@ -403,7 +403,8 @@ function UnifiedItemSheet({
 
       // 3. 구매자 데이터행
       const buyer = slot.buyer || {};
-      const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
+      const reviewImages = buyer.images || [];
+      const reviewImage = reviewImages.length > 0 ? reviewImages[0] : null;
 
       indexMap[data.length] = slot.id;
       typeMap.set(data.length, {
@@ -420,8 +421,10 @@ function UnifiedItemSheet({
         _itemId: slot.item_id,
         _dayGroup: currentDayGroup,
         _buyerId: buyer.id || null,
+        _reviewImages: reviewImages,
         _reviewImageUrl: reviewImage?.s3_url || '',
         _reviewImageName: reviewImage?.file_name || '',
+        _buyerInfo: { buyer_name: buyer.buyer_name, order_number: buyer.order_number },
         // 구매자 정보 필드
         date: slot.date || '',
         expected_buyer: slot.expected_buyer || '',
@@ -842,16 +845,22 @@ function UnifiedItemSheet({
     try {
       if (type === 'rows') {
         await itemSlotService.deleteSlotsBulk(data.slotIds);
+        // 로컬 상태 즉시 업데이트 - 삭제된 슬롯 ID에 해당하는 행 제거
+        setSlots(prev => prev.filter(slot => !data.slotIds.includes(slot.id)));
       } else if (type === 'group') {
         await itemSlotService.deleteSlotsByGroup(data.itemId, data.dayGroup);
+        // 로컬 상태 즉시 업데이트 - 해당 품목/일차의 모든 슬롯 제거
+        setSlots(prev => prev.filter(slot =>
+          !(slot.item_id === data.itemId && slot.day_group === data.dayGroup)
+        ));
       }
 
       closeDeleteDialog();
+      setSnackbar({ open: true, message: '삭제되었습니다', severity: 'success' });
       setFilteredRows(null);
       setFilteredColumns(new Set());
       filterConditionsRef.current = null;
 
-      await loadSlots();
       if (onRefresh) onRefresh();
     } catch (error) {
       console.error('Delete failed:', error);
@@ -953,14 +962,24 @@ function UnifiedItemSheet({
     return slots.length;
   }, [slots]);
 
+  // 금액 파싱 헬퍼 함수 (숫자 또는 문자열 -> 정수)
+  const parseAmount = useCallback((value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    // 숫자 타입이면 그대로 반환
+    if (typeof value === 'number') return Math.round(value);
+    // 문자열에서 숫자만 추출 (쉼표, 공백 등 제거)
+    const numStr = String(value).replace(/[^0-9.-]/g, '');
+    const parsed = parseFloat(numStr);
+    return isNaN(parsed) ? 0 : Math.round(parsed);
+  }, []);
+
   // 금액 합계 (원본 slots 기준 - 필터/접기와 무관하게 항상 전체 금액)
   const totalAmount = useMemo(() => {
     return slots.reduce((sum, slot) => {
       const buyer = slot.buyer || {};
-      const amount = parseInt(String(buyer.amount || 0).replace(/[^0-9]/g, '')) || 0;
-      return sum + amount;
+      return sum + parseAmount(buyer.amount);
     }, 0);
-  }, [slots]);
+  }, [slots, parseAmount]);
 
   // 필터링된 건수
   const filteredCount = useMemo(() => {
@@ -1133,13 +1152,19 @@ function UnifiedItemSheet({
                 return;
               }
 
-              // 리뷰샷 썸네일 클릭 시 확대
+              // 리뷰샷 썸네일 클릭 시 스와이프 뷰어 열기
               const target = event.target;
               if (target.tagName === 'IMG' && target.classList.contains('review-thumbnail')) {
-                const url = target.getAttribute('data-url');
-                const fileName = target.getAttribute('data-filename');
-                if (url) {
-                  setImagePopup({ open: true, url, fileName: fileName || '리뷰 이미지' });
+                const hot = hotRef.current?.hotInstance;
+                if (!hot) return;
+                const rowData = tableData[coords.row];
+                if (rowData && rowData._reviewImages && rowData._reviewImages.length > 0) {
+                  setImagePopup({
+                    open: true,
+                    images: rowData._reviewImages,
+                    currentIndex: 0,
+                    buyer: rowData._buyerInfo
+                  });
                 }
               }
 
@@ -1312,35 +1337,14 @@ function UnifiedItemSheet({
         </Alert>
       </Snackbar>
 
-      {/* 이미지 확대 팝업 */}
-      <Dialog
+      {/* 이미지 스와이프 뷰어 */}
+      <ImageSwipeViewer
         open={imagePopup.open}
-        onClose={(event, reason) => { if (reason !== 'backdropClick') setImagePopup({ open: false, url: '', fileName: '' }); }}
-        maxWidth="lg"
-      >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
-          <span style={{ fontSize: '14px', color: '#666' }}>{imagePopup.fileName}</span>
-          <IconButton
-            size="small"
-            onClick={() => setImagePopup({ open: false, url: '', fileName: '' })}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ p: 1 }}>
-          {imagePopup.url && (
-            <img
-              src={imagePopup.url}
-              alt={imagePopup.fileName}
-              style={{
-                maxWidth: '100%',
-                maxHeight: '80vh',
-                objectFit: 'contain'
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+        onClose={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
+        images={imagePopup.images}
+        initialIndex={imagePopup.currentIndex}
+        buyerInfo={imagePopup.buyer}
+      />
     </Box>
   );
 }

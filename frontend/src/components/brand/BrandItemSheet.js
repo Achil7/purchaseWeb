@@ -1,10 +1,9 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography, Button, Snackbar, Alert, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DownloadIcon from '@mui/icons-material/Download';
 import InfoIcon from '@mui/icons-material/Info';
+import ImageSwipeViewer from '../common/ImageSwipeViewer';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
@@ -56,7 +55,8 @@ const brandBuyerHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-const createBrandProductDataRenderer = (tableData, collapsedItems, toggleItemCollapse, columnAlignments) => {
+// collapsedItemsRef를 사용하여 최신 접기 상태 참조 (렌더러 재생성 방지)
+const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
     td.className = 'product-data-row';
@@ -67,7 +67,8 @@ const createBrandProductDataRenderer = (tableData, collapsedItems, toggleItemCol
       const itemId = rowData._itemId;
       const dayGroup = rowData._dayGroup;
       const collapseKey = `${itemId}_${dayGroup}`;
-      const isCollapsed = collapsedItems.has(collapseKey);
+      // ref를 통해 최신 상태 참조
+      const isCollapsed = collapsedItemsRef.current.has(collapseKey);
       const status = rowData._completionStatus;
 
       let completionBadge = '';
@@ -215,6 +216,13 @@ function BrandItemSheet({
   // 접힌 품목 ID Set (기본값: 빈 Set = 모두 펼침)
   const [collapsedItems, setCollapsedItems] = useState(new Set());
 
+  // collapsedItems를 ref로도 유지 (렌더러에서 최신 상태 참조용)
+  const collapsedItemsRef = useRef(collapsedItems);
+  collapsedItemsRef.current = collapsedItems;
+
+  // localStorage 저장 디바운스용 타이머 ref
+  const saveCollapsedTimeoutRef = useRef(null);
+
   // 리뷰샷 필터 상태 ('all', 'with_review', 'without_review')
   const [reviewFilter, setReviewFilter] = useState('all');
 
@@ -315,21 +323,6 @@ function BrandItemSheet({
       console.error('Failed to save column widths:', e);
     }
   }, [COLUMN_WIDTHS_KEY]);
-
-  // 이미지 갤러리 네비게이션
-  const prevImage = () => {
-    setImagePopup(prev => ({
-      ...prev,
-      currentIndex: Math.max(0, prev.currentIndex - 1)
-    }));
-  };
-
-  const nextImage = () => {
-    setImagePopup(prev => ({
-      ...prev,
-      currentIndex: Math.min(prev.images.length - 1, prev.currentIndex + 1)
-    }));
-  };
 
   // 엑셀 다운로드 핸들러
   const handleDownloadExcel = useCallback(() => {
@@ -661,47 +654,56 @@ function BrandItemSheet({
     return { baseTableData: data, baseSlotIndexMap: indexMap };
   }, [slots, reviewFilter]); // collapsedItems 제거 - 캠페인 변경 시 재계산 방지
 
-  // 2단계: 접기 상태 적용 (가벼운 필터링만 수행)
-  // day_group별로 접기/펼치기 처리 (itemId_dayGroup 형식의 키 사용)
-  const { tableData, slotIndexMap } = useMemo(() => {
-    // 접힌 품목이 없으면 그대로 반환 (최적화)
-    if (collapsedItems.size === 0) {
-      return { tableData: baseTableData, slotIndexMap: baseSlotIndexMap };
-    }
+  // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
+  // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
+  const tableData = baseTableData;
+  const slotIndexMap = baseSlotIndexMap;
 
-    const data = [];
-    const indexMap = {};
+  // hiddenRows 플러그인용 숨길 행 인덱스 계산
+  const hiddenRowIndices = useMemo(() => {
+    if (collapsedItems.size === 0) return [];
+
+    const hidden = [];
     let currentCollapsedKey = null;
 
-    baseTableData.forEach((row, originalIndex) => {
-      const itemId = row._itemId;
-      const dayGroup = row._dayGroup;
-      const collapseKey = `${itemId}_${dayGroup}`;
+    baseTableData.forEach((row, index) => {
+      const collapseKey = `${row._itemId}_${row._dayGroup}`;
 
       // 제품 데이터 행에서 접힘 상태 확인
       if (row._rowType === ROW_TYPES.PRODUCT_DATA) {
         currentCollapsedKey = collapsedItems.has(collapseKey) ? collapseKey : null;
       }
 
-      // 접힌 품목의 구매자 행은 제외
+      // 접힌 품목의 구매자 행은 숨김
       if (currentCollapsedKey !== null &&
           (row._rowType === ROW_TYPES.BUYER_HEADER || row._rowType === ROW_TYPES.BUYER_DATA) &&
-          `${row._itemId}_${row._dayGroup}` === currentCollapsedKey) {
-        return; // skip
+          collapseKey === currentCollapsedKey) {
+        hidden.push(index);
       }
-
-      // slotIndexMap 업데이트
-      if (row._rowType === ROW_TYPES.BUYER_DATA && baseSlotIndexMap[originalIndex]) {
-        indexMap[data.length] = baseSlotIndexMap[originalIndex];
-      }
-
-      data.push(row);
     });
 
-    return { tableData: data, slotIndexMap: indexMap };
-  }, [baseTableData, baseSlotIndexMap, collapsedItems]);
+    return hidden;
+  }, [baseTableData, collapsedItems]);
+
+  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시)
+  useEffect(() => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) return;
+
+    // 먼저 모든 행 표시
+    hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
+    // 그 다음 숨길 행만 숨기기
+    if (hiddenRowIndices.length > 0) {
+      hiddenRowsPlugin.hideRows(hiddenRowIndices);
+    }
+    hot.render();
+  }, [hiddenRowIndices]);
 
   // 개별 품목(day_group별) 접기/펼치기 토글
+  // 성능 최적화: localStorage 저장을 디바운스하여 I/O 지연
   const toggleItemCollapse = useCallback((itemId, dayGroup) => {
     const collapseKey = `${itemId}_${dayGroup}`;
     setCollapsedItems(prev => {
@@ -711,7 +713,15 @@ function BrandItemSheet({
       } else {
         next.add(collapseKey);
       }
-      saveCollapsedItems(next);
+
+      // localStorage 저장 디바운스 (300ms)
+      if (saveCollapsedTimeoutRef.current) {
+        clearTimeout(saveCollapsedTimeoutRef.current);
+      }
+      saveCollapsedTimeoutRef.current = setTimeout(() => {
+        saveCollapsedItems(next);
+      }, 300);
+
       return next;
     });
   }, [saveCollapsedItems]);
@@ -765,9 +775,10 @@ function BrandItemSheet({
   const colHeaders = Array(15).fill('');
 
   // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
+  // collapsedItemsRef를 사용하여 접기 상태 변경 시 렌더러 재생성 방지
   const productDataRenderer = useMemo(() =>
-    createBrandProductDataRenderer(tableData, collapsedItems, toggleItemCollapse, columnAlignments),
-    [tableData, collapsedItems, toggleItemCollapse, columnAlignments]
+    createBrandProductDataRenderer(tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments),
+    [tableData, toggleItemCollapse, columnAlignments]
   );
 
   const buyerDataRenderer = useMemo(() =>
@@ -827,14 +838,24 @@ function BrandItemSheet({
     return slots.length;
   }, [slots]);
 
+  // 금액 파싱 헬퍼 함수 (숫자 또는 문자열 -> 정수)
+  const parseAmount = useCallback((value) => {
+    if (value === null || value === undefined || value === '') return 0;
+    // 숫자 타입이면 그대로 반환
+    if (typeof value === 'number') return Math.round(value);
+    // 문자열에서 숫자만 추출 (쉼표, 공백 등 제거)
+    const numStr = String(value).replace(/[^0-9.-]/g, '');
+    const parsed = parseFloat(numStr);
+    return isNaN(parsed) ? 0 : Math.round(parsed);
+  }, []);
+
   // 금액 합산 계산
   const totalAmount = useMemo(() => {
     return slots.reduce((sum, slot) => {
       const buyer = slot.buyer || {};
-      const amount = parseInt(String(buyer.amount || 0).replace(/[^0-9]/g, '')) || 0;
-      return sum + amount;
+      return sum + parseAmount(buyer.amount);
     }, 0);
-  }, [slots]);
+  }, [slots, parseAmount]);
 
   // 리뷰 이미지가 있는 건수
   const reviewCount = useMemo(() => {
@@ -1045,6 +1066,10 @@ function BrandItemSheet({
             minSpareRows={0}
             readOnly={true}
             disableVisualSelection={false}
+            hiddenRows={{
+              rows: hiddenRowIndices,
+              indicators: false
+            }}
             filters={true}
             dropdownMenu={['filter_by_condition', 'filter_by_value', 'filter_action_bar']}
             contextMenu={{
@@ -1168,96 +1193,14 @@ function BrandItemSheet({
         </Alert>
       </Snackbar>
 
-      {/* 이미지 갤러리 팝업 */}
-      <Dialog
+      {/* 이미지 스와이프 뷰어 */}
+      <ImageSwipeViewer
         open={imagePopup.open}
-        onClose={(event, reason) => { if (reason !== 'backdropClick') setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null }); }}
-        maxWidth="lg"
-      >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
-          <span style={{ fontSize: '14px', color: '#666' }}>
-            리뷰 이미지 {imagePopup.images.length > 0 ? `(${imagePopup.currentIndex + 1} / ${imagePopup.images.length})` : ''}
-          </span>
-          <IconButton
-            size="small"
-            onClick={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ p: 1 }}>
-          {imagePopup.images.length > 0 && (
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-                {/* 왼쪽 화살표 */}
-                <IconButton
-                  onClick={prevImage}
-                  disabled={imagePopup.currentIndex === 0}
-                  sx={{
-                    visibility: imagePopup.images.length > 1 ? 'visible' : 'hidden',
-                    '&:disabled': { opacity: 0.3 }
-                  }}
-                >
-                  <ChevronLeftIcon fontSize="large" />
-                </IconButton>
-
-                {/* 이미지 */}
-                <img
-                  src={imagePopup.images[imagePopup.currentIndex]?.s3_url}
-                  alt={imagePopup.images[imagePopup.currentIndex]?.file_name || '리뷰 이미지'}
-                  style={{
-                    maxWidth: 'calc(100% - 100px)',
-                    maxHeight: '60vh',
-                    objectFit: 'contain'
-                  }}
-                />
-
-                {/* 오른쪽 화살표 */}
-                <IconButton
-                  onClick={nextImage}
-                  disabled={imagePopup.currentIndex === imagePopup.images.length - 1}
-                  sx={{
-                    visibility: imagePopup.images.length > 1 ? 'visible' : 'hidden',
-                    '&:disabled': { opacity: 0.3 }
-                  }}
-                >
-                  <ChevronRightIcon fontSize="large" />
-                </IconButton>
-              </Box>
-
-              {/* 구매자 정보 표시 */}
-              {imagePopup.buyer && (
-                <Box sx={{ p: 2, bgcolor: '#f5f5f5', mt: 1, borderRadius: 1 }}>
-                  <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                    <Typography variant="body2">
-                      <strong>구매자:</strong> {imagePopup.buyer.buyer_name}
-                    </Typography>
-                    <Typography variant="body2">
-                      <strong>수취인:</strong> {imagePopup.buyer.recipient_name}
-                    </Typography>
-                    <Typography variant="body2">
-                      <strong>주문번호:</strong> {imagePopup.buyer.order_number}
-                    </Typography>
-                    <Typography variant="body2">
-                      <strong>아이디:</strong> {imagePopup.buyer.user_id}
-                    </Typography>
-                    {imagePopup.buyer.tracking_number && (
-                      <Typography variant="body2" color="#1565c0">
-                        <strong>송장번호:</strong> {imagePopup.buyer.tracking_number}
-                      </Typography>
-                    )}
-                    {imagePopup.buyer.amount && (
-                      <Typography variant="body2" color="#c2185b" fontWeight="bold">
-                        <strong>금액:</strong> {Number(imagePopup.buyer.amount).toLocaleString()}원
-                      </Typography>
-                    )}
-                  </Box>
-                </Box>
-              )}
-            </Box>
-          )}
-        </DialogContent>
-      </Dialog>
+        onClose={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
+        images={imagePopup.images}
+        initialIndex={imagePopup.currentIndex}
+        buyerInfo={imagePopup.buyer}
+      />
 
       {/* 제품 상세 정보 팝업 */}
       <Dialog

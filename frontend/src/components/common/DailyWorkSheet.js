@@ -6,6 +6,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import SearchIcon from '@mui/icons-material/Search';
 import InfoIcon from '@mui/icons-material/Info';
+import ImageSwipeViewer from './ImageSwipeViewer';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -282,21 +283,6 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
     currentIndex: 0,
     buyer: null
   });
-
-  // 이미지 갤러리 네비게이션
-  const prevImage = () => {
-    setImagePopup(prev => ({
-      ...prev,
-      currentIndex: Math.max(0, prev.currentIndex - 1)
-    }));
-  };
-
-  const nextImage = () => {
-    setImagePopup(prev => ({
-      ...prev,
-      currentIndex: Math.min(prev.images.length - 1, prev.currentIndex + 1)
-    }));
-  };
 
   // 제품 상세 정보 팝업 상태
   const [productDetailPopup, setProductDetailPopup] = useState({
@@ -1182,49 +1168,14 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
         )}
       </Paper>
 
-      {/* 이미지 팝업 */}
-      <Dialog
+      {/* 이미지 스와이프 뷰어 */}
+      <ImageSwipeViewer
         open={imagePopup.open}
-        onClose={(event, reason) => { if (reason !== 'backdropClick') setImagePopup({ ...imagePopup, open: false }); }}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>리뷰 이미지 ({imagePopup.currentIndex + 1}/{imagePopup.images.length})</span>
-          <IconButton onClick={() => setImagePopup({ ...imagePopup, open: false })}>
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent>
-          {imagePopup.images.length > 0 && (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-              {imagePopup.images.length > 1 && (
-                <IconButton
-                  onClick={prevImage}
-                  disabled={imagePopup.currentIndex === 0}
-                  sx={{ position: 'absolute', left: 0 }}
-                >
-                  <ChevronLeftIcon />
-                </IconButton>
-              )}
-              <img
-                src={imagePopup.images[imagePopup.currentIndex]?.s3_url}
-                alt="리뷰 이미지"
-                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain' }}
-              />
-              {imagePopup.images.length > 1 && (
-                <IconButton
-                  onClick={nextImage}
-                  disabled={imagePopup.currentIndex === imagePopup.images.length - 1}
-                  sx={{ position: 'absolute', right: 0 }}
-                >
-                  <ChevronRightIcon />
-                </IconButton>
-              )}
-            </Box>
-          )}
-        </DialogContent>
-      </Dialog>
+        onClose={() => setImagePopup({ open: false, images: [], currentIndex: 0, buyer: null })}
+        images={imagePopup.images}
+        initialIndex={imagePopup.currentIndex}
+        buyerInfo={imagePopup.buyer}
+      />
 
       {/* 제품 상세 정보 팝업 */}
       <Dialog
