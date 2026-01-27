@@ -1,10 +1,11 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, Snackbar, Alert, IconButton, Typography } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, Snackbar, Alert, IconButton, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import SearchIcon from '@mui/icons-material/Search';
+import InfoIcon from '@mui/icons-material/Info';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -19,6 +20,9 @@ import itemService from '../../services/itemService';
 // Handsontable 모든 모듈 등록
 registerAllModules();
 
+// 슬롯 데이터 캐시 (날짜별 전환 최적화)
+const slotsCache = new Map();
+
 // 행 타입 상수 정의
 const ROW_TYPES = {
   ITEM_SEPARATOR: 'item_separator',
@@ -27,6 +31,180 @@ const ROW_TYPES = {
   UPLOAD_LINK_BAR: 'upload_link_bar',
   BUYER_HEADER: 'buyer_header',
   BUYER_DATA: 'buyer_data',
+};
+
+// ========== 성능 최적화: 셀 렌더러 함수 (컴포넌트 외부 정의) ==========
+const dailyItemSeparatorRenderer = (instance, td) => {
+  td.className = 'item-separator-row';
+  td.style.backgroundColor = '#1565c0';
+  td.style.height = '8px';
+  td.style.padding = '0';
+  td.innerHTML = '';
+  return td;
+};
+
+const dailyProductHeaderRenderer = (instance, td, r, c, prop, value) => {
+  td.className = 'product-header-row';
+  td.style.backgroundColor = '#e0e0e0';
+  td.style.fontWeight = 'bold';
+  td.style.textAlign = 'center';
+  td.style.fontSize = '11px';
+  td.textContent = value ?? '';
+  return td;
+};
+
+const dailyBuyerHeaderRenderer = (instance, td, r, c, prop, value) => {
+  td.className = 'buyer-header-row';
+  td.style.backgroundColor = '#f5f5f5';
+  td.style.fontWeight = 'bold';
+  td.style.textAlign = 'center';
+  td.style.fontSize = '11px';
+  td.textContent = value ?? '';
+  return td;
+};
+
+const createDailyProductDataRenderer = (tableData, collapsedItems) => {
+  return (instance, td, r, c, prop, value) => {
+    const rowData = tableData[r];
+    td.className = 'product-data-row';
+    td.style.backgroundColor = '#fff8e1';
+    td.style.fontSize = '11px';
+
+    if (prop === 'col0') {
+      const groupKey = rowData._groupKey;
+      const isCollapsed = collapsedItems.has(groupKey);
+      td.innerHTML = `<span style="cursor: pointer; user-select: none; font-size: 14px; color: #666;">${isCollapsed ? '▶' : '▼'}</span>`;
+      td.style.textAlign = 'center';
+      td.style.cursor = 'pointer';
+    } else if (prop === 'col1') {
+      td.textContent = value ?? '';
+      td.style.fontWeight = 'bold';
+      td.style.color = '#1565c0';
+      td.style.userSelect = 'none';
+      td.style.cursor = 'default';
+      td.style.backgroundColor = '#f5f5f5';
+    } else if (prop === 'col3') {
+      td.textContent = value ?? '';
+      td.style.fontWeight = 'bold';
+      td.style.color = '#1565c0';
+    } else if (prop === 'col12' && value) {
+      // URL 컬럼
+      const url = value.startsWith('http') ? value : `https://${value}`;
+      td.style.whiteSpace = 'nowrap';
+      td.style.overflow = 'hidden';
+      td.style.textOverflow = 'ellipsis';
+      td.title = value;
+      td.innerHTML = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${value}</a>`;
+    } else if (prop === 'col14') {
+      // 상세보기 버튼
+      td.innerHTML = `<span class="detail-btn" style="cursor: pointer; font-size: 14px; color: #1976d2;">📋</span>`;
+      td.style.textAlign = 'center';
+      td.style.cursor = 'pointer';
+    } else {
+      td.textContent = value ?? '';
+    }
+
+    return td;
+  };
+};
+
+const createDailyUploadLinkBarRenderer = () => {
+  return (instance, td, r, c, prop, value) => {
+    td.className = 'upload-link-bar';
+    td.style.backgroundColor = '#424242';
+    td.style.color = 'white';
+    td.style.cursor = 'pointer';
+    td.style.fontSize = '11px';
+
+    if (c === 0) {
+      td.textContent = '';
+    } else if (c === 1) {
+      td.textContent = value || '';
+      td.style.paddingLeft = '8px';
+    } else {
+      td.textContent = '';
+    }
+    return td;
+  };
+};
+
+const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers, statusLabels) => {
+  return (instance, td, r, c, prop, value) => {
+    const rowData = tableData[r];
+    const dayGroup = rowData._dayGroup || 1;
+    const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
+    td.className = dayClass;
+    td.style.fontSize = '11px';
+    td.style.backgroundColor = dayGroup % 2 === 0 ? '#e0f2f1' : '#fff';
+
+    if (prop === 'col0' || prop === 'col1') {
+      td.textContent = '';
+    } else if (prop === 'col2') {
+      td.textContent = value ?? '';
+      td.style.textAlign = 'center';
+    } else if (prop === 'col3') {
+      td.textContent = value ?? '';
+      td.style.textAlign = 'center';
+      td.style.color = '#666';
+    } else if (prop === 'col4' || prop === 'col5') {
+      td.textContent = value ?? '';
+      td.style.color = '#555';
+    } else if (prop === 'col7') {
+      td.textContent = value ?? '';
+      if (value && duplicateOrderNumbers.has(value)) {
+        td.classList.add('duplicate-order');
+        td.style.backgroundColor = '#ffcdd2';
+      }
+    } else if (prop === 'col14' && value) {
+      const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
+      td.textContent = numValue ? numValue.toLocaleString() : value;
+    } else if (prop === 'col16') {
+      const images = rowData._reviewImages || [];
+      const imageCount = images.length;
+      if (imageCount > 0) {
+        const label = imageCount > 1 ? `리뷰 보기 (${imageCount})` : '리뷰 보기';
+        td.innerHTML = `<a href="#" class="review-link" style="color: #1976d2; text-decoration: underline; cursor: pointer; font-size: 11px;">${label}</a>`;
+        td.style.textAlign = 'center';
+      } else {
+        td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
+        td.style.textAlign = 'center';
+      }
+    } else if (prop === 'col17') {
+      const status = rowData._calculatedStatus;
+      const label = statusLabels[status] || status;
+
+      if (status === '-') {
+        td.innerHTML = '<span style="color: #999;">-</span>';
+      } else if (status === 'completed') {
+        td.innerHTML = `<span style="background-color: #e8f5e9; color: #388e3c; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;">✓ ${label}</span>`;
+      } else {
+        td.innerHTML = `<span style="background-color: #e3f2fd; color: #1976d2; padding: 2px 6px; border-radius: 10px; font-size: 10px;">${label}</span>`;
+      }
+      td.style.textAlign = 'center';
+    } else if (prop === 'col20') {
+      td.style.textAlign = 'center';
+      if (value) {
+        try {
+          const date = new Date(value);
+          const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+          const yy = String(kstDate.getUTCFullYear()).slice(-2);
+          const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
+          const dd = String(kstDate.getUTCDate()).padStart(2, '0');
+          td.textContent = `${yy}${mm}${dd} 입금완료`;
+          td.style.color = '#388e3c';
+          td.style.fontWeight = 'bold';
+        } catch (e) {
+          td.textContent = value;
+        }
+      } else {
+        td.textContent = '';
+      }
+    } else {
+      td.textContent = value ?? '';
+    }
+
+    return td;
+  };
 };
 
 // 기본 컬럼 너비 - 21개 컬럼
@@ -83,9 +261,13 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
 
   // 변경된 슬롯들 추적
   const [changedSlots, setChangedSlots] = useState({});
+  const changedSlotsRef = useRef(changedSlots);
+  changedSlotsRef.current = changedSlots;
 
   // 변경된 아이템들 추적 (제품 정보 수정용)
   const [changedItems, setChangedItems] = useState({});
+  const changedItemsRef = useRef(changedItems);
+  changedItemsRef.current = changedItems;
 
   // 스낵바 상태
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -115,6 +297,14 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
       currentIndex: Math.min(prev.images.length - 1, prev.currentIndex + 1)
     }));
   };
+
+  // 제품 상세 정보 팝업 상태
+  const [productDetailPopup, setProductDetailPopup] = useState({
+    open: false,
+    item: null,
+    productInfo: null,
+    dayGroup: null
+  });
 
   // 접힌 품목 ID Set - localStorage에서 복원
   const [collapsedItems, setCollapsedItems] = useState(() => {
@@ -191,17 +381,35 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
   }, [getSavedColumnWidths]);
 
   // 날짜별 슬롯 조회
-  const loadSlots = useCallback(async () => {
+  const loadSlots = useCallback(async (forceRefresh = false) => {
     if (!searchDate) return;
+
+    const formattedDate = format(searchDate, 'yyyy-MM-dd');
+
+    // 캐시 키 생성
+    const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
+
+    // 캐시 확인 (forceRefresh가 아닌 경우)
+    if (!forceRefresh && slotsCache.has(cacheKey)) {
+      const cached = slotsCache.get(cacheKey);
+      setSlots(cached.slots);
+      setChangedSlots({});
+      setChangedItems({});
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
-      const formattedDate = format(searchDate, 'yyyy-MM-dd');
       const response = await itemSlotService.getSlotsByDate(formattedDate, viewAsUserId);
       if (response.success) {
-        setSlots(response.data || []);
+        const newSlots = response.data || [];
+        setSlots(newSlots);
         setChangedSlots({});
         setChangedItems({});
+
+        // 캐시에 저장
+        slotsCache.set(cacheKey, { slots: newSlots, timestamp: Date.now() });
       } else {
         setSnackbar({ open: true, message: response.message || '데이터 조회 실패', severity: 'error' });
       }
@@ -395,7 +603,7 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
       data.push({
         _rowType: ROW_TYPES.PRODUCT_HEADER,
         col0: '', col1: '연월브랜드-캠페인', col2: '날짜', col3: '플랫폼', col4: '제품명', col5: '옵션', col6: '출고', col7: '키워드',
-        col8: '가격', col9: '총건수', col10: '일건수', col11: '택배', col12: 'URL', col13: '', col14: '특이사항',
+        col8: '가격', col9: '총건수', col10: '일건수', col11: '택배', col12: 'URL', col13: '특이사항', col14: '상세',
         col15: '', col16: '', col17: '', col18: '', col19: '', col20: ''
       });
       meta.push({ type: ROW_TYPES.PRODUCT_HEADER, itemId: item.id, dayGroup });
@@ -407,6 +615,8 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
         _dayGroup: dayGroup,
         _groupKey: groupKey,
         _uploadToken: uploadLinkToken,
+        _item: item,
+        _productInfo: productInfo,
         col0: isCollapsed ? '▶' : '▼',
         col1: mbCampaignLabel,
         col2: productInfo.date,
@@ -420,8 +630,8 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
         col10: productInfo.daily_purchase_count,
         col11: productInfo.courier_service_yn,
         col12: productInfo.product_url,
-        col13: '',
-        col14: productInfo.notes,
+        col13: productInfo.notes,
+        col14: '📋',
         col15: '', col16: '', col17: '', col18: '', col19: '', col20: ''
       });
       meta.push({ type: ROW_TYPES.PRODUCT_DATA, itemId: item.id, dayGroup, uploadLinkToken, groupKey });
@@ -531,7 +741,23 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
     });
   }, []);
 
-  // cellsRenderer - OperatorItemSheet와 동일한 방식
+  // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
+  const productDataRenderer = useMemo(() =>
+    createDailyProductDataRenderer(tableData, collapsedItems),
+    [tableData, collapsedItems]
+  );
+
+  const uploadLinkBarRenderer = useMemo(() =>
+    createDailyUploadLinkBarRenderer(),
+    []
+  );
+
+  const buyerDataRenderer = useMemo(() =>
+    createDailyBuyerDataRenderer(tableData, duplicateOrderNumbers, statusLabels),
+    [tableData, duplicateOrderNumbers, statusLabels]
+  );
+
+  // cellsRenderer - 최적화: 외부 정의 렌더러 사용
   const cellsRenderer = useCallback((row, col, prop) => {
     const cellProperties = {};
 
@@ -545,113 +771,30 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
     switch (rowType) {
       case ROW_TYPES.ITEM_SEPARATOR:
         cellProperties.readOnly = true;
-        cellProperties.renderer = function(instance, td) {
-          td.className = 'item-separator-row';
-          td.style.backgroundColor = '#1565c0';
-          td.style.height = '8px';
-          td.style.padding = '0';
-          td.innerHTML = '';
-          return td;
-        };
+        cellProperties.renderer = dailyItemSeparatorRenderer;
         break;
 
       case ROW_TYPES.PRODUCT_HEADER:
         cellProperties.readOnly = true;
-        cellProperties.renderer = function(instance, td, r, c, prop, value) {
-          td.className = 'product-header-row';
-          td.style.backgroundColor = '#e0e0e0';
-          td.style.fontWeight = 'bold';
-          td.style.textAlign = 'center';
-          td.style.fontSize = '11px';
-          td.textContent = value ?? '';
-          return td;
-        };
+        cellProperties.renderer = dailyProductHeaderRenderer;
         break;
 
       case ROW_TYPES.PRODUCT_DATA:
-        cellProperties.readOnly = (col === 0 || col === 1); // 접기, 연월브랜드-캠페인
-
-        // col1(연월브랜드-캠페인)은 선택 불가
+        cellProperties.readOnly = (col === 0 || col === 1 || col === 14);
         if (col === 1) {
           cellProperties.disableVisualSelection = true;
         }
-
-        cellProperties.renderer = function(instance, td, r, c, prop, value) {
-          td.className = 'product-data-row';
-          td.style.backgroundColor = '#fff8e1';
-          td.style.fontSize = '11px';
-
-          // col0 - 토글 아이콘
-          if (prop === 'col0') {
-            const groupKey = rowData._groupKey;
-            const isCollapsed = collapsedItems.has(groupKey);
-            td.innerHTML = `<span style="cursor: pointer; user-select: none; font-size: 14px; color: #666;">${isCollapsed ? '▶' : '▼'}</span>`;
-            td.style.textAlign = 'center';
-            td.style.cursor = 'pointer';
-          }
-          // col1 - 연월브랜드-캠페인 (볼드, 선택 불가 스타일)
-          else if (prop === 'col1') {
-            td.textContent = value ?? '';
-            td.style.fontWeight = 'bold';
-            td.style.color = '#1565c0';
-            td.style.userSelect = 'none';
-            td.style.cursor = 'default';
-            td.style.backgroundColor = '#f5f5f5';
-          }
-          // col3 - 플랫폼 (볼드)
-          else if (prop === 'col3') {
-            td.textContent = value ?? '';
-            td.style.fontWeight = 'bold';
-            td.style.color = '#1565c0';
-          }
-          // col12 - URL 하이퍼링크
-          else if (prop === 'col12' && value) {
-            const url = value.startsWith('http') ? value : `https://${value}`;
-            td.style.whiteSpace = 'nowrap';
-            td.style.overflow = 'hidden';
-            td.style.textOverflow = 'ellipsis';
-            td.title = value;
-            td.innerHTML = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${value}</a>`;
-          } else {
-            td.textContent = value ?? '';
-          }
-
-          return td;
-        };
+        cellProperties.renderer = productDataRenderer;
         break;
 
       case ROW_TYPES.UPLOAD_LINK_BAR:
         cellProperties.readOnly = true;
-        cellProperties.renderer = function(instance, td, r, c, prop, value) {
-          td.className = 'upload-link-bar';
-          td.style.backgroundColor = '#424242';
-          td.style.color = 'white';
-          td.style.cursor = 'pointer';
-          td.style.fontSize = '11px';
-
-          if (c === 0) {
-            td.textContent = '';
-          } else if (c === 1) {
-            td.textContent = value || '';
-            td.style.paddingLeft = '8px';
-          } else {
-            td.textContent = '';
-          }
-          return td;
-        };
+        cellProperties.renderer = uploadLinkBarRenderer;
         break;
 
       case ROW_TYPES.BUYER_HEADER:
         cellProperties.readOnly = true;
-        cellProperties.renderer = function(instance, td, r, c, prop, value) {
-          td.className = 'buyer-header-row';
-          td.style.backgroundColor = '#f5f5f5';
-          td.style.fontWeight = 'bold';
-          td.style.textAlign = 'center';
-          td.style.fontSize = '11px';
-          td.textContent = value ?? '';
-          return td;
-        };
+        cellProperties.renderer = dailyBuyerHeaderRenderer;
         break;
 
       case ROW_TYPES.BUYER_DATA:
@@ -659,104 +802,13 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
         const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
         cellProperties.className = dayClass;
 
-        // col16(리뷰샷)만 readOnly
         if (col === 16) {
           cellProperties.readOnly = true;
         } else {
           cellProperties.readOnly = false;
         }
 
-        cellProperties.renderer = function(instance, td, r, c, prop, value) {
-          td.className = dayClass;
-          td.style.fontSize = '11px';
-          td.style.backgroundColor = dayGroup % 2 === 0 ? '#e0f2f1' : '#fff';
-
-          // col0, col1 - 빈칸
-          if (prop === 'col0' || prop === 'col1') {
-            td.textContent = '';
-          }
-          // col2 - 날짜
-          else if (prop === 'col2') {
-            td.textContent = value ?? '';
-            td.style.textAlign = 'center';
-          }
-          // col3 - 순번
-          else if (prop === 'col3') {
-            td.textContent = value ?? '';
-            td.style.textAlign = 'center';
-            td.style.color = '#666';
-          }
-          // col4, col5 - 제품명, 옵션 (읽기전용 스타일)
-          else if (prop === 'col4' || prop === 'col5') {
-            td.textContent = value ?? '';
-            td.style.color = '#555';
-          }
-          // col7 - 주문번호 (중복 시 빨간색)
-          else if (prop === 'col7') {
-            td.textContent = value ?? '';
-            if (value && duplicateOrderNumbers.has(value)) {
-              td.classList.add('duplicate-order');
-              td.style.backgroundColor = '#ffcdd2';
-            }
-          }
-          // col14 - 금액 (숫자 포맷)
-          else if (prop === 'col14' && value) {
-            const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
-            td.textContent = numValue ? numValue.toLocaleString() : value;
-          }
-          // col16 - 리뷰샷
-          else if (prop === 'col16') {
-            const images = rowData._reviewImages || [];
-            const imageCount = images.length;
-            if (imageCount > 0) {
-              const label = imageCount > 1 ? `리뷰 보기 (${imageCount})` : '리뷰 보기';
-              td.innerHTML = `<a href="#" class="review-link" style="color: #1976d2; text-decoration: underline; cursor: pointer; font-size: 11px;">${label}</a>`;
-              td.style.textAlign = 'center';
-            } else {
-              td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
-              td.style.textAlign = 'center';
-            }
-          }
-          // col17 - 상태
-          else if (prop === 'col17') {
-            const status = rowData._calculatedStatus;
-            const label = statusLabels[status] || status;
-
-            if (status === '-') {
-              td.innerHTML = '<span style="color: #999;">-</span>';
-            } else if (status === 'completed') {
-              td.innerHTML = `<span style="background-color: #e8f5e9; color: #388e3c; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;">✓ ${label}</span>`;
-            } else {
-              td.innerHTML = `<span style="background-color: #e3f2fd; color: #1976d2; padding: 2px 6px; border-radius: 10px; font-size: 10px;">${label}</span>`;
-            }
-            td.style.textAlign = 'center';
-          }
-          // col20 - 입금여부
-          else if (prop === 'col20') {
-            td.style.textAlign = 'center';
-            if (value) {
-              try {
-                const date = new Date(value);
-                const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
-                const yy = String(kstDate.getUTCFullYear()).slice(-2);
-                const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
-                const dd = String(kstDate.getUTCDate()).padStart(2, '0');
-                td.textContent = `${yy}${mm}${dd} 입금완료`;
-                td.style.color = '#388e3c';
-                td.style.fontWeight = 'bold';
-              } catch (e) {
-                td.textContent = value;
-              }
-            } else {
-              td.textContent = '';
-            }
-          }
-          else {
-            td.textContent = value ?? '';
-          }
-
-          return td;
-        };
+        cellProperties.renderer = buyerDataRenderer;
         break;
 
       default:
@@ -764,14 +816,14 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
     }
 
     return cellProperties;
-  }, [tableData, collapsedItems, duplicateOrderNumbers, statusLabels]);
+  }, [tableData, productDataRenderer, uploadLinkBarRenderer, buyerDataRenderer]);
 
   // 셀 변경 핸들러
   const handleAfterChange = useCallback((changes, source) => {
     if (!changes || source === 'loadData') return;
 
-    const slotUpdates = { ...changedSlots };
-    const itemUpdates = { ...changedItems };
+    const slotUpdates = { ...changedSlotsRef.current };
+    const itemUpdates = { ...changedItemsRef.current };
 
     for (const [row, prop, oldValue, newValue] of changes) {
       if (oldValue === newValue) continue;
@@ -838,7 +890,7 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
 
     setChangedSlots(slotUpdates);
     setChangedItems(itemUpdates);
-  }, [changedSlots, changedItems, rowMeta]);
+  }, [rowMeta]);  // 성능 최적화: changedSlots, changedItems 제거 (ref로 대체)
 
   // 저장 핸들러
   const handleSave = useCallback(async () => {
@@ -879,15 +931,21 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
 
       setChangedSlots({});
       setChangedItems({});
+
+      // 캐시 무효화 (다음 로드 시 최신 데이터 가져오도록)
+      const formattedDate = format(searchDate, 'yyyy-MM-dd');
+      const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
+      slotsCache.delete(cacheKey);
+
       setSnackbar({ open: true, message: '저장되었습니다.', severity: 'success' });
-      loadSlots();
+      loadSlots(true); // forceRefresh로 최신 데이터 가져오기
     } catch (error) {
       console.error('Save error:', error);
       setSnackbar({ open: true, message: '저장 중 오류가 발생했습니다.', severity: 'error' });
     } finally {
       setSaving(false);
     }
-  }, [changedSlots, changedItems, slots, loadSlots]);
+  }, [changedSlots, changedItems, slots, loadSlots, searchDate, viewAsUserId]);
 
   // 컬럼 설정
   const columns = useMemo(() => {
@@ -1047,11 +1105,13 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
             autoRowSize={false}
-            viewportRowRenderingOffset={50}
+            autoColumnSize={false}
+            viewportRowRenderingOffset={100}
             manualColumnResize={true}
             manualRowResize={false}
             disableVisualSelection={false}
             imeFastEdit={true}
+            minSpareRows={0}
             cells={cellsRenderer}
             afterChange={handleAfterChange}
             afterOnCellMouseUp={(event, coords) => {
@@ -1064,6 +1124,17 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
                 if (groupKey) {
                   toggleCollapse(groupKey);
                 }
+                return;
+              }
+
+              // 제품 데이터 행 col14 클릭 - 상세보기 팝업
+              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
+                setProductDetailPopup({
+                  open: true,
+                  item: rowData._item,
+                  productInfo: rowData._productInfo,
+                  dayGroup: rowData._dayGroup
+                });
                 return;
               }
 
@@ -1092,16 +1163,21 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
               }
             }}
             afterColumnResize={(currentColumn, newSize) => {
-              const newWidths = [...columnWidths];
-              newWidths[currentColumn] = newSize;
-              setColumnWidths(newWidths);
-              saveColumnWidths(newWidths);
+              // localStorage에만 저장 (setColumnWidths 호출 시 리렌더링으로 스크롤 점프 발생)
+              const hot = hotRef.current?.hotInstance;
+              if (!hot) return;
+              const widths = [];
+              for (let i = 0; i < hot.countCols(); i++) {
+                widths.push(hot.getColWidth(i));
+              }
+              saveColumnWidths(widths);
             }}
             contextMenu={true}
             copyPaste={true}
             undo={true}
             outsideClickDeselects={false}
             rowHeights={23}
+            autoScrollOnSelection={false}
           />
         )}
       </Paper>
@@ -1148,6 +1224,126 @@ function DailyWorkSheet({ userRole = 'operator', viewAsUserId = null }) {
             </Box>
           )}
         </DialogContent>
+      </Dialog>
+
+      {/* 제품 상세 정보 팝업 */}
+      <Dialog
+        open={productDetailPopup.open}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') setProductDetailPopup({ open: false, item: null, productInfo: null, dayGroup: null }); }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#1976d2', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InfoIcon />
+            <Typography variant="h6" fontWeight="bold">제품 상세 정보</Typography>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => setProductDetailPopup({ open: false, item: null, productInfo: null, dayGroup: null })}
+            sx={{ color: 'white' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {(productDetailPopup.item || productDetailPopup.productInfo) && (
+            <Box>
+              {(() => {
+                const productInfo = productDetailPopup.productInfo || {};
+                const item = productDetailPopup.item || {};
+                // productInfo 값이 있으면 productInfo, 없으면 item 값
+                const getValue = (field) => productInfo[field] || item[field] || '-';
+
+                // 가격 포맷팅 함수 - 숫자면 천단위 구분, 아니면 그대로 표시
+                const formatPrice = (price) => {
+                  if (!price || price === '-') return '-';
+                  const num = parseFloat(String(price).replace(/,/g, ''));
+                  if (!isNaN(num)) {
+                    return `${num.toLocaleString()}원`;
+                  }
+                  return `${price}원`;
+                };
+
+                const fields = [
+                  { label: '제품명', value: getValue('product_name') },
+                  { label: '플랫폼', value: getValue('platform') },
+                  { label: '상품 URL', value: getValue('product_url'), isLink: true },
+                  { label: '구매 옵션', value: getValue('purchase_option') },
+                  { label: '희망 키워드', value: getValue('keyword') },
+                  { label: '출고 유형', value: getValue('shipping_type') },
+                  { label: '총 구매 건수', value: getValue('total_purchase_count') },
+                  { label: '일 구매 건수', value: getValue('daily_purchase_count') },
+                  { label: '제품 가격', value: formatPrice(getValue('product_price')) },
+                  { label: '출고 마감 시간', value: item.shipping_deadline || '-' },
+                  { label: '택배대행 Y/N', value: getValue('courier_service_yn') },
+                  { label: '리뷰 가이드', value: item.review_guide || '-', multiline: true },
+                  { label: '특이사항', value: getValue('notes'), multiline: true },
+                ];
+
+                return (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {fields.map((field, idx) => (
+                      <Box key={idx} sx={{
+                        display: 'flex',
+                        borderBottom: '1px solid #eee',
+                        pb: 1.5,
+                        flexDirection: field.multiline ? 'column' : 'row',
+                        alignItems: field.multiline ? 'flex-start' : 'center'
+                      }}>
+                        <Typography
+                          sx={{
+                            fontWeight: 'bold',
+                            color: '#555',
+                            minWidth: field.multiline ? 'auto' : 140,
+                            mb: field.multiline ? 0.5 : 0
+                          }}
+                        >
+                          {field.label}
+                        </Typography>
+                        {field.isLink && field.value !== '-' ? (
+                          <Typography
+                            component="a"
+                            href={field.value}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ color: '#1976d2', textDecoration: 'underline', wordBreak: 'break-all' }}
+                          >
+                            {field.value}
+                          </Typography>
+                        ) : field.multiline ? (
+                          <Typography
+                            sx={{
+                              whiteSpace: 'pre-wrap',
+                              bgcolor: '#f9f9f9',
+                              p: 1.5,
+                              borderRadius: 1,
+                              width: '100%',
+                              fontSize: '0.9rem',
+                              lineHeight: 1.6
+                            }}
+                          >
+                            {field.value}
+                          </Typography>
+                        ) : (
+                          <Typography>{field.value}</Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                );
+              })()}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            variant="contained"
+            onClick={() => setProductDetailPopup({ open: false, item: null, productInfo: null, dayGroup: null })}
+          >
+            닫기
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* 스낵바 */}

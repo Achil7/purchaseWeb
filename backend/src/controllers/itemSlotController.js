@@ -258,8 +258,7 @@ exports.getSlotsByCampaign = async (req, res) => {
           model: Image,
           as: 'images',
           attributes: ['id', 's3_url', 'file_name', 'created_at'],
-          limit: 1,
-          order: [['created_at', 'DESC']]
+          order: [['created_at', 'ASC']]  // 업로드 순서대로 (limit 제거)
         }
       ]
     };
@@ -445,8 +444,7 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
               model: Image,
               as: 'images',
               attributes: ['id', 's3_url', 'file_name', 'created_at'],
-              limit: 1,
-              order: [['created_at', 'DESC']]
+              order: [['created_at', 'ASC']]  // 업로드 순서대로 (limit 제거)
             }
           ]
         }
@@ -1226,8 +1224,7 @@ exports.getSlotsByDate = async (req, res) => {
                 model: Image,
                 as: 'images',
                 attributes: ['id', 's3_url', 'file_name', 'created_at'],
-                limit: 1,
-                order: [['created_at', 'DESC']]
+                order: [['created_at', 'ASC']]  // 업로드 순서대로 (limit 제거)
               }
             ]
           }
@@ -1314,8 +1311,7 @@ exports.getSlotsByDate = async (req, res) => {
                 model: Image,
                 as: 'images',
                 attributes: ['id', 's3_url', 'file_name', 'created_at'],
-                limit: 1,
-                order: [['created_at', 'DESC']]
+                order: [['created_at', 'ASC']]  // 업로드 순서대로 (limit 제거)
               }
             ]
           }
@@ -1368,8 +1364,7 @@ exports.getSlotsByDate = async (req, res) => {
                 model: Image,
                 as: 'images',
                 attributes: ['id', 's3_url', 'file_name', 'created_at'],
-                limit: 1,
-                order: [['created_at', 'DESC']]
+                order: [['created_at', 'ASC']]  // 업로드 순서대로 (limit 제거)
               }
             ]
           }

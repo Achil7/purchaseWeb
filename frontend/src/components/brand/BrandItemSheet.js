@@ -14,6 +14,9 @@ import { downloadExcel, convertBrandSlotsToExcelData } from '../../utils/excelEx
 // Handsontable 모든 모듈 등록
 registerAllModules();
 
+// 슬롯 데이터 캐시 (캠페인 전환 최적화)
+const slotsCache = new Map();
+
 // 행 타입 상수 정의
 const ROW_TYPES = {
   ITEM_SEPARATOR: 'item_separator',      // 품목 구분선 (보라색, 높이 8px)
@@ -21,6 +24,143 @@ const ROW_TYPES = {
   PRODUCT_DATA: 'product_data',          // 제품 정보 데이터 행
   BUYER_HEADER: 'buyer_header',          // 구매자 컬럼 헤더 행
   BUYER_DATA: 'buyer_data',              // 구매자 데이터 행
+};
+
+// ========== 성능 최적화: 셀 렌더러 함수 (컴포넌트 외부 정의) ==========
+const brandItemSeparatorRenderer = (instance, td) => {
+  td.className = 'item-separator-row';
+  td.style.backgroundColor = '#1565c0';
+  td.style.height = '8px';
+  td.style.padding = '0';
+  td.innerHTML = '';
+  return td;
+};
+
+const brandProductHeaderRenderer = (instance, td, r, c, prop, value) => {
+  td.className = 'product-header-row';
+  td.style.backgroundColor = '#e0e0e0';
+  td.style.fontWeight = 'bold';
+  td.style.textAlign = 'center';
+  td.style.fontSize = '11px';
+  td.textContent = value ?? '';
+  return td;
+};
+
+const brandBuyerHeaderRenderer = (instance, td, r, c, prop, value) => {
+  td.className = 'buyer-header-row';
+  td.style.backgroundColor = '#f5f5f5';
+  td.style.fontWeight = 'bold';
+  td.style.textAlign = 'center';
+  td.style.fontSize = '11px';
+  td.textContent = value ?? '';
+  return td;
+};
+
+const createBrandProductDataRenderer = (tableData, collapsedItems, toggleItemCollapse, columnAlignments) => {
+  return (instance, td, r, c, prop, value) => {
+    const rowData = tableData[r];
+    td.className = 'product-data-row';
+    td.style.backgroundColor = '#fff8e1';
+    td.style.fontSize = '11px';
+
+    if (prop === 'col0') {
+      const itemId = rowData._itemId;
+      const dayGroup = rowData._dayGroup;
+      const collapseKey = `${itemId}_${dayGroup}`;
+      const isCollapsed = collapsedItems.has(collapseKey);
+      const status = rowData._completionStatus;
+
+      let completionBadge = '';
+      if (status?.isAllCompleted) {
+        completionBadge = '<span style="color: #388e3c; font-size: 12px; margin-left: 4px; font-weight: bold;">✓</span>';
+      } else if (status?.completed > 0) {
+        completionBadge = `<span style="color: #f57c00; font-size: 10px; margin-left: 4px;">${status.completed}/${status.total}</span>`;
+      }
+
+      td.innerHTML = `<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: #666;">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
+      td.style.textAlign = 'center';
+      td.style.cursor = 'pointer';
+      td.onclick = (e) => {
+        e.stopPropagation();
+        toggleItemCollapse(itemId, dayGroup);
+      };
+    } else if (prop === 'col2') {
+      td.textContent = value ?? '';
+      td.style.fontWeight = 'bold';
+      td.style.color = '#1565c0';
+    } else if (prop === 'col3') {
+      td.textContent = value ?? '';
+      td.style.fontWeight = 'bold';
+      td.style.color = '#1b5e20';
+    } else if (prop === 'col7' && value) {
+      td.textContent = value;
+      td.style.fontWeight = 'bold';
+      td.style.color = '#c2185b';
+    } else if (prop === 'col11' && value) {
+      const url = value.startsWith('http') ? value : `https://${value}`;
+      td.style.whiteSpace = 'nowrap';
+      td.style.overflow = 'hidden';
+      td.style.textOverflow = 'ellipsis';
+      td.title = value;
+      td.innerHTML = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${value}</a>`;
+    } else {
+      td.textContent = value ?? '';
+    }
+
+    if (columnAlignments[c] && !td.style.textAlign) {
+      td.style.textAlign = columnAlignments[c];
+    }
+
+    return td;
+  };
+};
+
+const createBrandBuyerDataRenderer = (tableData, columnAlignments) => {
+  return (instance, td, r, c, prop, value) => {
+    const rowData = tableData[r];
+    const hasReviewImage = rowData._reviewImageUrl;
+    td.className = hasReviewImage ? 'has-review' : 'no-review';
+    td.style.fontSize = '11px';
+
+    if (prop === 'col0') {
+      td.textContent = '';
+    } else if (prop === 'col2') {
+      td.textContent = value ?? '';
+      td.style.fontWeight = 'bold';
+    } else if (prop === 'col5') {
+      td.textContent = value ?? '';
+      td.style.color = '#666';
+    } else if (prop === 'col6' && value) {
+      const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
+      td.textContent = numValue ? numValue.toLocaleString() + '원' : value;
+      td.style.fontWeight = 'bold';
+      td.style.color = '#c2185b';
+    } else if (prop === 'col7') {
+      td.textContent = value ?? '';
+      if (value) {
+        td.style.color = '#1565c0';
+      }
+    } else if (prop === 'col8') {
+      const images = rowData._reviewImages || [];
+      const imageCount = images.length;
+      if (imageCount > 0) {
+        const displayText = imageCount > 1 ? `리뷰 보기 (${imageCount})` : '리뷰 보기';
+        td.innerHTML = `<a href="#" class="review-link" data-row="${r}" style="color: #2e7d32; text-decoration: underline; cursor: pointer; font-size: 11px; font-weight: bold;">${displayText}</a>`;
+        td.style.textAlign = 'center';
+      } else {
+        td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
+        td.style.textAlign = 'center';
+      }
+    } else {
+      td.textContent = value ?? '';
+    }
+
+    if (columnAlignments[c] && !td.style.textAlign) {
+      td.style.textAlign = columnAlignments[c];
+    }
+
+    return td;
+  };
 };
 
 // 기본 컬럼 너비 - 14개 컬럼 (브랜드사 전용)
@@ -158,8 +298,8 @@ function BrandItemSheet({
     });
   }, [saveColumnAlignments]);
 
-  // 컬럼 크기 변경 시 저장
-  const handleColumnResize = useCallback((newSize, column) => {
+  // 컬럼 크기 변경 시 저장 (state 업데이트 없이 localStorage만 저장 - 스크롤 점프 방지)
+  const handleColumnResize = useCallback(() => {
     const hot = hotRef.current?.hotInstance;
     if (!hot) return;
 
@@ -168,9 +308,7 @@ function BrandItemSheet({
       widths.push(hot.getColWidth(i));
     }
 
-    // state 업데이트
-    setColumnWidths(widths);
-
+    // localStorage에만 저장 (state 업데이트 시 리렌더링으로 스크롤 점프 발생)
     try {
       localStorage.setItem(COLUMN_WIDTHS_KEY, JSON.stringify(widths));
     } catch (e) {
@@ -210,18 +348,64 @@ function BrandItemSheet({
   }, [slots, campaignName]);
 
   // 캠페인별 슬롯 데이터 로드 (Brand 전용)
-  const loadSlots = useCallback(async () => {
-    if (!campaignId) {
+  // 성능 최적화: 의존성 배열을 비워서 함수 재생성 방지, campaignId는 파라미터로 전달
+  const loadSlots = useCallback(async (targetCampaignId, targetViewAsUserId, forceRefresh = false) => {
+    if (!targetCampaignId) {
+      return;
+    }
+
+    // 캐시 키 생성
+    const cacheKey = `brand_${targetCampaignId}_${targetViewAsUserId || ''}`;
+
+    // 캐시 확인 (forceRefresh가 아닌 경우)
+    if (!forceRefresh && slotsCache.has(cacheKey)) {
+      const cached = slotsCache.get(cacheKey);
+      setSlots(cached.slots);
+
+      // localStorage에서 접기 상태 복원 (day_group별 키 사용)
+      const allKeys = new Set();
+      cached.slots.forEach(s => {
+        const key = `${s.item_id}_${s.day_group || 1}`;
+        allKeys.add(key);
+      });
+      const collapsedKey = `brand_itemsheet_collapsed_items_${targetCampaignId}`;
+      try {
+        const saved = localStorage.getItem(collapsedKey);
+        if (saved) {
+          const savedKeys = JSON.parse(saved);
+          const validKeys = savedKeys.filter(key => allKeys.has(key));
+          setCollapsedItems(new Set(validKeys));
+        } else {
+          setCollapsedItems(new Set());
+        }
+      } catch (e) {
+        setCollapsedItems(new Set());
+      }
+
+      // localStorage에서 컬럼 너비 복원
+      const widthKey = `brand_itemsheet_column_widths_${targetCampaignId}`;
+      try {
+        const savedWidths = localStorage.getItem(widthKey);
+        if (savedWidths) {
+          setColumnWidths(JSON.parse(savedWidths));
+        } else {
+          setColumnWidths(DEFAULT_COLUMN_WIDTHS);
+        }
+      } catch (e) {
+        setColumnWidths(DEFAULT_COLUMN_WIDTHS);
+      }
+
+      setLoading(false);
       return;
     }
 
     setLoading(true);
     try {
       const params = { viewAsRole: 'brand' };
-      if (viewAsUserId) {
-        params.viewAsUserId = viewAsUserId;
+      if (targetViewAsUserId) {
+        params.viewAsUserId = targetViewAsUserId;
       }
-      const response = await itemSlotService.getSlotsByCampaign(campaignId, params);
+      const response = await itemSlotService.getSlotsByCampaign(targetCampaignId, params);
       if (response.success) {
         // 모든 슬롯 표시 (임시 구매자만 제외)
         const allSlots = (response.data || []).filter(slot => {
@@ -230,15 +414,22 @@ function BrandItemSheet({
         });
         setSlots(allSlots);
 
-        // API 응답 직후 localStorage에서 접기 상태 복원
-        const allItemIds = [...new Set(allSlots.map(s => s.item_id))];
-        const collapsedKey = `brand_itemsheet_collapsed_items_${campaignId}`;
+        // 캐시에 저장
+        slotsCache.set(cacheKey, { slots: allSlots, timestamp: Date.now() });
+
+        // API 응답 직후 localStorage에서 접기 상태 복원 (day_group별 키 사용)
+        const allKeys = new Set();
+        allSlots.forEach(s => {
+          const key = `${s.item_id}_${s.day_group || 1}`;
+          allKeys.add(key);
+        });
+        const collapsedKey = `brand_itemsheet_collapsed_items_${targetCampaignId}`;
         try {
           const saved = localStorage.getItem(collapsedKey);
           if (saved) {
-            const savedIds = JSON.parse(saved);
-            const validIds = savedIds.filter(id => allItemIds.includes(id));
-            setCollapsedItems(new Set(validIds));
+            const savedKeys = JSON.parse(saved);
+            const validKeys = savedKeys.filter(key => allKeys.has(key));
+            setCollapsedItems(new Set(validKeys));
           } else {
             setCollapsedItems(new Set());
           }
@@ -247,7 +438,7 @@ function BrandItemSheet({
         }
 
         // API 응답 직후 localStorage에서 컬럼 너비 복원
-        const widthKey = `brand_itemsheet_column_widths_${campaignId}`;
+        const widthKey = `brand_itemsheet_column_widths_${targetCampaignId}`;
         try {
           const savedWidths = localStorage.getItem(widthKey);
           if (savedWidths) {
@@ -266,15 +457,15 @@ function BrandItemSheet({
     } finally {
       setLoading(false);
     }
-  }, [campaignId, viewAsUserId]);
+  }, []); // 의존성 배열 비움 - 함수 재생성 방지
 
   useEffect(() => {
     if (campaignId) {
       // 캠페인 변경 시 이전 slots 데이터를 즉시 초기화
       setSlots([]);
-      loadSlots();
+      loadSlots(campaignId, viewAsUserId);
     }
-  }, [campaignId, loadSlots]);
+  }, [campaignId, viewAsUserId, loadSlots]);
 
   // 접기 상태 복원은 loadSlots 함수 내에서 API 응답 직후 처리됨
 
@@ -310,22 +501,30 @@ function BrandItemSheet({
     return () => rootElement.removeEventListener('wheel', handleWheel, { capture: true });
   }, [slots]);
 
-  // Handsontable 데이터 변환 - 제품 테이블 + 구매자 테이블 구조
-  const { tableData, slotIndexMap } = useMemo(() => {
+  // 성능 최적화: 2단계로 분리하여 캠페인 변경 시 불필요한 재계산 방지
+  // 1단계: 기본 데이터 구조 생성 (slots, reviewFilter만 의존)
+  // day_group별로 분리하여 영업사/진행자와 동일한 구조로 표시
+  const { baseTableData, baseSlotIndexMap } = useMemo(() => {
     const data = [];
     const indexMap = {}; // tableRow -> slotId
 
-    // 슬롯을 품목별로 그룹화
+    // 슬롯을 품목별 + day_group별로 그룹화
     const itemGroups = {};
     slots.forEach((slot) => {
       const itemId = slot.item_id;
       if (!itemGroups[itemId]) {
         itemGroups[itemId] = {
           item: slot.item,
+          dayGroups: {}
+        };
+      }
+      const dayGroup = slot.day_group || 1;
+      if (!itemGroups[itemId].dayGroups[dayGroup]) {
+        itemGroups[itemId].dayGroups[dayGroup] = {
           slots: []
         };
       }
-      itemGroups[itemId].slots.push(slot);
+      itemGroups[itemId].dayGroups[dayGroup].slots.push(slot);
     });
 
     let isFirstItem = true;
@@ -333,77 +532,102 @@ function BrandItemSheet({
     // 품목별로 행 생성
     Object.entries(itemGroups).forEach(([itemId, itemGroup]) => {
       const item = itemGroup.item || {};
+      const mergedItem = { ...item };
 
-      // 리뷰샷 필터 적용
-      let filteredSlots = itemGroup.slots;
-      if (reviewFilter === 'with_review') {
-        filteredSlots = itemGroup.slots.filter(slot => slot.buyer?.images?.length > 0);
-      } else if (reviewFilter === 'without_review') {
-        filteredSlots = itemGroup.slots.filter(slot => !slot.buyer?.images || slot.buyer.images.length === 0);
-      }
+      // 일차별로 제품 정보 + 구매자 정보 반복
+      const dayGroupKeys = Object.keys(itemGroup.dayGroups).sort((a, b) => parseInt(a) - parseInt(b));
 
-      // 필터링 후 슬롯이 없으면 이 품목은 표시하지 않음
-      if (filteredSlots.length === 0) {
-        return;
-      }
+      dayGroupKeys.forEach((dayGroup, dayGroupIndex) => {
+        const groupData = itemGroup.dayGroups[dayGroup];
 
-      // 품목별 완료 상태 계산 (전체 슬롯 vs 리뷰샷 완료)
-      const totalSlots = itemGroup.slots.length;
-      const completedSlots = itemGroup.slots.filter(
-        slot => slot.buyer?.images?.length > 0
-      ).length;
-      const isAllCompleted = totalSlots > 0 && totalSlots === completedSlots;
+        // 리뷰샷 필터 적용
+        let filteredSlots = groupData.slots;
+        if (reviewFilter === 'with_review') {
+          filteredSlots = groupData.slots.filter(slot => slot.buyer?.images?.length > 0);
+        } else if (reviewFilter === 'without_review') {
+          filteredSlots = groupData.slots.filter(slot => !slot.buyer?.images || slot.buyer.images.length === 0);
+        }
 
-      // 첫 번째 품목이 아닌 경우 품목 구분선 추가
-      if (!isFirstItem) {
-        data.push({ _rowType: ROW_TYPES.ITEM_SEPARATOR });
-      }
-      isFirstItem = false;
+        // 필터링 후 슬롯이 없으면 이 day_group은 표시하지 않음
+        if (filteredSlots.length === 0) {
+          return;
+        }
 
-      // 제품 헤더 행 (14개 컬럼) - 브랜드사 전용 (순번 대신 플랫폼 표시)
-      // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, 특이사항, 상세
-      data.push({
-        _rowType: ROW_TYPES.PRODUCT_HEADER,
-        col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
-        col7: '가격', col8: '총건수', col9: '일건수', col10: '택배대행', col11: 'URL', col12: '특이사항', col13: '상세'
-      });
+        // day_group별 완료 상태 계산
+        const totalSlots = groupData.slots.length;
+        const completedSlots = groupData.slots.filter(
+          slot => slot.buyer?.images?.length > 0
+        ).length;
+        const isAllCompleted = totalSlots > 0 && totalSlots === completedSlots;
 
-      // 제품 데이터 행 (14개 컬럼) - 브랜드사 전용 (순번 대신 플랫폼 표시)
-      data.push({
-        _rowType: ROW_TYPES.PRODUCT_DATA,
-        _itemId: parseInt(itemId),
-        _item: item,  // 전체 아이템 정보 저장
-        _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
-        col0: '',  // 토글 버튼
-        col1: item.date || '',  // 날짜
-        col2: item.platform || '-',  // 플랫폼 (순번 대신)
-        col3: item.product_name || '',  // 제품명
-        col4: item.purchase_option || '',  // 옵션
-        col5: item.shipping_type || '',  // 출고
-        col6: item.keyword || '',  // 키워드
-        col7: item.product_price || '',  // 가격 (합쳐진 제품은 텍스트 그대로 표시)
-        col8: item.total_purchase_count || '',  // 총건수
-        col9: item.daily_purchase_count || '',  // 일건수
-        col10: item.courier_service_yn || '',  // 택배대행
-        col11: item.product_url || '',  // URL
-        col12: item.notes || '',  // 특이사항
-        col13: '📋'  // 상세보기 버튼
-      });
+        // day_group별 독립 제품 정보: 슬롯 값 > Item 값 (우선순위)
+        const firstSlot = groupData.slots[0] || {};
+        const dayGroupProductInfo = {
+          date: firstSlot.date || '',
+          product_name: firstSlot.product_name || mergedItem.product_name || '',
+          platform: firstSlot.platform || mergedItem.platform || '-',
+          shipping_type: firstSlot.shipping_type || mergedItem.shipping_type || '',
+          keyword: firstSlot.keyword || mergedItem.keyword || '',
+          product_price: firstSlot.product_price || mergedItem.product_price || '',
+          total_purchase_count: firstSlot.total_purchase_count || mergedItem.total_purchase_count || '',
+          daily_purchase_count: firstSlot.daily_purchase_count || mergedItem.daily_purchase_count || '',
+          purchase_option: firstSlot.purchase_option || mergedItem.purchase_option || '',
+          courier_service_yn: firstSlot.courier_service_yn || mergedItem.courier_service_yn || '',
+          product_url: firstSlot.product_url || mergedItem.product_url || '',
+          notes: firstSlot.notes || mergedItem.notes || ''
+        };
 
-      // 접힌 상태가 아닐 때만 구매자 정보 표시
-      const isCollapsed = collapsedItems.has(parseInt(itemId));
+        // 첫 번째 품목의 첫 번째 일차가 아닌 경우 품목 구분선 추가
+        if (!isFirstItem || dayGroupIndex > 0) {
+          data.push({ _rowType: ROW_TYPES.ITEM_SEPARATOR, _itemId: parseInt(itemId), _dayGroup: parseInt(dayGroup) });
+        }
+        if (dayGroupIndex === 0) {
+          isFirstItem = false;
+        }
 
-      if (!isCollapsed) {
-        // 구매자 헤더 행 (14개 컬럼)
+        // 제품 헤더 행 (14개 컬럼) - 브랜드사 전용
+        data.push({
+          _rowType: ROW_TYPES.PRODUCT_HEADER,
+          _itemId: parseInt(itemId),
+          _dayGroup: parseInt(dayGroup),
+          col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
+          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배대행', col11: 'URL', col12: '특이사항', col13: '상세'
+        });
+
+        // 제품 데이터 행 (14개 컬럼)
+        data.push({
+          _rowType: ROW_TYPES.PRODUCT_DATA,
+          _itemId: parseInt(itemId),
+          _dayGroup: parseInt(dayGroup),
+          _item: item,
+          _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
+          col0: '',
+          col1: dayGroupProductInfo.date,
+          col2: dayGroupProductInfo.platform,
+          col3: dayGroupProductInfo.product_name,
+          col4: dayGroupProductInfo.purchase_option,
+          col5: dayGroupProductInfo.shipping_type,
+          col6: dayGroupProductInfo.keyword,
+          col7: dayGroupProductInfo.product_price,
+          col8: dayGroupProductInfo.total_purchase_count,
+          col9: dayGroupProductInfo.daily_purchase_count,
+          col10: dayGroupProductInfo.courier_service_yn,
+          col11: dayGroupProductInfo.product_url,
+          col12: dayGroupProductInfo.notes,
+          col13: '📋'
+        });
+
+        // 구매자 헤더 행 (14개 컬럼) - 항상 포함
         data.push({
           _rowType: ROW_TYPES.BUYER_HEADER,
           _itemId: parseInt(itemId),
+          _dayGroup: parseInt(dayGroup),
           col0: '', col1: '주문번호', col2: '구매자', col3: '수취인', col4: '아이디', col5: '주소', col6: '금액', col7: '송장번호', col8: '리뷰샷',
           col9: '', col10: '', col11: '', col12: '', col13: ''
         });
 
-        // 구매자 데이터 행 (필터링된 슬롯만)
-        filteredSlots.forEach((slot, slotIndex) => {
+        // 구매자 데이터 행 - 항상 포함
+        filteredSlots.forEach((slot) => {
           const buyer = slot.buyer || {};
           const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
 
@@ -413,37 +637,79 @@ function BrandItemSheet({
             _rowType: ROW_TYPES.BUYER_DATA,
             _slotId: slot.id,
             _itemId: parseInt(itemId),
+            _dayGroup: parseInt(dayGroup),
             _buyerId: buyer.id || null,
             _buyer: buyer,
-            _reviewImages: buyer.images || [],  // 전체 이미지 배열
+            _reviewImages: buyer.images || [],
             _reviewImageUrl: reviewImage?.s3_url || '',
             _reviewImageName: reviewImage?.file_name || '',
-            col0: '',  // 빈칸 (순번은 표시 안 함)
+            col0: '',
             col1: buyer.order_number || '',
             col2: buyer.buyer_name || '',
             col3: buyer.recipient_name || '',
             col4: buyer.user_id || '',
-            col5: buyer.address || '',  // 주소
+            col5: buyer.address || '',
             col6: buyer.amount || '',
             col7: buyer.tracking_number || '',
-            col8: reviewImage?.s3_url || '',  // 리뷰샷
+            col8: reviewImage?.s3_url || '',
             col9: '', col10: '', col11: '', col12: '', col13: ''
           });
         });
+      });
+    });
+
+    return { baseTableData: data, baseSlotIndexMap: indexMap };
+  }, [slots, reviewFilter]); // collapsedItems 제거 - 캠페인 변경 시 재계산 방지
+
+  // 2단계: 접기 상태 적용 (가벼운 필터링만 수행)
+  // day_group별로 접기/펼치기 처리 (itemId_dayGroup 형식의 키 사용)
+  const { tableData, slotIndexMap } = useMemo(() => {
+    // 접힌 품목이 없으면 그대로 반환 (최적화)
+    if (collapsedItems.size === 0) {
+      return { tableData: baseTableData, slotIndexMap: baseSlotIndexMap };
+    }
+
+    const data = [];
+    const indexMap = {};
+    let currentCollapsedKey = null;
+
+    baseTableData.forEach((row, originalIndex) => {
+      const itemId = row._itemId;
+      const dayGroup = row._dayGroup;
+      const collapseKey = `${itemId}_${dayGroup}`;
+
+      // 제품 데이터 행에서 접힘 상태 확인
+      if (row._rowType === ROW_TYPES.PRODUCT_DATA) {
+        currentCollapsedKey = collapsedItems.has(collapseKey) ? collapseKey : null;
       }
+
+      // 접힌 품목의 구매자 행은 제외
+      if (currentCollapsedKey !== null &&
+          (row._rowType === ROW_TYPES.BUYER_HEADER || row._rowType === ROW_TYPES.BUYER_DATA) &&
+          `${row._itemId}_${row._dayGroup}` === currentCollapsedKey) {
+        return; // skip
+      }
+
+      // slotIndexMap 업데이트
+      if (row._rowType === ROW_TYPES.BUYER_DATA && baseSlotIndexMap[originalIndex]) {
+        indexMap[data.length] = baseSlotIndexMap[originalIndex];
+      }
+
+      data.push(row);
     });
 
     return { tableData: data, slotIndexMap: indexMap };
-  }, [slots, collapsedItems, reviewFilter]);
+  }, [baseTableData, baseSlotIndexMap, collapsedItems]);
 
-  // 개별 품목 접기/펼치기 토글
-  const toggleItemCollapse = useCallback((itemId) => {
+  // 개별 품목(day_group별) 접기/펼치기 토글
+  const toggleItemCollapse = useCallback((itemId, dayGroup) => {
+    const collapseKey = `${itemId}_${dayGroup}`;
     setCollapsedItems(prev => {
       const next = new Set(prev);
-      if (next.has(itemId)) {
-        next.delete(itemId);
+      if (next.has(collapseKey)) {
+        next.delete(collapseKey);
       } else {
-        next.add(itemId);
+        next.add(collapseKey);
       }
       saveCollapsedItems(next);
       return next;
@@ -459,12 +725,14 @@ function BrandItemSheet({
 
   // 모두 접기
   const collapseAll = useCallback(() => {
-    const allItemIds = slots
-      .map(s => s.item_id)
-      .filter((id, idx, arr) => arr.indexOf(id) === idx);
-    const allCollapsed = new Set(allItemIds);
-    setCollapsedItems(allCollapsed);
-    saveCollapsedItems(allCollapsed);
+    // day_group별 키 수집 (itemId_dayGroup 형식)
+    const allKeys = new Set();
+    slots.forEach(s => {
+      const key = `${s.item_id}_${s.day_group || 1}`;
+      allKeys.add(key);
+    });
+    setCollapsedItems(allKeys);
+    saveCollapsedItems(allKeys);
   }, [slots, saveCollapsedItems]);
 
   // 컬럼 정의
@@ -496,7 +764,18 @@ function BrandItemSheet({
   // 컬럼 헤더
   const colHeaders = Array(15).fill('');
 
-  // 셀 렌더러 - 행 타입별 분기
+  // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
+  const productDataRenderer = useMemo(() =>
+    createBrandProductDataRenderer(tableData, collapsedItems, toggleItemCollapse, columnAlignments),
+    [tableData, collapsedItems, toggleItemCollapse, columnAlignments]
+  );
+
+  const buyerDataRenderer = useMemo(() =>
+    createBrandBuyerDataRenderer(tableData, columnAlignments),
+    [tableData, columnAlignments]
+  );
+
+  // 셀 렌더러 - 행 타입별 분기 (최적화: 외부 정의 렌더러 사용)
   const cellsRenderer = useCallback((row, col, prop) => {
     const cellProperties = {};
 
@@ -511,175 +790,29 @@ function BrandItemSheet({
     switch (rowType) {
       case ROW_TYPES.ITEM_SEPARATOR:
         cellProperties.readOnly = true;
-        cellProperties.renderer = function(instance, td) {
-          td.className = 'item-separator-row';
-          td.style.backgroundColor = '#1565c0';  // 파란색 (Operator/Sales와 동일)
-          td.style.height = '8px';
-          td.style.padding = '0';
-          td.innerHTML = '';
-          return td;
-        };
+        cellProperties.renderer = brandItemSeparatorRenderer;
         break;
 
       case ROW_TYPES.PRODUCT_HEADER:
         cellProperties.readOnly = true;
-        cellProperties.renderer = function(instance, td, r, c, prop, value) {
-          td.className = 'product-header-row';
-          td.style.backgroundColor = '#e0e0e0';  // 회색 배경 (Operator/Sales와 동일)
-          td.style.fontWeight = 'bold';
-          td.style.textAlign = 'center';
-          td.style.fontSize = '11px';
-          td.textContent = value ?? '';
-          return td;
-        };
+        cellProperties.renderer = brandProductHeaderRenderer;
         break;
 
       case ROW_TYPES.PRODUCT_DATA:
         cellProperties.readOnly = true;
-        cellProperties.renderer = function(instance, td, r, c, prop, value) {
-          td.className = 'product-data-row';
-          td.style.backgroundColor = '#fff8e1';  // 연노랑 (Operator/Sales와 동일)
-          td.style.fontSize = '11px';
-
-          // col0 - 토글 아이콘 + 완료 배지 표시
-          if (prop === 'col0') {
-            const itemId = rowData._itemId;
-            const isCollapsed = collapsedItems.has(itemId);
-            const status = rowData._completionStatus;
-
-            let completionBadge = '';
-            if (status?.isAllCompleted) {
-              completionBadge = '<span style="color: #388e3c; font-size: 12px; margin-left: 4px; font-weight: bold;">✓</span>';
-            } else if (status?.completed > 0) {
-              completionBadge = `<span style="color: #f57c00; font-size: 10px; margin-left: 4px;">${status.completed}/${status.total}</span>`;
-            }
-
-            td.innerHTML = `<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: #666;">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
-            td.style.textAlign = 'center';
-            td.style.cursor = 'pointer';
-            td.onclick = (e) => {
-              e.stopPropagation();
-              toggleItemCollapse(itemId);
-            };
-          }
-          // col2 - 플랫폼 (볼드, 파란색)
-          else if (prop === 'col2') {
-            td.textContent = value ?? '';
-            td.style.fontWeight = 'bold';
-            td.style.color = '#1565c0';
-          }
-          // col3 - 제품명 (볼드, 녹색)
-          else if (prop === 'col3') {
-            td.textContent = value ?? '';
-            td.style.fontWeight = 'bold';
-            td.style.color = '#1b5e20';  // 진한 녹색
-          }
-          // col7 - 가격 (숫자 포맷)
-          else if (prop === 'col7' && value) {
-            td.textContent = value;
-            td.style.fontWeight = 'bold';
-            td.style.color = '#c2185b';
-          }
-          // col11 - URL 하이퍼링크 (행 높이 고정을 위해 텍스트 오버플로우 처리)
-          else if (prop === 'col11' && value) {
-            const url = value.startsWith('http') ? value : `https://${value}`;
-            td.style.whiteSpace = 'nowrap';
-            td.style.overflow = 'hidden';
-            td.style.textOverflow = 'ellipsis';
-            td.title = value;  // 툴팁으로 전체 URL 표시
-            td.innerHTML = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${value}</a>`;
-          }
-          else {
-            td.textContent = value ?? '';
-          }
-
-          // 사용자 정의 정렬 적용 (기존 정렬 스타일이 없는 경우에만)
-          if (columnAlignments[c] && !td.style.textAlign) {
-            td.style.textAlign = columnAlignments[c];
-          }
-
-          return td;
-        };
+        cellProperties.renderer = productDataRenderer;
         break;
 
       case ROW_TYPES.BUYER_HEADER:
         cellProperties.readOnly = true;
-        cellProperties.renderer = function(instance, td, r, c, prop, value) {
-          td.className = 'buyer-header-row';
-          td.style.backgroundColor = '#f5f5f5';
-          td.style.fontWeight = 'bold';
-          td.style.textAlign = 'center';
-          td.style.fontSize = '11px';
-          td.textContent = value ?? '';
-          return td;
-        };
+        cellProperties.renderer = brandBuyerHeaderRenderer;
         break;
 
       case ROW_TYPES.BUYER_DATA:
         cellProperties.readOnly = true;
         const hasReviewImage = rowData._reviewImageUrl;
         cellProperties.className = hasReviewImage ? 'has-review' : 'no-review';
-
-        cellProperties.renderer = function(instance, td, r, c, prop, value) {
-          td.className = hasReviewImage ? 'has-review' : 'no-review';
-          td.style.fontSize = '11px';
-
-          // col0 - 빈칸
-          if (prop === 'col0') {
-            td.textContent = '';
-          }
-          // col2 - 구매자 (볼드)
-          else if (prop === 'col2') {
-            td.textContent = value ?? '';
-            td.style.fontWeight = 'bold';
-          }
-          // col5 - 주소
-          else if (prop === 'col5') {
-            td.textContent = value ?? '';
-            td.style.color = '#666';
-          }
-          // col6 - 금액 (숫자 포맷)
-          else if (prop === 'col6' && value) {
-            const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
-            td.textContent = numValue ? numValue.toLocaleString() + '원' : value;
-            td.style.fontWeight = 'bold';
-            td.style.color = '#c2185b';
-          }
-          // col7 - 송장번호
-          else if (prop === 'col7') {
-            td.textContent = value ?? '';
-            if (value) {
-              td.style.color = '#1565c0';
-            }
-          }
-          // col8 - 리뷰샷 ("리뷰 보기" 링크 + 이미지 개수)
-          else if (prop === 'col8') {
-            const images = rowData._reviewImages || [];
-            const imageCount = images.length;
-            if (imageCount > 0) {
-              const displayText = imageCount > 1 ? `리뷰 보기 (${imageCount})` : '리뷰 보기';
-              td.innerHTML = `<a
-                href="#"
-                class="review-link"
-                data-row="${row}"
-                style="color: #2e7d32; text-decoration: underline; cursor: pointer; font-size: 11px; font-weight: bold;"
-              >${displayText}</a>`;
-              td.style.textAlign = 'center';
-            } else {
-              td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
-              td.style.textAlign = 'center';
-            }
-          } else {
-            td.textContent = value ?? '';
-          }
-
-          // 사용자 정의 정렬 적용 (기존 정렬 스타일이 없는 경우에만)
-          if (columnAlignments[c] && !td.style.textAlign) {
-            td.style.textAlign = columnAlignments[c];
-          }
-
-          return td;
-        };
+        cellProperties.renderer = buyerDataRenderer;
         break;
 
       default:
@@ -687,7 +820,7 @@ function BrandItemSheet({
     }
 
     return cellProperties;
-  }, [tableData, collapsedItems, toggleItemCollapse, columnAlignments]);
+  }, [tableData, productDataRenderer, buyerDataRenderer]);
 
   // 전체 데이터 건수 (원본 slots 기준)
   const totalDataCount = useMemo(() => {
@@ -904,10 +1037,12 @@ function BrandItemSheet({
             height="calc(100vh - 210px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
-            autoRowSize={true}
-            viewportRowRenderingOffset={50}
+            autoRowSize={false}
+            autoColumnSize={false}
+            viewportRowRenderingOffset={100}
             manualColumnResize={true}
             manualRowResize={false}
+            minSpareRows={0}
             readOnly={true}
             disableVisualSelection={false}
             filters={true}
@@ -1002,6 +1137,7 @@ function BrandItemSheet({
             autoWrapCol={false}
             afterColumnResize={handleColumnResize}
             rowHeights={23}
+            autoScrollOnSelection={false}
           />
         ) : (
           <Box sx={{

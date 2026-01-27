@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import {
   Box, Typography, Paper, TextField, Button, Alert, CircularProgress,
   Container, IconButton, Checkbox, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow
+  TableContainer, TableHead, TableRow, Chip
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -28,7 +28,7 @@ function UploadPage({ isSlotUpload = false }) {
   const [selectedBuyers, setSelectedBuyers] = useState([]);
 
   // 3단계: 이미지 업로드
-  const [buyerFiles, setBuyerFiles] = useState({}); // { buyerId: File }
+  const [buyerFiles, setBuyerFiles] = useState({}); // { buyerId: File[] }
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [uploadError, setUploadError] = useState(null);
@@ -124,25 +124,40 @@ function UploadPage({ isSlotUpload = false }) {
   // 파일 선택
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-  const handleFileSelect = (buyerId, file) => {
-    if (!file) return;
+  const handleFileSelect = (buyerId, files) => {
+    if (!files || files.length === 0) return;
 
-    if (!file.type.startsWith('image/')) {
-      setUploadError(`${file.name}: 이미지 파일만 업로드 가능합니다.`);
-      return;
-    }
+    const fileArray = Array.from(files);
+    const validFiles = [];
 
-    if (file.size > MAX_FILE_SIZE) {
-      const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
-      setUploadError(`${file.name} (${sizeMB}MB): 파일 크기가 10MB를 초과합니다.`);
-      return;
+    for (const file of fileArray) {
+      if (!file.type.startsWith('image/')) {
+        setUploadError(`${file.name}: 이미지 파일만 업로드 가능합니다.`);
+        return;
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        setUploadError(`${file.name} (${sizeMB}MB): 파일 크기가 10MB를 초과합니다.`);
+        return;
+      }
+
+      validFiles.push(file);
     }
 
     setBuyerFiles(prev => ({
       ...prev,
-      [buyerId]: file
+      [buyerId]: [...(prev[buyerId] || []), ...validFiles]
     }));
     setUploadError(null);
+  };
+
+  // 개별 파일 삭제
+  const removeFile = (buyerId, fileIndex) => {
+    setBuyerFiles(prev => ({
+      ...prev,
+      [buyerId]: prev[buyerId].filter((_, idx) => idx !== fileIndex)
+    }));
   };
 
   // 붙여넣기 처리 (Ctrl+V)
@@ -150,15 +165,19 @@ function UploadPage({ isSlotUpload = false }) {
     const items = e.clipboardData?.items;
     if (!items) return;
 
+    const files = [];
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
         if (file) {
-          handleFileSelect(buyerId, file);
-          e.preventDefault();
-          return;
+          files.push(file);
         }
       }
+    }
+
+    if (files.length > 0) {
+      handleFileSelect(buyerId, files);
+      e.preventDefault();
     }
   };
 
@@ -166,9 +185,9 @@ function UploadPage({ isSlotUpload = false }) {
   const handleDrop = (buyerId) => (e) => {
     e.preventDefault();
     e.stopPropagation();
-    const file = e.dataTransfer?.files?.[0];
-    if (file) {
-      handleFileSelect(buyerId, file);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      handleFileSelect(buyerId, files);
     }
   };
 
@@ -180,7 +199,7 @@ function UploadPage({ isSlotUpload = false }) {
   // 업로드 처리
   const handleUpload = async () => {
     // 선택된 구매자 모두에 대해 파일이 있는지 확인
-    const missingFiles = selectedBuyers.filter(b => !buyerFiles[b.id]);
+    const missingFiles = selectedBuyers.filter(b => !buyerFiles[b.id] || buyerFiles[b.id].length === 0);
     if (missingFiles.length > 0) {
       setUploadError(`모든 선택한 주문에 이미지를 추가해주세요. (${missingFiles.length}개 누락)`);
       return;
@@ -190,24 +209,40 @@ function UploadPage({ isSlotUpload = false }) {
       setUploading(true);
       setUploadError(null);
 
-      // 선택 순서대로 buyerIds와 files 배열 생성
-      const buyerIds = selectedBuyers.map(b => b.id);
-      const files = selectedBuyers.map(b => buyerFiles[b.id]);
+      // buyerId별 파일 배열을 평탄화하여 매핑 정보와 함께 전송
+      const uploadData = [];
+      selectedBuyers.forEach(buyer => {
+        const files = buyerFiles[buyer.id] || [];
+        files.forEach(file => {
+          uploadData.push({ buyerId: buyer.id, file });
+        });
+      });
+
+      const buyerIds = uploadData.map(d => d.buyerId);  // [1, 1, 2, 2, 2] 형태 가능
+      const files = uploadData.map(d => d.file);
 
       await imageService.uploadImages(token, buyerIds, files);
 
       setUploadSuccess(true);
       // 성공 후 초기화
+      const uploadedBuyerIds = selectedBuyers.map(b => b.id);
       setSelectedBuyers([]);
       setBuyerFiles({});
-      // 검색 결과에서 업로드된 구매자 제거
-      setSearchResults(prev => prev.filter(b => !buyerIds.includes(b.id)));
+      // 검색 결과에서 업로드된 구매자를 hasImage로 표시 (재검색하면 재제출 가능 상태로)
+      setSearchResults(prev => prev.map(b =>
+        uploadedBuyerIds.includes(b.id) ? { ...b, hasImage: true } : b
+      ));
     } catch (err) {
       console.error('Upload failed:', err);
       setUploadError(err.response?.data?.message || '이미지 업로드에 실패했습니다.');
     } finally {
       setUploading(false);
     }
+  };
+
+  // 총 업로드 파일 수 계산
+  const getTotalFileCount = () => {
+    return Object.values(buyerFiles).reduce((sum, files) => sum + (files?.length || 0), 0);
   };
 
   // 로딩 중
@@ -318,34 +353,33 @@ function UploadPage({ isSlotUpload = false }) {
                       return (
                         <TableRow
                           key={buyer.id}
-                          hover={!hasImage}
-                          onClick={() => !hasImage && handleToggleBuyer(buyer)}
+                          hover
+                          onClick={() => handleToggleBuyer(buyer)}
                           sx={{
-                            cursor: hasImage ? 'not-allowed' : 'pointer',
-                            bgcolor: hasImage ? '#f5f5f5' : (isSelected ? '#e3f2fd' : 'inherit'),
-                            opacity: hasImage ? 0.6 : 1
+                            cursor: 'pointer',
+                            bgcolor: hasImage
+                              ? (isSelected ? '#fff3e0' : '#fff8e1')
+                              : (isSelected ? '#e3f2fd' : 'inherit')
                           }}
                         >
                           <TableCell padding="checkbox">
-                            <Checkbox checked={isSelected} disabled={hasImage} />
+                            <Checkbox checked={isSelected} />
                           </TableCell>
-                          <TableCell sx={{ color: hasImage ? 'text.disabled' : 'inherit' }}>
+                          <TableCell>
                             {buyer.order_number || '-'}
                           </TableCell>
-                          <TableCell sx={{ color: hasImage ? 'text.disabled' : 'inherit' }}>
+                          <TableCell>
                             {buyer.buyer_name || '-'}
                           </TableCell>
-                          <TableCell sx={{ color: hasImage ? 'text.disabled' : 'inherit' }}>
+                          <TableCell>
                             {buyer.recipient_name || '-'}
                           </TableCell>
-                          <TableCell sx={{ color: hasImage ? 'text.disabled' : 'inherit' }}>
+                          <TableCell>
                             {buyer.user_id || '-'}
                           </TableCell>
                           <TableCell>
                             {hasImage ? (
-                              <Typography variant="caption" color="success.main" fontWeight="bold">
-                                업로드 완료
-                              </Typography>
+                              <Chip label="재제출 가능" size="small" color="warning" />
                             ) : (
                               <Typography variant="caption" color="text.secondary">
                                 대기중
@@ -375,9 +409,14 @@ function UploadPage({ isSlotUpload = false }) {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 각 주문 영역을 클릭 후 이미지를 선택하거나, Ctrl+V로 붙여넣기, 또는 드래그 앤 드롭하세요.
               </Typography>
+              {selectedBuyers.some(b => b.hasImage) && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  재제출된 이미지는 관리자 승인 후 기존 이미지를 대체합니다.
+                </Alert>
+              )}
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {selectedBuyers.map((buyer, index) => {
-                  const file = buyerFiles[buyer.id];
+                  const files = buyerFiles[buyer.id] || [];
                   const isFocused = focusedBuyerId === buyer.id;
                   return (
                     <Paper
@@ -400,6 +439,9 @@ function UploadPage({ isSlotUpload = false }) {
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                         <Typography variant="body2" fontWeight="bold">
                           주문 {index + 1}: {buyer.order_number} ({buyer.buyer_name})
+                          {files.length > 0 && (
+                            <Chip label={`${files.length}장`} size="small" color="primary" sx={{ ml: 1 }} />
+                          )}
                         </Typography>
                         {isFocused && (
                           <Typography variant="caption" color="primary">
@@ -407,12 +449,13 @@ function UploadPage({ isSlotUpload = false }) {
                           </Typography>
                         )}
                       </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
                         <input
                           ref={el => fileInputRefs.current[buyer.id] = el}
                           type="file"
                           accept="image/*"
-                          onChange={(e) => handleFileSelect(buyer.id, e.target.files[0])}
+                          multiple
+                          onChange={(e) => handleFileSelect(buyer.id, e.target.files)}
                           style={{ display: 'none' }}
                         />
                         <Button
@@ -420,37 +463,51 @@ function UploadPage({ isSlotUpload = false }) {
                           size="small"
                           onClick={() => fileInputRefs.current[buyer.id]?.click()}
                           startIcon={<CloudUploadIcon />}
+                          sx={{ flexShrink: 0 }}
                         >
                           파일 선택
                         </Button>
-                        {file ? (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <img
-                              src={URL.createObjectURL(file)}
-                              alt="preview"
-                              style={{
-                                width: 50,
-                                height: 50,
-                                objectFit: 'cover',
-                                borderRadius: 4
-                              }}
-                            />
-                            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {file.name}
-                            </Typography>
-                            <IconButton
-                              size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setBuyerFiles(prev => {
-                                  const newFiles = { ...prev };
-                                  delete newFiles[buyer.id];
-                                  return newFiles;
-                                });
-                              }}
-                            >
-                              <CloseIcon fontSize="small" />
-                            </IconButton>
+                        {files.length > 0 ? (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                            {files.map((file, fileIdx) => (
+                              <Box
+                                key={fileIdx}
+                                sx={{
+                                  position: 'relative',
+                                  display: 'inline-block'
+                                }}
+                              >
+                                <img
+                                  src={URL.createObjectURL(file)}
+                                  alt={`미리보기 ${fileIdx + 1}`}
+                                  style={{
+                                    width: 60,
+                                    height: 60,
+                                    objectFit: 'cover',
+                                    borderRadius: 4,
+                                    border: '1px solid #e0e0e0'
+                                  }}
+                                />
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeFile(buyer.id, fileIdx);
+                                  }}
+                                  sx={{
+                                    position: 'absolute',
+                                    top: -8,
+                                    right: -8,
+                                    bgcolor: 'white',
+                                    boxShadow: 1,
+                                    '&:hover': { bgcolor: '#ffebee' },
+                                    p: 0.25
+                                  }}
+                                >
+                                  <CloseIcon sx={{ fontSize: 14 }} />
+                                </IconButton>
+                              </Box>
+                            ))}
                           </Box>
                         ) : (
                           <Typography variant="body2" color="error">
@@ -495,11 +552,11 @@ function UploadPage({ isSlotUpload = false }) {
               fullWidth
               size="large"
               onClick={handleUpload}
-              disabled={uploading || selectedBuyers.some(b => !buyerFiles[b.id])}
+              disabled={uploading || selectedBuyers.some(b => !buyerFiles[b.id] || buyerFiles[b.id].length === 0)}
               startIcon={uploading ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
               sx={{ py: 1.5 }}
             >
-              {uploading ? '업로드 중...' : `${selectedBuyers.length}개 이미지 업로드`}
+              {uploading ? '업로드 중...' : `${getTotalFileCount()}개 이미지 업로드 (${selectedBuyers.length}개 주문)`}
             </Button>
           )}
         </Paper>

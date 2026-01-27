@@ -12,6 +12,129 @@ import { itemService } from '../../services';
 // Handsontable 모든 모듈 등록
 registerAllModules();
 
+// 슬롯 데이터 캐시 (캠페인 전환 최적화)
+const slotsCache = new Map();
+
+// ========== 성능 최적화: 셀 렌더러 함수 (컴포넌트 외부 정의) ==========
+const unifiedItemSeparatorRenderer = (instance, td) => {
+  td.className = 'item-separator-row';
+  td.style.backgroundColor = '#1565c0';
+  td.style.height = '6px';
+  td.style.padding = '0';
+  td.innerHTML = '';
+  return td;
+};
+
+const createUnifiedUploadLinkBarRenderer = (tableData) => {
+  return (instance, td, r, c) => {
+    const rowData = tableData[r];
+    td.className = 'upload-link-bar';
+    td.style.backgroundColor = '#424242';
+    td.style.color = 'white';
+    td.style.height = '22px';
+    td.style.lineHeight = '22px';
+    td.style.cursor = 'pointer';
+    td.style.fontSize = '11px';
+    td.style.textAlign = 'center';
+
+    if (c === 0) {
+      td.innerHTML = '📷 업로드 링크 복사 (클릭)';
+      td.colSpan = 16;
+    } else {
+      td.innerHTML = '';
+      td.style.display = 'none';
+    }
+
+    td.setAttribute('data-token', rowData._uploadToken || '');
+    return td;
+  };
+};
+
+const unifiedProductHeaderRenderer = (instance, td, r, c, prop, value) => {
+  td.className = 'product-header-row';
+  td.style.backgroundColor = '#fff9c4';
+  td.style.fontWeight = 'bold';
+
+  if ([5, 10, 11].includes(c) && value) {
+    td.textContent = Number(value).toLocaleString();
+  } else {
+    td.textContent = value ?? '';
+  }
+
+  return td;
+};
+
+const createUnifiedBuyerDataRenderer = (tableData, statusLabels) => {
+  return (instance, td, r, c, prop, value) => {
+    const rowData = tableData[r];
+    const dayGroup = rowData._dayGroup || 1;
+    const bgClass = dayGroup % 2 === 0 ? 'buyer-row-even' : 'buyer-row-odd';
+    td.className = bgClass;
+    td.style.backgroundColor = dayGroup % 2 === 0 ? '#f5f5f5' : '#ffffff';
+
+    // 리뷰샷 컬럼 (col11)
+    if (c === 11) {
+      if (value) {
+        td.innerHTML = `<img src="${value}" alt="리뷰" class="review-thumbnail" data-url="${value}" data-filename="${rowData._reviewImageName || ''}" style="width: 35px; height: 35px; object-fit: cover; border-radius: 4px; cursor: pointer;" />`;
+        td.style.padding = '2px';
+        td.style.textAlign = 'center';
+      } else {
+        td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
+        td.style.textAlign = 'center';
+      }
+      return td;
+    }
+
+    // 배송지연 컬럼 (col12)
+    if (c === 12) {
+      td.style.textAlign = 'center';
+      const buyerId = rowData._buyerId;
+      const isDelayed = value === true || value === 'true';
+
+      if (buyerId) {
+        if (isDelayed) {
+          td.innerHTML = `<span class="shipping-delayed-chip delayed" data-buyer-id="${buyerId}" data-delayed="true" style="background-color: #ffebee; color: #d32f2f; padding: 2px 8px; border-radius: 10px; font-size: 10px; cursor: pointer;">지연</span>`;
+        } else {
+          td.innerHTML = `<span class="shipping-delayed-chip" data-buyer-id="${buyerId}" data-delayed="false" style="color: #9e9e9e; padding: 2px 8px; font-size: 10px; cursor: pointer;">-</span>`;
+        }
+      } else {
+        td.innerHTML = '<span style="color: #ccc; font-size: 10px;">-</span>';
+      }
+      return td;
+    }
+
+    // 리뷰작성(상태) 컬럼 (col13)
+    if (c === 13) {
+      const hasReviewImage = rowData._reviewImageUrl;
+      const displayStatus = hasReviewImage ? 'completed' : (value || 'active');
+      const label = statusLabels[displayStatus] || displayStatus;
+      const colors = {
+        active: { bg: '#e3f2fd', color: '#1976d2' },
+        completed: { bg: '#e8f5e9', color: '#388e3c' },
+        cancelled: { bg: '#ffebee', color: '#d32f2f' }
+      };
+      const style = colors[displayStatus] || { bg: '#f5f5f5', color: '#666' };
+
+      if (hasReviewImage) {
+        td.innerHTML = `<span style="background:${style.bg};color:${style.color};padding:2px 8px;border-radius:12px;font-size:10px;font-weight:bold;">✓ ${label}</span>`;
+      } else {
+        td.innerHTML = `<span style="background:${style.bg};color:${style.color};padding:2px 8px;border-radius:12px;font-size:10px;">${label}</span>`;
+      }
+      return td;
+    }
+
+    // 금액/리뷰비용 컬럼
+    if ([9, 10].includes(c) && value) {
+      td.textContent = Number(value).toLocaleString();
+      td.style.textAlign = 'right';
+      return td;
+    }
+
+    td.textContent = value ?? '';
+    return td;
+  };
+};
+
 /**
  * 통합 품목 시트 컴포넌트 (영업사 + 진행자 공용)
  *
@@ -38,8 +161,12 @@ function UnifiedItemSheet({
 
   // 변경된 슬롯들 추적
   const [changedSlots, setChangedSlots] = useState({});
+  const changedSlotsRef = useRef(changedSlots);
+  changedSlotsRef.current = changedSlots;
   // 변경된 품목 추적 (판매단가, 택배단가 등 Item 테이블 필드)
   const [changedItems, setChangedItems] = useState({});
+  const changedItemsRef = useRef(changedItems);
+  changedItemsRef.current = changedItems;
 
   // 삭제 다이얼로그 상태
   const [deleteDialog, setDeleteDialog] = useState({
@@ -97,8 +224,21 @@ function UnifiedItemSheet({
   const effectiveRole = viewAsRole || userRole;
 
   // 캠페인별 슬롯 데이터 로드
-  const loadSlots = useCallback(async () => {
+  const loadSlots = useCallback(async (forceRefresh = false) => {
     if (!campaignId) return;
+
+    // 캐시 키 생성
+    const cacheKey = `unified_${campaignId}_${effectiveRole}_${viewAsUserId || ''}`;
+
+    // 캐시 확인 (forceRefresh가 아닌 경우)
+    if (!forceRefresh && slotsCache.has(cacheKey)) {
+      const cached = slotsCache.get(cacheKey);
+      setSlots(cached.slots);
+      setChangedSlots({});
+      setChangedItems({});
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
@@ -112,9 +252,13 @@ function UnifiedItemSheet({
       }
 
       if (response.success) {
-        setSlots(response.data || []);
+        const newSlots = response.data || [];
+        setSlots(newSlots);
         setChangedSlots({});
         setChangedItems({});
+
+        // 캐시에 저장
+        slotsCache.set(cacheKey, { slots: newSlots, timestamp: Date.now() });
       }
     } catch (error) {
       console.error('Failed to load slots:', error);
@@ -479,8 +623,8 @@ function UnifiedItemSheet({
   const handleAfterChange = useCallback((changes, source) => {
     if (!changes || source === 'loadData') return;
 
-    const slotUpdates = { ...changedSlots };
-    const itemUpdates = { ...changedItems };
+    const slotUpdates = { ...changedSlotsRef.current };
+    const itemUpdates = { ...changedItemsRef.current };
 
     changes.forEach(([row, prop, oldValue, newValue]) => {
       if (oldValue === newValue) return;
@@ -593,7 +737,7 @@ function UnifiedItemSheet({
 
     setChangedSlots(slotUpdates);
     setChangedItems(itemUpdates);
-  }, [tableData, changedSlots, changedItems, slots]);
+  }, [tableData, slots]);  // 성능 최적화: changedSlots, changedItems 제거 (ref로 대체)
 
   // 변경사항 저장 - 새로고침 없이 로컬 상태만 업데이트
   const handleSaveChanges = async () => {
@@ -668,6 +812,11 @@ function UnifiedItemSheet({
       // 상태 초기화
       setChangedSlots({});
       setChangedItems({});
+
+      // 캐시 무효화 (다음 로드 시 최신 데이터 가져오도록)
+      const cacheKey = `unified_${campaignId}_${effectiveRole}_${viewAsUserId || ''}`;
+      slotsCache.delete(cacheKey);
+
       setSnackbar({ open: true, message: '저장되었습니다', severity: 'success' });
 
     } catch (error) {
@@ -744,7 +893,18 @@ function UnifiedItemSheet({
     }
   }, []);
 
-  // 셀 렌더러
+  // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
+  const uploadLinkBarRenderer = useMemo(() =>
+    createUnifiedUploadLinkBarRenderer(tableData),
+    [tableData]
+  );
+
+  const buyerDataRenderer = useMemo(() =>
+    createUnifiedBuyerDataRenderer(tableData, statusLabels),
+    [tableData, statusLabels]
+  );
+
+  // 셀 렌더러 - 최적화: 외부 정의 렌더러 사용
   const cellsRenderer = useCallback((row, col, prop) => {
     const cellProperties = {};
     const rowData = tableData[row];
@@ -755,14 +915,7 @@ function UnifiedItemSheet({
     if (rowData._isItemSeparator) {
       cellProperties.readOnly = true;
       cellProperties.className = 'item-separator-row';
-      cellProperties.renderer = function(instance, td) {
-        td.className = 'item-separator-row';
-        td.style.backgroundColor = '#1565c0';
-        td.style.height = '6px';
-        td.style.padding = '0';
-        td.innerHTML = '';
-        return td;
-      };
+      cellProperties.renderer = unifiedItemSeparatorRenderer;
       return cellProperties;
     }
 
@@ -770,47 +923,14 @@ function UnifiedItemSheet({
     if (rowData._isUploadLinkBar) {
       cellProperties.readOnly = true;
       cellProperties.className = 'upload-link-bar';
-      cellProperties.renderer = function(instance, td, r, c) {
-        td.className = 'upload-link-bar';
-        td.style.backgroundColor = '#424242';
-        td.style.color = 'white';
-        td.style.height = '22px';
-        td.style.lineHeight = '22px';
-        td.style.cursor = 'pointer';
-        td.style.fontSize = '11px';
-        td.style.textAlign = 'center';
-
-        if (c === 0) {
-          td.innerHTML = '📷 업로드 링크 복사 (클릭)';
-          td.colSpan = 16;
-        } else {
-          td.innerHTML = '';
-          td.style.display = 'none';
-        }
-
-        td.setAttribute('data-token', rowData._uploadToken || '');
-        return td;
-      };
+      cellProperties.renderer = uploadLinkBarRenderer;
       return cellProperties;
     }
 
     // 제품정보 헤더행 (노란색 배경)
     if (rowData._isProductHeader) {
       cellProperties.className = 'product-header-row';
-      cellProperties.renderer = function(instance, td, r, c, prop, value) {
-        td.className = 'product-header-row';
-        td.style.backgroundColor = '#fff9c4'; // 연노란색
-        td.style.fontWeight = 'bold';
-
-        // 숫자 필드 포맷팅 (col5=가격, col10=판매단가, col11=택배단가)
-        if ([5, 10, 11].includes(c) && value) {
-          td.textContent = Number(value).toLocaleString();
-        } else {
-          td.textContent = value ?? '';
-        }
-
-        return td;
-      };
+      cellProperties.renderer = unifiedProductHeaderRenderer;
       return cellProperties;
     }
 
@@ -819,84 +939,11 @@ function UnifiedItemSheet({
       const dayGroup = rowData._dayGroup || 1;
       const bgClass = dayGroup % 2 === 0 ? 'buyer-row-even' : 'buyer-row-odd';
       cellProperties.className = bgClass;
-
-      cellProperties.renderer = function(instance, td, r, c, prop, value) {
-        td.className = bgClass;
-        td.style.backgroundColor = dayGroup % 2 === 0 ? '#f5f5f5' : '#ffffff';
-
-        // 리뷰샷 컬럼 (col11)
-        if (c === 11) {
-          if (value) {
-            td.innerHTML = `<img
-              src="${value}"
-              alt="리뷰"
-              class="review-thumbnail"
-              data-url="${value}"
-              data-filename="${rowData._reviewImageName || ''}"
-              style="width: 35px; height: 35px; object-fit: cover; border-radius: 4px; cursor: pointer;"
-            />`;
-            td.style.padding = '2px';
-            td.style.textAlign = 'center';
-          } else {
-            td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
-            td.style.textAlign = 'center';
-          }
-          return td;
-        }
-
-        // 배송지연 컬럼 (col12)
-        if (c === 12) {
-          td.style.textAlign = 'center';
-          const buyerId = rowData._buyerId;
-          const isDelayed = value === true || value === 'true';
-
-          if (buyerId) {
-            if (isDelayed) {
-              td.innerHTML = `<span class="shipping-delayed-chip delayed" data-buyer-id="${buyerId}" data-delayed="true" style="background-color: #ffebee; color: #d32f2f; padding: 2px 8px; border-radius: 10px; font-size: 10px; cursor: pointer;">지연</span>`;
-            } else {
-              td.innerHTML = `<span class="shipping-delayed-chip" data-buyer-id="${buyerId}" data-delayed="false" style="color: #9e9e9e; padding: 2px 8px; font-size: 10px; cursor: pointer;">-</span>`;
-            }
-          } else {
-            td.innerHTML = '<span style="color: #ccc; font-size: 10px;">-</span>';
-          }
-          return td;
-        }
-
-        // 리뷰작성(상태) 컬럼 (col13)
-        if (c === 13) {
-          const hasReviewImage = rowData._reviewImageUrl;
-          const displayStatus = hasReviewImage ? 'completed' : (value || 'active');
-          const label = statusLabels[displayStatus] || displayStatus;
-          const colors = {
-            active: { bg: '#e3f2fd', color: '#1976d2' },
-            completed: { bg: '#e8f5e9', color: '#388e3c' },
-            cancelled: { bg: '#ffebee', color: '#d32f2f' }
-          };
-          const style = colors[displayStatus] || { bg: '#f5f5f5', color: '#666' };
-
-          if (hasReviewImage) {
-            td.innerHTML = `<span style="background:${style.bg};color:${style.color};padding:2px 8px;border-radius:12px;font-size:10px;font-weight:bold;">✓ ${label}</span>`;
-          } else {
-            td.innerHTML = `<span style="background:${style.bg};color:${style.color};padding:2px 8px;border-radius:12px;font-size:10px;">${label}</span>`;
-          }
-          return td;
-        }
-
-        // 금액/리뷰비용 컬럼
-        if ([9, 10].includes(c) && value) {
-          td.textContent = Number(value).toLocaleString();
-          td.style.textAlign = 'right';
-          return td;
-        }
-
-        td.textContent = value ?? '';
-        return td;
-      };
+      cellProperties.renderer = buyerDataRenderer;
     }
 
     return cellProperties;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableData]);
+  }, [tableData, uploadLinkBarRenderer, buyerDataRenderer]);
 
   const hasChanges = Object.keys(changedSlots).length > 0 || Object.keys(changedItems).length > 0;
   const totalChanges = Object.keys(changedSlots).length + Object.keys(changedItems).length;
@@ -1008,11 +1055,13 @@ function UnifiedItemSheet({
             height="calc(100vh - 210px)"
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
-            autoRowSize={true}
-            viewportRowRenderingOffset={50}
+            autoRowSize={false}
+            autoColumnSize={false}
+            viewportRowRenderingOffset={100}
             manualColumnResize={true}
             manualRowResize={false}
             imeFastEdit={true}
+            minSpareRows={0}
             contextMenu={{
               items: {
                 copy: { name: '복사' },

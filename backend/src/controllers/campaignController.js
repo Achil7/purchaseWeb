@@ -1,6 +1,7 @@
 const { Campaign, Item, User, CampaignOperator, Buyer, MonthlyBrand } = require('../models');
 const { Op } = require('sequelize');
 const { notifyAllAdmins } = require('./notificationController');
+const { formatDateToYYYYMMDD_KST } = require('../utils/dateUtils');
 
 /**
  * 캠페인 목록 조회 (역할별 필터링)
@@ -239,7 +240,7 @@ exports.createCampaign = async (req, res) => {
       monthly_brand_id: monthly_brand_id || null,
       start_date: start_date || null,
       end_date: end_date || null,
-      registered_at: registered_at || new Date().toISOString().split('T')[0],
+      registered_at: registered_at || formatDateToYYYYMMDD_KST(new Date()),
       status: status || 'active'
     });
 

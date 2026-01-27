@@ -1,5 +1,6 @@
 const { Estimate, User } = require('../models');
 const { Op } = require('sequelize');
+const { nowKST } = require('../utils/dateUtils');
 
 // 견적서 목록 조회 (Admin 전용)
 const getEstimates = async (req, res) => {
@@ -173,7 +174,7 @@ const deleteEstimate = async (req, res) => {
 const getEstimateSummary = async (req, res) => {
   try {
     const { year } = req.query;
-    const targetYear = year || new Date().getFullYear();
+    const targetYear = year || nowKST().getFullYear();
 
     const estimates = await Estimate.findAll({
       where: {

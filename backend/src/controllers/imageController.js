@@ -80,10 +80,20 @@ exports.searchBuyersByName = async (req, res) => {
       .map(s => s.buyer_id)
       .filter(id => id !== null);
 
-    // 해당 item_id의 모든 구매자 조회 (이미지 정보 포함)
+    // slotBuyerIds가 비어있으면 해당 day_group에 구매자 없음
+    if (slotBuyerIds.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        count: 0,
+        searchName
+      });
+    }
+
+    // 해당 day_group 내 구매자만 조회 (이미지 정보 포함)
     const allBuyers = await Buyer.findAll({
       where: {
-        item_id: itemId,
+        id: { [Op.in]: slotBuyerIds },  // day_group 내 구매자만
         is_temporary: false
       },
       include: [{
@@ -178,12 +188,12 @@ exports.uploadImages = async (req, res) => {
       });
     }
 
-    // buyer_ids 개수와 이미지 개수가 일치해야 함
+    // buyerIds와 files 개수가 동일해야 함 (1:1 매핑이지만, 같은 buyerId 중복 가능)
     if (buyerIds.length !== req.files.length) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: `선택한 주문 수(${buyerIds.length})와 이미지 수(${req.files.length})가 일치하지 않습니다`
+        message: `구매자 ID 수(${buyerIds.length})와 이미지 수(${req.files.length})가 일치하지 않습니다`
       });
     }
 
@@ -208,10 +218,12 @@ exports.uploadImages = async (req, res) => {
 
     const item = slot.item;
 
-    // 선택된 구매자들 조회 및 검증
+    // 선택된 구매자들 조회 및 검증 (중복 제거한 unique buyer_id 목록)
+    const uniqueBuyerIds = [...new Set(buyerIds)];
+
     const buyers = await Buyer.findAll({
       where: {
-        id: { [Op.in]: buyerIds },
+        id: { [Op.in]: uniqueBuyerIds },
         item_id: item.id,
         is_temporary: false
       },
@@ -223,8 +235,8 @@ exports.uploadImages = async (req, res) => {
       transaction
     });
 
-    // 모든 buyer_id가 유효한지 확인
-    if (buyers.length !== buyerIds.length) {
+    // 모든 unique buyer_id가 유효한지 확인 (같은 구매자에 여러 이미지 가능)
+    if (buyers.length !== uniqueBuyerIds.length) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
@@ -596,6 +608,16 @@ exports.approveImage = async (req, res) => {
         where: { id: image.buyer.id },
         transaction
       });
+
+      // 해당 구매자의 슬롯 상태를 '재제출완료'로 변경
+      const slot = await ItemSlot.findOne({
+        where: { buyer_id: image.buyer.id },
+        transaction
+      });
+
+      if (slot) {
+        await slot.update({ status: 'resubmitted' }, { transaction });
+      }
     }
 
     await transaction.commit();

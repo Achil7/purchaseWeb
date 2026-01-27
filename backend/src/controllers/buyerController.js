@@ -1,6 +1,7 @@
 const { Buyer, Item, Image, User, Campaign, ItemSlot } = require('../models');
 const { sequelize, Sequelize } = require('../models');
 const { normalizeAccountNumber } = require('../utils/accountNormalizer');
+const { getKSTDateRange, getKSTMonthRange } = require('../utils/dateUtils');
 const { Op } = Sequelize;
 
 /**
@@ -706,11 +707,8 @@ exports.getBuyersByMonth = async (req, res) => {
       });
     }
 
-    // Asia/Seoul 기준으로 해당 월의 시작과 끝 계산
-    // UTC로 저장된 시간을 Asia/Seoul(+9)으로 변환해서 필터링
-    // 예: 2025년 12월 (Asia/Seoul) = 2025-11-30 15:00:00 UTC ~ 2025-12-31 14:59:59 UTC
-    const startDateKST = new Date(Date.UTC(yearInt, monthInt - 1, 1, -9, 0, 0));
-    const endDateKST = new Date(Date.UTC(yearInt, monthInt, 1, -9, 0, 0));
+    // KST 기준으로 해당 월의 시작과 끝 계산 (dateUtils 사용)
+    const { start: startDateKST, end: endDateKST } = getKSTMonthRange(yearInt, monthInt);
 
     // 해당 월에 이미지가 업로드된 구매자 조회
     // Image.created_at이 해당 범위에 속하는 구매자
@@ -855,10 +853,8 @@ exports.getBuyersByDate = async (req, res) => {
       });
     }
 
-    // Asia/Seoul 기준으로 해당 일의 시작과 끝 계산
-    // 예: 2025년 12월 13일 (Asia/Seoul) = 2025-12-12 15:00:00 UTC ~ 2025-12-13 14:59:59 UTC
-    const startDateKST = new Date(Date.UTC(yearInt, monthInt - 1, dayInt, -9, 0, 0));
-    const endDateKST = new Date(Date.UTC(yearInt, monthInt - 1, dayInt + 1, -9, 0, 0));
+    // KST 기준으로 해당 일의 시작과 끝 계산 (dateUtils 사용)
+    const { start: startDateKST, end: endDateKST } = getKSTDateRange(yearInt, monthInt, dayInt);
 
     // 해당 날짜에 리뷰샷(이미지)을 업로드한 구매자만 조회
     // Image.created_at이 해당 날짜에 속하는 구매자

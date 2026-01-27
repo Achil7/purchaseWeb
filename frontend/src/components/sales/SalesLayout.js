@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar, Paper,
@@ -25,6 +25,7 @@ import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import EditIcon from '@mui/icons-material/Edit';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import SalesBrandCreateDialog from './SalesBrandCreateDialog';
@@ -50,6 +51,8 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const [monthlyBrandDialogOpen, setMonthlyBrandDialogOpen] = useState(false);
   const [campaignDialogOpen, setCampaignDialogOpen] = useState(false);
   const [selectedMonthlyBrandForCampaign, setSelectedMonthlyBrandForCampaign] = useState(null);
+  const [campaignEditMode, setCampaignEditMode] = useState('create'); // 'create' or 'edit'
+  const [selectedCampaignForEdit, setSelectedCampaignForEdit] = useState(null); // 수정할 캠페인
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [selectedItemForEdit, setSelectedItemForEdit] = useState(null);
 
@@ -83,6 +86,9 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // 시트 컴포넌트 ref (품목 추가 후 새로고침용)
+  const sheetRef = useRef(null);
 
   // 연월브랜드 데이터 로드
   const loadMonthlyBrands = useCallback(async (selectedCampaignId = null) => {
@@ -247,7 +253,11 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       }
       setItemDialogOpen(false);
       setSelectedItemForEdit(null);
-      loadMonthlyBrands(selectedCampaign?.id);
+      await loadMonthlyBrands(selectedCampaign?.id);
+      // 시트 데이터도 새로고침
+      if (sheetRef.current?.loadSlots) {
+        sheetRef.current.loadSlots(true);
+      }
     } catch (err) {
       console.error('Failed to save item:', err);
       alert('품목 저장에 실패했습니다.');
@@ -260,7 +270,11 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       await itemService.createItemsBulk(selectedCampaign.id, itemsData);
       setItemDialogOpen(false);
       setSelectedItemForEdit(null);
-      loadMonthlyBrands(selectedCampaign?.id);
+      await loadMonthlyBrands(selectedCampaign?.id);
+      // 시트 데이터도 새로고침
+      if (sheetRef.current?.loadSlots) {
+        sheetRef.current.loadSlots(true);
+      }
     } catch (err) {
       console.error('Failed to save items:', err);
       alert('품목 일괄 저장에 실패했습니다.');
@@ -294,17 +308,33 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     setCampaignDialogOpen(true);
   };
 
-  // 캠페인 저장
+  // 캠페인 저장 (생성/수정)
   const handleSaveCampaign = async (campaignData) => {
     try {
-      await campaignService.createCampaign(campaignData);
+      if (campaignEditMode === 'edit' && selectedCampaignForEdit) {
+        // 수정
+        await campaignService.updateCampaign(selectedCampaignForEdit.id, campaignData);
+      } else {
+        // 생성
+        await campaignService.createCampaign(campaignData);
+      }
       setCampaignDialogOpen(false);
       setSelectedMonthlyBrandForCampaign(null);
-      loadMonthlyBrands();
+      setCampaignEditMode('create');
+      setSelectedCampaignForEdit(null);
+      loadMonthlyBrands(selectedCampaign?.id);
     } catch (err) {
-      console.error('Failed to create campaign:', err);
-      alert('캠페인 생성에 실패했습니다.');
+      console.error('Failed to save campaign:', err);
+      alert(campaignEditMode === 'edit' ? '캠페인 수정에 실패했습니다.' : '캠페인 생성에 실패했습니다.');
     }
+  };
+
+  // 캠페인 수정 다이얼로그 열기
+  const handleEditCampaign = (campaign, e) => {
+    if (e) e.stopPropagation();
+    setSelectedCampaignForEdit(campaign);
+    setCampaignEditMode('edit');
+    setCampaignDialogOpen(true);
   };
 
   // 연월브랜드 숨기기
@@ -815,6 +845,11 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                                   />
                                                 </Tooltip>
                                               )}
+                                              <Tooltip title="캠페인 수정">
+                                                <IconButton size="small" color="primary" onClick={(e) => handleEditCampaign(campaign, e)} sx={{ p: 0.2 }}>
+                                                  <EditIcon sx={{ fontSize: 14 }} />
+                                                </IconButton>
+                                              </Tooltip>
                                               <Tooltip title="숨기기">
                                                 <IconButton size="small" color="default" onClick={(e) => handleHideCampaign(campaign, e)} sx={{ p: 0.2 }}>
                                                   <VisibilityOffIcon sx={{ fontSize: 14, color: '#ccc' }} />
@@ -920,6 +955,11 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                       <Typography variant="subtitle1" fontWeight="bold">
                         {selectedCampaign.name}
                       </Typography>
+                      <Tooltip title="캠페인 수정">
+                        <IconButton size="small" color="primary" onClick={() => handleEditCampaign(selectedCampaign)}>
+                          <EditIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
                       <Chip
                         label={getStatusLabel(selectedCampaign.status)}
                         size="small"
@@ -953,6 +993,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                       />
                     ) : (
                       <SalesItemSheet
+                        ref={sheetRef}
                         campaignId={selectedCampaign.id}
                         campaignName={selectedCampaign.name}
                         items={selectedCampaign.items || []}
@@ -1024,15 +1065,18 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         viewAsUserId={viewAsUserId}
       />
 
-      {/* 캠페인 추가 다이얼로그 */}
+      {/* 캠페인 추가/수정 다이얼로그 */}
       <SalesAddCampaignDialog
         open={campaignDialogOpen}
         onClose={() => {
           setCampaignDialogOpen(false);
           setSelectedMonthlyBrandForCampaign(null);
+          setCampaignEditMode('create');
+          setSelectedCampaignForEdit(null);
         }}
         onSave={handleSaveCampaign}
-        mode="create"
+        mode={campaignEditMode}
+        initialData={selectedCampaignForEdit}
         preSelectedMonthlyBrandId={selectedMonthlyBrandForCampaign}
         viewAsUserId={viewAsUserId}
       />

@@ -11,6 +11,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import GroupAddIcon from '@mui/icons-material/GroupAdd';
 import InfoIcon from '@mui/icons-material/Info';
+import CloseIcon from '@mui/icons-material/Close';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getUsers } from '../../services/userService';
 import { itemService, campaignService } from '../../services';
@@ -512,67 +513,174 @@ function AdminCampaignAssignment() {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle sx={{ bgcolor: '#1976d2', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
-          <InfoIcon />
-          <Typography variant="h6" fontWeight="bold">제품 상세 정보</Typography>
+        <DialogTitle sx={{ bgcolor: '#1976d2', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InfoIcon />
+            <Typography variant="h6" fontWeight="bold">제품 상세 정보</Typography>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => {
+              setItemDetailDialogOpen(false);
+              setSelectedItem(null);
+            }}
+            sx={{ color: 'white' }}
+          >
+            <CloseIcon />
+          </IconButton>
         </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
+        <DialogContent sx={{ pt: 3, bgcolor: '#fafafa' }}>
           {selectedItem && (
-            <Grid container spacing={2}>
-              {[
-                { label: '제품명', value: selectedItem.product_name || '-' },
-                { label: '플랫폼', value: selectedItem.platform || '-' },
-                { label: '상품 URL', value: selectedItem.product_url, isLink: true },
-                { label: '구매 옵션', value: selectedItem.purchase_option || '-' },
-                { label: '희망 키워드', value: selectedItem.keyword || '-' },
-                { label: '출고 유형', value: selectedItem.shipping_type || '-' },
-                { label: '총 구매 건수', value: selectedItem.total_purchase_count || '-' },
-                { label: '일 구매 건수', value: selectedItem.daily_purchase_count || '-' },
-                { label: '제품 가격', value: selectedItem.product_price ? `${Number(String(selectedItem.product_price).replace(/,/g, '')).toLocaleString()}원` : '-' },
-                { label: '출고 마감 시간', value: selectedItem.shipping_deadline || '-' },
-                { label: '택배대행 Y/N', value: selectedItem.courier_service_yn || '-' },
-                { label: '리뷰 가이드', value: selectedItem.review_guide || '-', multiline: true },
-                { label: '특이사항', value: selectedItem.notes || '-', multiline: true },
-              ].map((field, idx) => (
-                <React.Fragment key={idx}>
-                  <Grid item xs={4}>
-                    <Typography variant="body2" color="text.secondary" fontWeight="bold">
-                      {field.label}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={8}>
-                    {field.isLink && field.value && field.value !== '-' ? (
-                      <Link href={field.value} target="_blank" rel="noopener noreferrer">
-                        {field.value}
-                      </Link>
-                    ) : field.multiline ? (
-                      <Typography
-                        variant="body2"
-                        sx={{
-                          whiteSpace: 'pre-wrap',
-                          bgcolor: '#f5f5f5',
-                          p: 1,
-                          borderRadius: 1,
-                          minHeight: 40
-                        }}
-                      >
-                        {field.value}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+              {/* 기본 정보 카드 */}
+              <Paper elevation={0} sx={{ p: 2.5, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ color: '#1976d2', fontWeight: 'bold', mb: 2, pb: 1, borderBottom: '2px solid #1976d2' }}>
+                  기본 정보
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                      <Typography sx={{ color: '#666', minWidth: 100, fontWeight: 500 }}>제품명</Typography>
+                      <Typography sx={{ fontWeight: 'bold', color: '#1565c0', fontSize: '1.1rem' }}>
+                        {selectedItem.product_name || '-'}
                       </Typography>
-                    ) : (
-                      <Typography variant="body2">{field.value}</Typography>
-                    )}
+                    </Box>
                   </Grid>
-                  {idx < 12 && (
-                    <Grid item xs={12}>
-                      <Divider sx={{ my: 0.5 }} />
-                    </Grid>
-                  )}
-                </React.Fragment>
-              ))}
-            </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ color: '#666', minWidth: 100, fontWeight: 500 }}>플랫폼</Typography>
+                      <Chip label={selectedItem.platform || '-'} size="small" color="primary" variant="outlined" />
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ color: '#666', minWidth: 100, fontWeight: 500 }}>출고 유형</Typography>
+                      <Chip
+                        label={selectedItem.shipping_type || '-'}
+                        size="small"
+                        color={selectedItem.shipping_type === '실출고' ? 'success' : 'default'}
+                        variant="outlined"
+                      />
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                      <Typography sx={{ color: '#666', minWidth: 100, fontWeight: 500 }}>상품 URL</Typography>
+                      {selectedItem.product_url ? (
+                        <Link
+                          href={selectedItem.product_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          sx={{ wordBreak: 'break-all', fontSize: '0.875rem' }}
+                        >
+                          {selectedItem.product_url}
+                        </Link>
+                      ) : (
+                        <Typography>-</Typography>
+                      )}
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* 구매 정보 카드 */}
+              <Paper elevation={0} sx={{ p: 2.5, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ color: '#2e7d32', fontWeight: 'bold', mb: 2, pb: 1, borderBottom: '2px solid #2e7d32' }}>
+                  구매 정보
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6} sm={4}>
+                    <Box sx={{ textAlign: 'center', p: 1.5, bgcolor: '#e3f2fd', borderRadius: 1 }}>
+                      <Typography variant="caption" sx={{ color: '#666' }}>총 구매 건수</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
+                        {selectedItem.total_purchase_count || '-'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6} sm={4}>
+                    <Box sx={{ textAlign: 'center', p: 1.5, bgcolor: '#e8f5e9', borderRadius: 1 }}>
+                      <Typography variant="caption" sx={{ color: '#666' }}>일 구매 건수</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#2e7d32' }}>
+                        {selectedItem.daily_purchase_count || '-'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Box sx={{ textAlign: 'center', p: 1.5, bgcolor: '#fff3e0', borderRadius: 1 }}>
+                      <Typography variant="caption" sx={{ color: '#666' }}>제품 가격</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#e65100' }}>
+                        {selectedItem.product_price ? `${Number(String(selectedItem.product_price).replace(/,/g, '')).toLocaleString()}원` : '-'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ color: '#666', minWidth: 100, fontWeight: 500 }}>구매 옵션</Typography>
+                      <Typography>{selectedItem.purchase_option || '-'}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ color: '#666', minWidth: 100, fontWeight: 500 }}>희망 키워드</Typography>
+                      <Typography sx={{ color: '#1565c0', fontWeight: 500 }}>{selectedItem.keyword || '-'}</Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* 배송 정보 카드 */}
+              <Paper elevation={0} sx={{ p: 2.5, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ color: '#ed6c02', fontWeight: 'bold', mb: 2, pb: 1, borderBottom: '2px solid #ed6c02' }}>
+                  배송 정보
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ color: '#666', minWidth: 120, fontWeight: 500 }}>출고 마감 시간</Typography>
+                      <Typography sx={{ fontWeight: 500 }}>{selectedItem.shipping_deadline || '-'}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ color: '#666', minWidth: 120, fontWeight: 500 }}>택배대행 Y/N</Typography>
+                      <Chip
+                        label={selectedItem.courier_service_yn || '-'}
+                        size="small"
+                        color={selectedItem.courier_service_yn === 'Y' ? 'success' : 'default'}
+                      />
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* 리뷰 가이드 & 특이사항 카드 */}
+              <Paper elevation={0} sx={{ p: 2.5, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ color: '#7b1fa2', fontWeight: 'bold', mb: 2, pb: 1, borderBottom: '2px solid #7b1fa2' }}>
+                  추가 정보
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Typography sx={{ color: '#666', fontWeight: 500, mb: 0.5 }}>리뷰 가이드</Typography>
+                    <Box sx={{ bgcolor: '#f5f5f5', p: 1.5, borderRadius: 1, minHeight: 60 }}>
+                      <Typography sx={{ whiteSpace: 'pre-wrap', fontSize: '0.875rem', lineHeight: 1.6 }}>
+                        {selectedItem.review_guide || '-'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography sx={{ color: '#666', fontWeight: 500, mb: 0.5 }}>특이사항</Typography>
+                    <Box sx={{ bgcolor: '#fff8e1', p: 1.5, borderRadius: 1, minHeight: 60 }}>
+                      <Typography sx={{ whiteSpace: 'pre-wrap', fontSize: '0.875rem', lineHeight: 1.6 }}>
+                        {selectedItem.notes || '-'}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
+        <DialogActions sx={{ p: 2, bgcolor: '#fafafa', borderTop: '1px solid #e0e0e0' }}>
           <Button
             variant="contained"
             onClick={() => {
