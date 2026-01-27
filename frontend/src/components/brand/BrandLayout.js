@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar, Paper,
@@ -25,7 +25,7 @@ import ProfileEditDialog from '../common/ProfileEditDialog';
 import BrandItemSheet from './BrandItemSheet';
 import { notificationService, monthlyBrandService } from '../../services';
 
-const DRAWER_WIDTH = 340;
+const DRAWER_WIDTH = 280;
 
 function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = false }) {
   const navigate = useNavigate();
@@ -64,6 +64,24 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifAnchorEl, setNotifAnchorEl] = useState(null);
+
+  // 디바운스용 ref
+  const saveExpandedTimeoutRef = useRef(null);
+
+  // 시트 컴포넌트 메모이제이션 - 사이드바 토글 시 리렌더링 방지
+  const memoizedSheet = useMemo(() => {
+    if (!selectedCampaign) return null;
+    return (
+      <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        <BrandItemSheet
+          campaignId={selectedCampaign.id}
+          campaignName={selectedCampaign.name}
+          viewAsUserId={viewAsUserId}
+        />
+      </Box>
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCampaign?.id, selectedCampaign?.name, viewAsUserId]);
 
   // 연월브랜드 데이터 로드 (브랜드사용)
   const loadMonthlyBrands = useCallback(async () => {
@@ -159,50 +177,71 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     return () => clearInterval(interval);
   }, [loadMonthlyBrands]);
 
-  // 연월브랜드 확장/축소 토글
-  const handleMonthlyBrandToggle = (monthlyBrandId) => {
+  // 연월브랜드 확장/축소 토글 (localStorage 저장 디바운스로 성능 최적화)
+  const handleMonthlyBrandToggle = useCallback((monthlyBrandId) => {
     setExpandedMonthlyBrands(prev => {
       const newState = {
         ...prev,
         [monthlyBrandId]: !prev[monthlyBrandId]
       };
-      // localStorage에 저장
-      try {
-        localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
-      } catch (e) {
-        console.error('Failed to save expanded state:', e);
+
+      // localStorage 저장 디바운스 (300ms) - 동기 I/O 블로킹 방지
+      if (saveExpandedTimeoutRef.current) {
+        clearTimeout(saveExpandedTimeoutRef.current);
       }
+      saveExpandedTimeoutRef.current = setTimeout(() => {
+        try {
+          localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+        } catch (e) {
+          console.error('Failed to save expanded state:', e);
+        }
+      }, 300);
+
       return newState;
     });
-  };
+  }, []);
 
   // 모든 연월브랜드 펼치기
-  const handleExpandAllMonthlyBrands = () => {
+  const handleExpandAllMonthlyBrands = useCallback(() => {
     const newState = {};
     monthlyBrands.forEach(mb => {
       newState[mb.id] = true;
     });
     setExpandedMonthlyBrands(newState);
-    try {
-      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
-    } catch (e) {
-      console.error('Failed to save expanded state:', e);
+
+    // localStorage 저장 디바운스
+    if (saveExpandedTimeoutRef.current) {
+      clearTimeout(saveExpandedTimeoutRef.current);
     }
-  };
+    saveExpandedTimeoutRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+      } catch (e) {
+        console.error('Failed to save expanded state:', e);
+      }
+    }, 300);
+  }, [monthlyBrands]);
 
   // 모든 연월브랜드 접기
-  const handleCollapseAllMonthlyBrands = () => {
+  const handleCollapseAllMonthlyBrands = useCallback(() => {
     const newState = {};
     monthlyBrands.forEach(mb => {
       newState[mb.id] = false;
     });
     setExpandedMonthlyBrands(newState);
-    try {
-      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
-    } catch (e) {
-      console.error('Failed to save expanded state:', e);
+
+    // localStorage 저장 디바운스
+    if (saveExpandedTimeoutRef.current) {
+      clearTimeout(saveExpandedTimeoutRef.current);
     }
-  };
+    saveExpandedTimeoutRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+      } catch (e) {
+        console.error('Failed to save expanded state:', e);
+      }
+    }, 300);
+  }, [monthlyBrands]);
 
   // 캠페인 클릭 - 메인 영역에 시트 표시
   const handleCampaignClick = (campaign) => {
@@ -428,8 +467,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           display: 'flex',
           flexDirection: 'column',
           borderRadius: 0,
-          borderRight: '1px solid #e0e0e0',
-          transition: 'width 0.2s ease-in-out'
+          borderRight: '1px solid #e0e0e0'
         }}
       >
         {!sidebarCollapsed && (
@@ -608,6 +646,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           sx={{
             flexShrink: 0,
+            marginTop: 'auto',
             bgcolor: '#2c387e',
             color: 'white',
             height: 36,
@@ -653,14 +692,8 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 리뷰 현황 시트 - 구매자가 업로드한 리뷰 이미지를 확인하세요
               </Typography>
             </Box>
-            {/* 시트 컴포넌트 */}
-            <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-              <BrandItemSheet
-                campaignId={selectedCampaign.id}
-                campaignName={selectedCampaign.name}
-                viewAsUserId={viewAsUserId}
-              />
-            </Box>
+            {/* 시트 컴포넌트 - useMemo로 메모이제이션 */}
+            {memoizedSheet}
           </>
         ) : isDefaultRoute ? (
           /* 캠페인 미선택 시 안내 메시지 */

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar, Paper,
@@ -89,6 +89,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 시트 컴포넌트 ref (품목 추가 후 새로고침용)
   const sheetRef = useRef(null);
+  const saveExpandedTimeoutRef = useRef(null); // 연월브랜드 펼침 상태 저장 디바운스용
 
   // 연월브랜드 데이터 로드
   const loadMonthlyBrands = useCallback(async (selectedCampaignId = null) => {
@@ -150,50 +151,71 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     loadMonthlyBrands();
   }, [loadMonthlyBrands]);
 
-  // 연월브랜드 확장/축소 토글
-  const handleMonthlyBrandToggle = (monthlyBrandId) => {
+  // 연월브랜드 확장/축소 토글 (localStorage 저장 디바운스로 성능 최적화)
+  const handleMonthlyBrandToggle = useCallback((monthlyBrandId) => {
     setExpandedMonthlyBrands(prev => {
       const newState = {
         ...prev,
         [monthlyBrandId]: !prev[monthlyBrandId]
       };
-      // localStorage에 저장
-      try {
-        localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
-      } catch (e) {
-        console.error('Failed to save expanded state:', e);
+
+      // localStorage 저장 디바운스 (300ms) - 동기 I/O 블로킹 방지
+      if (saveExpandedTimeoutRef.current) {
+        clearTimeout(saveExpandedTimeoutRef.current);
       }
+      saveExpandedTimeoutRef.current = setTimeout(() => {
+        try {
+          localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+        } catch (e) {
+          console.error('Failed to save expanded state:', e);
+        }
+      }, 300);
+
       return newState;
     });
-  };
+  }, []);
 
   // 모든 연월브랜드 펼치기
-  const handleExpandAllMonthlyBrands = () => {
+  const handleExpandAllMonthlyBrands = useCallback(() => {
     const newState = {};
     monthlyBrands.forEach(mb => {
       newState[mb.id] = true;
     });
     setExpandedMonthlyBrands(newState);
-    try {
-      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
-    } catch (e) {
-      console.error('Failed to save expanded state:', e);
+
+    // localStorage 저장 디바운스
+    if (saveExpandedTimeoutRef.current) {
+      clearTimeout(saveExpandedTimeoutRef.current);
     }
-  };
+    saveExpandedTimeoutRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+      } catch (e) {
+        console.error('Failed to save expanded state:', e);
+      }
+    }, 300);
+  }, [monthlyBrands]);
 
   // 모든 연월브랜드 접기
-  const handleCollapseAllMonthlyBrands = () => {
+  const handleCollapseAllMonthlyBrands = useCallback(() => {
     const newState = {};
     monthlyBrands.forEach(mb => {
       newState[mb.id] = false;
     });
     setExpandedMonthlyBrands(newState);
-    try {
-      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
-    } catch (e) {
-      console.error('Failed to save expanded state:', e);
+
+    // localStorage 저장 디바운스
+    if (saveExpandedTimeoutRef.current) {
+      clearTimeout(saveExpandedTimeoutRef.current);
     }
-  };
+    saveExpandedTimeoutRef.current = setTimeout(() => {
+      try {
+        localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+      } catch (e) {
+        console.error('Failed to save expanded state:', e);
+      }
+    }, 300);
+  }, [monthlyBrands]);
 
   // 캠페인 클릭 - 오른쪽에 시트 표시
   const handleCampaignClick = (campaign) => {
@@ -526,6 +548,37 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     return labelMap[status] || status;
   };
 
+  // 시트 컴포넌트 메모이제이션 - 사이드바 토글 시 리렌더링 방지
+  const memoizedSheet = useMemo(() => {
+    if (!selectedCampaign) return null;
+    return (
+      <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+        {USE_UNIFIED_SHEET ? (
+          <UnifiedItemSheet
+            campaignId={selectedCampaign.id}
+            items={selectedCampaign.items || []}
+            onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
+            userRole="sales"
+            viewAsUserId={viewAsUserId}
+          />
+        ) : (
+          <SalesItemSheet
+            ref={sheetRef}
+            campaignId={selectedCampaign.id}
+            campaignName={selectedCampaign.name}
+            items={selectedCampaign.items || []}
+            onDeleteItem={handleDeleteItem}
+            onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
+            getStatusColor={getStatusColor}
+            getStatusLabel={getStatusLabel}
+            viewAsUserId={viewAsUserId}
+          />
+        )}
+      </Box>
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCampaign?.id, selectedCampaign?.name, viewAsUserId]);
+
   // Outlet을 사용할지 시트를 표시할지 결정
   const basePathOnly = isAdminMode ? '/admin/view-sales' : '/sales';
   // Admin 모드에서 userId 쿼리 파라미터 유지
@@ -613,8 +666,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           display: 'flex',
           flexDirection: 'column',
           borderRadius: 0,
-          borderRight: '1px solid #e0e0e0',
-          transition: 'width 0.2s ease-in-out'
+          borderRight: '1px solid #e0e0e0'
         }}
       >
         {!sidebarCollapsed && (
@@ -887,6 +939,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           sx={{
             flexShrink: 0,
+            marginTop: 'auto',
             bgcolor: '#2c387e',
             color: 'white',
             height: 36,
@@ -981,30 +1034,8 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                     </Button>
                   </Box>
 
-                  {/* 품목 시트 (DB 슬롯 기반 엑셀 형식) */}
-                  <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-                    {USE_UNIFIED_SHEET ? (
-                      <UnifiedItemSheet
-                        campaignId={selectedCampaign.id}
-                        items={selectedCampaign.items || []}
-                        onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
-                        userRole="sales"
-                        viewAsUserId={viewAsUserId}
-                      />
-                    ) : (
-                      <SalesItemSheet
-                        ref={sheetRef}
-                        campaignId={selectedCampaign.id}
-                        campaignName={selectedCampaign.name}
-                        items={selectedCampaign.items || []}
-                        onDeleteItem={handleDeleteItem}
-                        onRefresh={() => loadMonthlyBrands(selectedCampaign?.id)}
-                        getStatusColor={getStatusColor}
-                        getStatusLabel={getStatusLabel}
-                        viewAsUserId={viewAsUserId}
-                      />
-                    )}
-                  </Box>
+                  {/* 품목 시트 (DB 슬롯 기반 엑셀 형식) - useMemo로 메모이제이션 */}
+                  {memoizedSheet}
                 </Box>
               ) : (
                 // 캠페인이 선택되지 않았을 때 안내 메시지

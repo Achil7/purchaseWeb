@@ -750,7 +750,6 @@ function AdminControlTower() {
           minWidth: sidebarCollapsed ? 40 : 200,
           p: sidebarCollapsed ? 0 : 2,
           overflow: 'hidden',
-          transition: 'width 0.2s ease, min-width 0.2s ease, padding 0.2s ease',
           display: 'flex',
           flexDirection: 'column',
           borderRadius: '4px 0 0 4px',

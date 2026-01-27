@@ -1,0 +1,542 @@
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import {
+  Box, Typography, IconButton, Chip, Paper,
+  List, ListItemButton, ListItemIcon, CircularProgress, Collapse, Tooltip
+} from '@mui/material';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import FolderIcon from '@mui/icons-material/Folder';
+import ExpandLess from '@mui/icons-material/ExpandLess';
+import ExpandMore from '@mui/icons-material/ExpandMore';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import FiberNewIcon from '@mui/icons-material/FiberNew';
+import WarningIcon from '@mui/icons-material/Warning';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import RestoreIcon from '@mui/icons-material/Restore';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import CheckBoxIcon from '@mui/icons-material/CheckBox';
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+
+const DRAWER_WIDTH = 280;
+const EXPANDED_MB_KEY = 'operator_expanded_monthly_brands';
+
+// 캠페인 아이템 컴포넌트 - React.memo로 불필요한 리렌더링 방지
+const CampaignItem = React.memo(({
+  campaign, stats, isSelected, isHidden, isNewlyAdded, showHidden,
+  isSelectedForBulkDelete, onCampaignClick, onToggleBulkDelete,
+  onRestoreCampaign, onHideCampaign
+}) => {
+  return (
+    <ListItemButton
+      onClick={() => onCampaignClick(campaign)}
+      sx={{
+        pl: 4, py: 0.3,
+        bgcolor: isNewlyAdded ? '#e8f5e9' : isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : 'inherit',
+        borderLeft: isNewlyAdded ? '3px solid #4caf50' : isSelected ? '3px solid #2c387e' : '3px solid transparent',
+        animation: isNewlyAdded ? 'pulse-bg 2s infinite' : 'none',
+        '&:hover': { bgcolor: isNewlyAdded ? '#c8e6c9' : isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : '#f5f5f5' }
+      }}
+    >
+      <ListItemIcon sx={{ minWidth: 24 }}>
+        <FolderIcon sx={{ fontSize: 16 }} color={isHidden ? 'warning' : isSelected ? 'primary' : 'action'} />
+      </ListItemIcon>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
+        <Typography variant="body2" fontWeight={isSelected ? 'bold' : 'normal'} noWrap sx={{ fontSize: '0.8rem', flex: 1, color: isHidden ? 'text.secondary' : 'inherit' }}>
+          {campaign.name}
+        </Typography>
+        {showHidden ? (
+          <>
+            <IconButton size="small" onClick={(e) => onToggleBulkDelete('campaign', campaign.id, e)} sx={{ p: 0.2 }}>
+              {isSelectedForBulkDelete ? (
+                <CheckBoxIcon sx={{ fontSize: 14, color: '#d32f2f' }} />
+              ) : (
+                <CheckBoxOutlineBlankIcon sx={{ fontSize: 14, color: '#999' }} />
+              )}
+            </IconButton>
+            <Tooltip title="복구">
+              <IconButton size="small" color="success" onClick={(e) => onRestoreCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
+                <RestoreIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Tooltip>
+          </>
+        ) : (
+          <>
+            {isNewlyAdded && (
+              <Chip
+                label="신규 배정"
+                size="small"
+                color="success"
+                sx={{ height: 18, fontSize: '0.65rem', fontWeight: 'bold', animation: 'pulse-chip 1.5s infinite' }}
+              />
+            )}
+            {stats.isCompleted ? (
+              <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
+                <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
+              </Tooltip>
+            ) : stats.totalPurchaseTarget > 0 ? (
+              <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
+                <Chip
+                  label={`${stats.completionRate}%`}
+                  size="small"
+                  sx={{
+                    height: 16, fontSize: '0.6rem',
+                    bgcolor: stats.completionRate >= 80 ? '#c8e6c9' : stats.completionRate >= 50 ? '#fff9c4' : '#ffecb3',
+                    color: stats.completionRate >= 80 ? '#2e7d32' : stats.completionRate >= 50 ? '#f57f17' : '#ff6f00',
+                    fontWeight: 'bold'
+                  }}
+                />
+              </Tooltip>
+            ) : (
+              <Chip label={stats.totalItems} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
+            )}
+            {stats.newCount > 0 && (
+              <Chip icon={<FiberNewIcon sx={{ fontSize: '0.7rem !important' }} />} label={stats.newCount} size="small" color="warning" sx={{ height: 16, fontSize: '0.6rem' }} />
+            )}
+            {stats.courierCount > 0 && (
+              <Tooltip title={`택배대행 ${stats.courierCount}건`}>
+                <Chip
+                  icon={<LocalShippingIcon sx={{ fontSize: '0.7rem !important' }} />}
+                  label={stats.courierCount}
+                  size="small"
+                  sx={{ height: 16, fontSize: '0.6rem', bgcolor: '#e3f2fd', color: '#1565c0', '& .MuiChip-icon': { color: '#1565c0' } }}
+                />
+              </Tooltip>
+            )}
+            {stats.warningCount > 0 && <WarningIcon color="error" sx={{ fontSize: 14 }} />}
+            <Tooltip title="숨기기">
+              <IconButton size="small" color="default" onClick={(e) => onHideCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
+                <VisibilityOffIcon sx={{ fontSize: 14, color: '#ccc' }} />
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
+      </Box>
+    </ListItemButton>
+  );
+});
+
+// 기본 통계 객체 (상수)
+const DEFAULT_CAMPAIGN_STATS = {
+  newCount: 0,
+  warningCount: 0,
+  totalItems: 0,
+  totalReviewCompleted: 0,
+  totalPurchaseTarget: 0,
+  isCompleted: false,
+  completionRate: 0,
+  courierCount: 0
+};
+
+/**
+ * OperatorSidebar - 완전히 독립된 사이드바 컴포넌트
+ * expandedMonthlyBrands 상태를 내부에서 관리하여 부모(OperatorLayout) 리렌더링 방지
+ */
+function OperatorSidebar({
+  monthlyBrands,
+  loading,
+  selectedCampaignId,
+  onCampaignSelect,
+  newlyAddedCampaignIds,
+  campaignStatsMap,
+  isEmbedded,
+  getAssignmentStatus
+}) {
+  // ========== 사이드바 내부 상태 (부모에 영향 없음) ==========
+
+  // 확장된 연월브랜드 상태 - localStorage에서 복원
+  const [expandedMonthlyBrands, setExpandedMonthlyBrands] = useState(() => {
+    try {
+      const saved = localStorage.getItem(EXPANDED_MB_KEY);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // 숨김 항목 표시 모드
+  const [showHidden, setShowHidden] = useState(false);
+
+  // 숨겨진 캠페인 ID 목록
+  const [hiddenCampaignIds, setHiddenCampaignIds] = useState(() => {
+    const saved = localStorage.getItem('operator_hidden_campaigns');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // 숨겨진 연월브랜드 ID 목록
+  const [hiddenMonthlyBrandIds, setHiddenMonthlyBrandIds] = useState(() => {
+    const saved = localStorage.getItem('operator_hidden_monthly_brands');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // 사이드바 접기/펼치기 상태
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // 일괄 삭제용 선택 상태
+  const [selectedForBulkDelete, setSelectedForBulkDelete] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // 디바운스용 ref
+  const saveExpandedTimeoutRef = useRef(null);
+
+  // ========== 성능 최적화 ==========
+
+  // Set 변환 (O(1) 조회)
+  const hiddenCampaignIdsSet = useMemo(() => new Set(hiddenCampaignIds), [hiddenCampaignIds]);
+  const hiddenMonthlyBrandIdsSet = useMemo(() => new Set(hiddenMonthlyBrandIds), [hiddenMonthlyBrandIds]);
+
+  // 필터링된 연월브랜드
+  const filteredMonthlyBrands = useMemo(() => {
+    return monthlyBrands.map(mb => {
+      const filteredCampaigns = (mb.campaigns || []).filter(c => {
+        const isHidden = hiddenCampaignIdsSet.has(c.id);
+        return showHidden ? isHidden : !isHidden;
+      });
+      return { ...mb, campaigns: filteredCampaigns };
+    }).filter(mb => {
+      const isMbHidden = hiddenMonthlyBrandIdsSet.has(mb.id);
+      if (showHidden) {
+        return isMbHidden || mb.campaigns.length > 0;
+      }
+      return !isMbHidden && mb.campaigns.length > 0;
+    });
+  }, [monthlyBrands, hiddenCampaignIdsSet, hiddenMonthlyBrandIdsSet, showHidden]);
+
+  // 캐싱된 통계 조회
+  const getCampaignStats = useCallback((campaign) => {
+    return campaignStatsMap?.get(campaign.id) || DEFAULT_CAMPAIGN_STATS;
+  }, [campaignStatsMap]);
+
+  // ========== 핸들러 ==========
+
+  // 연월브랜드 토글 (디바운스 localStorage 저장)
+  const handleMonthlyBrandToggle = useCallback((monthlyBrandId) => {
+    setExpandedMonthlyBrands(prev => {
+      const newState = { ...prev, [monthlyBrandId]: !prev[monthlyBrandId] };
+
+      if (saveExpandedTimeoutRef.current) {
+        clearTimeout(saveExpandedTimeoutRef.current);
+      }
+      saveExpandedTimeoutRef.current = setTimeout(() => {
+        try {
+          localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+        } catch (e) {
+          console.error('Failed to save expanded state:', e);
+        }
+      }, 300);
+
+      return newState;
+    });
+  }, []);
+
+  // 모든 연월브랜드 펼치기
+  const handleExpandAll = useCallback(() => {
+    const newState = {};
+    monthlyBrands.forEach(mb => { newState[mb.id] = true; });
+    setExpandedMonthlyBrands(newState);
+
+    if (saveExpandedTimeoutRef.current) clearTimeout(saveExpandedTimeoutRef.current);
+    saveExpandedTimeoutRef.current = setTimeout(() => {
+      try { localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState)); }
+      catch (e) { console.error('Failed to save expanded state:', e); }
+    }, 300);
+  }, [monthlyBrands]);
+
+  // 모든 연월브랜드 접기
+  const handleCollapseAll = useCallback(() => {
+    const newState = {};
+    monthlyBrands.forEach(mb => { newState[mb.id] = false; });
+    setExpandedMonthlyBrands(newState);
+
+    if (saveExpandedTimeoutRef.current) clearTimeout(saveExpandedTimeoutRef.current);
+    saveExpandedTimeoutRef.current = setTimeout(() => {
+      try { localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState)); }
+      catch (e) { console.error('Failed to save expanded state:', e); }
+    }, 300);
+  }, [monthlyBrands]);
+
+  // 캠페인 클릭
+  const handleCampaignClick = useCallback((campaign) => {
+    onCampaignSelect(campaign);
+  }, [onCampaignSelect]);
+
+  // 연월브랜드 숨기기
+  const handleHideMonthlyBrand = useCallback((monthlyBrandId, e) => {
+    e.stopPropagation();
+    setHiddenMonthlyBrandIds(prev => {
+      const newHidden = [...prev, monthlyBrandId];
+      localStorage.setItem('operator_hidden_monthly_brands', JSON.stringify(newHidden));
+      return newHidden;
+    });
+  }, []);
+
+  // 연월브랜드 복구
+  const handleRestoreMonthlyBrand = useCallback((monthlyBrandId, e) => {
+    e.stopPropagation();
+    setHiddenMonthlyBrandIds(prev => {
+      const newHidden = prev.filter(id => id !== monthlyBrandId);
+      localStorage.setItem('operator_hidden_monthly_brands', JSON.stringify(newHidden));
+      return newHidden;
+    });
+  }, []);
+
+  // 캠페인 숨기기
+  const handleHideCampaign = useCallback((campaignId, e) => {
+    e.stopPropagation();
+    setHiddenCampaignIds(prev => {
+      const newHidden = [...prev, campaignId];
+      localStorage.setItem('operator_hidden_campaigns', JSON.stringify(newHidden));
+      return newHidden;
+    });
+  }, []);
+
+  // 캠페인 복구
+  const handleRestoreCampaign = useCallback((campaignId, e) => {
+    e.stopPropagation();
+    setHiddenCampaignIds(prev => {
+      const newHidden = prev.filter(id => id !== campaignId);
+      localStorage.setItem('operator_hidden_campaigns', JSON.stringify(newHidden));
+      return newHidden;
+    });
+  }, []);
+
+  // 일괄 삭제용 선택 토글
+  const toggleBulkDeleteSelection = useCallback((type, id, e) => {
+    e.stopPropagation();
+    const key = `${type}_${id}`;
+    setSelectedForBulkDelete(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // 일괄 삭제 실행
+  const handleBulkDelete = async () => {
+    if (selectedForBulkDelete.size === 0) return;
+    if (!window.confirm(`선택한 ${selectedForBulkDelete.size}개 항목을 숨김 목록에서 영구 삭제하시겠습니까?`)) return;
+
+    try {
+      setBulkDeleting(true);
+      const mbIdsToRemove = [];
+      const campaignIdsToRemove = [];
+
+      selectedForBulkDelete.forEach(key => {
+        const [type, id] = key.split('_');
+        if (type === 'mb') mbIdsToRemove.push(parseInt(id));
+        else if (type === 'campaign') campaignIdsToRemove.push(parseInt(id));
+      });
+
+      if (mbIdsToRemove.length > 0) {
+        const newHiddenMb = hiddenMonthlyBrandIds.filter(id => !mbIdsToRemove.includes(id));
+        setHiddenMonthlyBrandIds(newHiddenMb);
+        localStorage.setItem('operator_hidden_monthly_brands', JSON.stringify(newHiddenMb));
+      }
+
+      if (campaignIdsToRemove.length > 0) {
+        const newHiddenCampaigns = hiddenCampaignIds.filter(id => !campaignIdsToRemove.includes(id));
+        setHiddenCampaignIds(newHiddenCampaigns);
+        localStorage.setItem('operator_hidden_campaigns', JSON.stringify(newHiddenCampaigns));
+      }
+
+      setSelectedForBulkDelete(new Set());
+      alert('선택한 항목이 숨김 목록에서 삭제되었습니다.');
+    } catch (err) {
+      console.error('Bulk delete failed:', err);
+      alert('삭제 중 오류가 발생했습니다.');
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  // ========== 렌더링 ==========
+
+  return (
+    <Paper
+      sx={{
+        width: sidebarCollapsed ? 40 : DRAWER_WIDTH,
+        flexShrink: 0,
+        height: isEmbedded ? '100%' : 'calc(100vh - 64px)',
+        display: 'flex',
+        flexDirection: 'column',
+        borderRadius: 0,
+        borderRight: '1px solid #e0e0e0'
+      }}
+    >
+      {!sidebarCollapsed && (
+        <Box sx={{ flex: 1, overflow: 'auto', pb: 1 }}>
+          {/* 헤더 */}
+          <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#e8eaf6', borderBottom: '1px solid #e0e0e0' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="subtitle2" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CalendarMonthIcon fontSize="small" />
+                {showHidden ? '숨긴 항목' : '연월브랜드'}
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {!showHidden && (
+                  <>
+                    <Tooltip title="모두 펼치기">
+                      <IconButton size="small" onClick={handleExpandAll} sx={{ p: 0.5 }}>
+                        <UnfoldMoreIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="모두 접기">
+                      <IconButton size="small" onClick={handleCollapseAll} sx={{ p: 0.5 }}>
+                        <UnfoldLessIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </>
+                )}
+                {showHidden && selectedForBulkDelete.size > 0 && (
+                  <>
+                    <Tooltip title="선택 항목 일괄 삭제">
+                      <IconButton size="small" onClick={handleBulkDelete} disabled={bulkDeleting} sx={{ p: 0.5 }} color="error">
+                        <DeleteSweepIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Chip label={`${selectedForBulkDelete.size}개 선택됨`} size="small" color="error" sx={{ height: 20, fontSize: '0.7rem' }} />
+                  </>
+                )}
+                <Tooltip title={showHidden ? '일반 목록 보기' : '숨긴 항목 보기'}>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setShowHidden(!showHidden);
+                      setSelectedForBulkDelete(new Set());
+                    }}
+                    sx={{ p: 0.5 }}
+                    color={showHidden ? 'warning' : 'default'}
+                  >
+                    {showHidden ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* 목록 */}
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : filteredMonthlyBrands.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                {showHidden ? '숨긴 항목이 없습니다' : '배정된 연월브랜드가 없습니다'}
+              </Typography>
+            </Box>
+          ) : (
+            <List component="nav" disablePadding dense>
+              {filteredMonthlyBrands.map((monthlyBrand) => {
+                const isMbHidden = hiddenMonthlyBrandIdsSet.has(monthlyBrand.id);
+                if (!showHidden && isMbHidden) return null;
+
+                return (
+                  <React.Fragment key={monthlyBrand.id}>
+                    <ListItemButton
+                      onClick={() => handleMonthlyBrandToggle(monthlyBrand.id)}
+                      sx={{
+                        bgcolor: isMbHidden ? '#fff3e0' : expandedMonthlyBrands[monthlyBrand.id] ? '#e8eaf6' : 'inherit',
+                        borderBottom: '1px solid #f0f0f0',
+                        py: 0.5
+                      }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 28 }}>
+                        <CalendarMonthIcon fontSize="small" color={isMbHidden ? 'warning' : 'primary'} />
+                      </ListItemIcon>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight="bold" noWrap sx={{ flex: 1, fontSize: '0.85rem', color: isMbHidden ? 'text.secondary' : 'inherit' }}>
+                          {monthlyBrand.name}
+                        </Typography>
+                        {showHidden && isMbHidden ? (
+                          <>
+                            <IconButton size="small" onClick={(e) => toggleBulkDeleteSelection('mb', monthlyBrand.id, e)} sx={{ p: 0.3 }}>
+                              {selectedForBulkDelete.has(`mb_${monthlyBrand.id}`) ? (
+                                <CheckBoxIcon sx={{ fontSize: 18, color: '#d32f2f' }} />
+                              ) : (
+                                <CheckBoxOutlineBlankIcon sx={{ fontSize: 18, color: '#999' }} />
+                              )}
+                            </IconButton>
+                            <Tooltip title="복구">
+                              <IconButton size="small" color="success" onClick={(e) => handleRestoreMonthlyBrand(monthlyBrand.id, e)} sx={{ p: 0.3 }}>
+                                <RestoreIcon sx={{ fontSize: 18 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        ) : !showHidden ? (
+                          <Tooltip title="숨기기">
+                            <IconButton size="small" color="default" onClick={(e) => handleHideMonthlyBrand(monthlyBrand.id, e)} sx={{ p: 0.3 }}>
+                              <VisibilityOffIcon sx={{ fontSize: 16, color: '#bbb' }} />
+                            </IconButton>
+                          </Tooltip>
+                        ) : null}
+                        <Chip label={monthlyBrand.campaigns.length} size="small" sx={{ height: 18, minWidth: 20, fontSize: '0.65rem' }} />
+                      </Box>
+                      {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+                    </ListItemButton>
+
+                    <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
+                      <List component="div" disablePadding dense>
+                        {monthlyBrand.campaigns.length > 0 ? (
+                          monthlyBrand.campaigns.map((campaign) => (
+                            <CampaignItem
+                              key={campaign.id}
+                              campaign={campaign}
+                              stats={getCampaignStats(campaign)}
+                              isSelected={selectedCampaignId === campaign.id}
+                              isHidden={hiddenCampaignIdsSet.has(campaign.id)}
+                              isNewlyAdded={newlyAddedCampaignIds?.has(campaign.id)}
+                              showHidden={showHidden}
+                              isSelectedForBulkDelete={selectedForBulkDelete.has(`campaign_${campaign.id}`)}
+                              onCampaignClick={handleCampaignClick}
+                              onToggleBulkDelete={toggleBulkDeleteSelection}
+                              onRestoreCampaign={handleRestoreCampaign}
+                              onHideCampaign={handleHideCampaign}
+                            />
+                          ))
+                        ) : (
+                          <Box sx={{ pl: 4, py: 1 }}>
+                            <Typography variant="caption" color="text.secondary">
+                              {showHidden ? '숨긴 캠페인 없음' : '캠페인 없음'}
+                            </Typography>
+                          </Box>
+                        )}
+                      </List>
+                    </Collapse>
+                  </React.Fragment>
+                );
+              })}
+            </List>
+          )}
+        </Box>
+      )}
+
+      {/* 접기/펼치기 버튼 - 하단 고정 */}
+      <Box
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        sx={{
+          flexShrink: 0,
+          marginTop: 'auto',
+          bgcolor: '#2c387e',
+          color: 'white',
+          height: 36,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          '&:hover': { bgcolor: '#3f51b5' }
+        }}
+      >
+        {sidebarCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+        {!sidebarCollapsed && <Typography variant="caption" sx={{ ml: 0.5 }}>접기</Typography>}
+      </Box>
+    </Paper>
+  );
+}
+
+export default React.memo(OperatorSidebar);
