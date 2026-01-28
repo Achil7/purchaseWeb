@@ -1188,6 +1188,10 @@ function UnifiedItemSheetInner({
             afterColumnResize={handleColumnResize}
             rowHeights={23}
             autoScrollOnSelection={false}
+            afterSelection={(row, column, row2, column2, preventScrolling) => {
+              // 셀 선택 시 자동 스크롤 방지
+              preventScrolling.value = true;
+            }}
             filters={true}
             dropdownMenu={['filter_by_condition', 'filter_by_value', 'filter_action_bar']}
             hiddenRows={{ rows: [], indicators: false }}

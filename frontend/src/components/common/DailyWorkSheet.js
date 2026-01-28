@@ -1164,6 +1164,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             outsideClickDeselects={false}
             rowHeights={23}
             autoScrollOnSelection={false}
+            afterSelection={(row, column, row2, column2, preventScrolling) => {
+              // 셀 선택 시 자동 스크롤 방지
+              preventScrolling.value = true;
+            }}
           />
         )}
       </Paper>

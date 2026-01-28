@@ -679,10 +679,11 @@ exports.createSlot = async (req, res) => {
 
     const targetDayGroup = dayGroup || 1;
 
-    // 해당 그룹 내 최대 slot_number 조회
+    // 해당 그룹 내 최대 slot_number 조회 (soft delete된 레코드도 포함 - unique 제약 충돌 방지)
     const maxSlotResult = await ItemSlot.findOne({
       where: { item_id: itemId, day_group: targetDayGroup },
-      attributes: [[fn('MAX', col('slot_number')), 'maxSlot']]
+      attributes: [[fn('MAX', col('slot_number')), 'maxSlot']],
+      paranoid: false  // soft delete된 레코드도 포함
     });
     const nextSlotNumber = (maxSlotResult?.dataValues?.maxSlot || 0) + 1;
 

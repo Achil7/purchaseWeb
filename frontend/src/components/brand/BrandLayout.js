@@ -10,7 +10,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import FolderIcon from '@mui/icons-material/Folder';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import DateRangeIcon from '@mui/icons-material/DateRange';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -475,7 +475,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#e8eaf6', borderBottom: '1px solid #e0e0e0' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <DateRangeIcon fontSize="small" />
+                  <CalendarMonthIcon fontSize="small" />
                   {showHidden ? '숨긴 항목' : '내 캠페인 (연월브랜드)'}
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -542,7 +542,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                           }}
                         >
                           <ListItemIcon sx={{ minWidth: 28 }}>
-                            <DateRangeIcon fontSize="small" color={monthlyBrand.is_hidden ? 'warning' : 'primary'} />
+                            <CalendarMonthIcon fontSize="small" color={monthlyBrand.is_hidden ? 'warning' : 'primary'} />
                           </ListItemIcon>
                           <ListItemText
                             primary={
@@ -581,7 +581,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                     key={campaign.id}
                                     onClick={() => handleCampaignClick(campaign)}
                                     sx={{
-                                      pl: 4, py: 0.5,
+                                      pl: 4, py: 0.3,
                                       bgcolor: isSelected ? '#c5cae9' : 'inherit',
                                       borderLeft: isSelected ? '3px solid #2c387e' : '3px solid transparent',
                                       '&:hover': { bgcolor: isSelected ? '#c5cae9' : '#f5f5f5' }
@@ -598,7 +598,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                           </Typography>
                                           {stats.isCompleted ? (
                                             <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalBuyerCount}`}>
-                                              <CheckCircleIcon sx={{ fontSize: 16, color: '#2c387e' }} />
+                                              <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
                                             </Tooltip>
                                           ) : stats.totalBuyerCount > 0 ? (
                                             <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalBuyerCount}`}>
@@ -606,7 +606,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                                 label={`${stats.completionRate}%`}
                                                 size="small"
                                                 sx={{
-                                                  height: 14, fontSize: '0.55rem',
+                                                  height: 16, fontSize: '0.6rem',
                                                   bgcolor: stats.completionRate >= 80 ? '#c8e6c9' : stats.completionRate >= 50 ? '#fff9c4' : '#ffecb3',
                                                   color: stats.completionRate >= 80 ? '#2e7d32' : stats.completionRate >= 50 ? '#f57f17' : '#ff6f00',
                                                   fontWeight: 'bold'
@@ -614,9 +614,9 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                               />
                                             </Tooltip>
                                           ) : (
-                                            <Chip label={`${campaign.items?.length || 0}개`} size="small" sx={{ height: 14, fontSize: '0.55rem', minWidth: 16 }} />
+                                            <Chip label={`${campaign.items?.length || 0}개`} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
                                           )}
-                                          <Chip label={getStatusLabel(campaign.status)} size="small" color={getStatusColor(campaign.status)} variant="outlined" sx={{ height: 16, fontSize: '0.55rem' }} />
+                                          <Chip label={getStatusLabel(campaign.status)} size="small" color={getStatusColor(campaign.status)} variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
                                         </Box>
                                       }
                                     />

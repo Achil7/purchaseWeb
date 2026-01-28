@@ -81,10 +81,7 @@ const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
       td.innerHTML = `<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: #666;">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
       td.style.textAlign = 'center';
       td.style.cursor = 'pointer';
-      td.onclick = (e) => {
-        e.stopPropagation();
-        toggleItemCollapse(itemId, dayGroup);
-      };
+      // 토글 클릭은 afterOnCellMouseUp에서 처리 (beforeOnCellMouseDown에서 스크롤 방지)
     } else if (prop === 'col2') {
       td.textContent = value ?? '';
       td.style.fontWeight = 'bold';
@@ -1129,9 +1126,28 @@ function BrandItemSheetInner({
                 }
               }
             }}
+            afterSelection={(row, column, row2, column2, preventScrolling) => {
+              // 셀 선택 시 자동 스크롤 방지
+              preventScrolling.value = true;
+            }}
+            beforeOnCellMouseDown={(event, coords, TD) => {
+              // 토글 셀(제품 데이터 행의 col0) 클릭 시 기본 동작 방지
+              const rowData = tableData[coords.row];
+              if (rowData?._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
+                event.stopImmediatePropagation();
+              }
+            }}
             afterOnCellMouseUp={(event, coords) => {
               const rowData = tableData[coords.row];
               if (!rowData) return;
+
+              // 제품 데이터 행의 col0(토글) 클릭 시 접기/펼치기
+              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
+                const itemId = rowData._itemId;
+                const dayGroup = rowData._dayGroup;
+                toggleItemCollapse(itemId, dayGroup);
+                return;
+              }
 
               // 제품 데이터 행의 col13(상세보기) 클릭 시 팝업
               if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 13) {

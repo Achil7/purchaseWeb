@@ -82,10 +82,7 @@ const createSalesProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
       td.innerHTML = `<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: #666;">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
       td.style.textAlign = 'center';
       td.style.cursor = 'pointer';
-      td.onclick = (e) => {
-        e.stopPropagation();
-        toggleItemCollapse(itemId);
-      };
+      // 토글 클릭은 afterOnCellMouseUp에서 처리 (beforeOnCellMouseDown에서 스크롤 방지)
     } else if (prop === 'col11' && value) {
       const url = value.startsWith('http') ? value : `https://${value}`;
       td.style.whiteSpace = 'nowrap';
@@ -399,7 +396,9 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
   // 캠페인별 슬롯 데이터 로드
   // 성능 최적화: 의존성 배열을 비워서 함수 재생성 방지, campaignId는 파라미터로 전달
-  const loadSlots = useCallback(async (targetCampaignId, forceRefresh = false) => {
+  // preserveCollapsedState: true면 현재 접기 상태 유지 (행 추가/삭제 시 사용)
+  // skipLoading: true면 로딩 상태 변경 없이 데이터만 새로고침 (행 추가/삭제 시 깜빡임 방지)
+  const loadSlots = useCallback(async (targetCampaignId, forceRefresh = false, preserveCollapsedState = false, skipLoading = false) => {
     if (!targetCampaignId) return;
 
     // 캐시 키 생성
@@ -410,20 +409,23 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       const cached = slotsCache.get(cacheKey);
       setSlots(cached.slots);
 
-      // localStorage에서 접기 상태 복원
-      const allItemIds = [...new Set(cached.slots.map(s => s.item_id))];
-      const collapsedKey = `sales_itemsheet_collapsed_items_${targetCampaignId}`;
-      try {
-        const saved = localStorage.getItem(collapsedKey);
-        if (saved) {
-          const savedIds = JSON.parse(saved);
-          const validIds = savedIds.filter(id => allItemIds.includes(id));
-          setCollapsedItems(new Set(validIds));
-        } else {
+      // preserveCollapsedState가 true면 현재 접기 상태 유지
+      if (!preserveCollapsedState) {
+        // localStorage에서 접기 상태 복원
+        const allItemIds = [...new Set(cached.slots.map(s => s.item_id))];
+        const collapsedKey = `sales_itemsheet_collapsed_items_${targetCampaignId}`;
+        try {
+          const saved = localStorage.getItem(collapsedKey);
+          if (saved) {
+            const savedIds = JSON.parse(saved);
+            const validIds = savedIds.filter(id => allItemIds.includes(id));
+            setCollapsedItems(new Set(validIds));
+          } else {
+            setCollapsedItems(new Set(allItemIds));
+          }
+        } catch (e) {
           setCollapsedItems(new Set(allItemIds));
         }
-      } catch (e) {
-        setCollapsedItems(new Set(allItemIds));
       }
 
       // localStorage에서 컬럼 너비 복원
@@ -439,11 +441,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         setColumnWidths(DEFAULT_COLUMN_WIDTHS);
       }
 
-      setLoading(false);
+      if (!skipLoading) setLoading(false);
       return;
     }
 
-    setLoading(true);
+    if (!skipLoading) setLoading(true);
     try {
       const response = await itemSlotService.getSlotsByCampaign(targetCampaignId);
       if (response.success) {
@@ -453,20 +455,23 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: newSlots, timestamp: Date.now() });
 
-        // API 응답 직후 localStorage에서 접기 상태 복원
-        const allItemIds = [...new Set(newSlots.map(s => s.item_id))];
-        const collapsedKey = `sales_itemsheet_collapsed_items_${targetCampaignId}`;
-        try {
-          const saved = localStorage.getItem(collapsedKey);
-          if (saved) {
-            const savedIds = JSON.parse(saved);
-            const validIds = savedIds.filter(id => allItemIds.includes(id));
-            setCollapsedItems(new Set(validIds));
-          } else {
+        // preserveCollapsedState가 true면 현재 접기 상태 유지
+        if (!preserveCollapsedState) {
+          // API 응답 직후 localStorage에서 접기 상태 복원
+          const allItemIds = [...new Set(newSlots.map(s => s.item_id))];
+          const collapsedKey = `sales_itemsheet_collapsed_items_${targetCampaignId}`;
+          try {
+            const saved = localStorage.getItem(collapsedKey);
+            if (saved) {
+              const savedIds = JSON.parse(saved);
+              const validIds = savedIds.filter(id => allItemIds.includes(id));
+              setCollapsedItems(new Set(validIds));
+            } else {
+              setCollapsedItems(new Set(allItemIds));
+            }
+          } catch (e) {
             setCollapsedItems(new Set(allItemIds));
           }
-        } catch (e) {
-          setCollapsedItems(new Set(allItemIds));
         }
 
         // API 응답 직후 localStorage에서 컬럼 너비 복원
@@ -485,7 +490,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     } catch (error) {
       console.error('Failed to load slots:', error);
     } finally {
-      setLoading(false);
+      if (!skipLoading) setLoading(false);
     }
   }, []); // 의존성 배열 비움 - 함수 재생성 방지
 
@@ -1164,6 +1169,28 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       setFilteredColumns(new Set());
       filterConditionsRef.current = null;
 
+      // 삭제된 품목/그룹의 접기 상태 제거 (collapsedItems 정리)
+      if (type === 'group') {
+        const keyToRemove = `${data.itemId}_${data.dayGroup}`;
+        setCollapsedItems(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(keyToRemove);
+          return newSet;
+        });
+      } else if (type === 'item') {
+        // 해당 품목의 모든 day_group 키 제거
+        setCollapsedItems(prev => {
+          const newSet = new Set();
+          prev.forEach(key => {
+            if (!key.startsWith(`${data.itemId}_`)) {
+              newSet.add(key);
+            }
+          });
+          return newSet;
+        });
+      }
+      // rows 삭제는 같은 item_id/day_group 내에서 일부 행만 삭제하므로 collapsedItems 유지
+
       // 데이터 새로고침 (부모 컴포넌트 알림)
       if (onRefresh) onRefresh();
     } catch (error) {
@@ -1586,7 +1613,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                     try {
                       await itemSlotService.createSlot(itemId, dayGroup);
                       setSnackbar({ open: true, message: '행이 추가되었습니다' });
-                      loadSlots(campaignId);
+                      // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
+                      loadSlots(campaignId, true, true, true);
                     } catch (error) {
                       console.error('Failed to add row:', error);
                       alert('행 추가 실패: ' + (error.response?.data?.message || error.message));
@@ -1625,7 +1653,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                     try {
                       await itemSlotService.deleteSlotsBulk(slotIds);
                       setSnackbar({ open: true, message: `${slotIds.length}개 행이 삭제되었습니다` });
-                      loadSlots(campaignId);
+                      // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
+                      loadSlots(campaignId, true, true, true);
                     } catch (error) {
                       console.error('Failed to delete rows:', error);
                       alert('행 삭제 실패: ' + (error.response?.data?.message || error.message));
@@ -1679,7 +1708,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                     try {
                       const result = await itemSlotService.splitDayGroup(slotId);
                       setSnackbar({ open: true, message: result.message });
-                      loadSlots(campaignId);
+                      // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
+                      loadSlots(campaignId, true, true, true);
                     } catch (error) {
                       console.error('Failed to split day group:', error);
                       alert('일 마감 실패: ' + (error.response?.data?.message || error.message));
@@ -1829,6 +1859,17 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
               newData.forEach(row => data.push(row));
             }}
             afterChange={handleAfterChange}
+            afterSelection={(row, column, row2, column2, preventScrolling) => {
+              // 셀 선택 시 자동 스크롤 방지
+              preventScrolling.value = true;
+            }}
+            beforeOnCellMouseDown={(event, coords, TD) => {
+              // 토글 셀(제품 데이터 행의 col0) 클릭 시 기본 동작 방지
+              const rowData = tableData[coords.row];
+              if (rowData?._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
+                event.stopImmediatePropagation();
+              }
+            }}
             // afterRender - 메모 기능 비활성화
             // afterRender={() => {
             //   const hot = hotRef.current?.hotInstance;
@@ -1849,6 +1890,13 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             afterOnCellMouseUp={(event, coords) => {
               const rowData = tableData[coords.row];
               if (!rowData) return;
+
+              // 제품 데이터 행의 col0(토글) 클릭 시 접기/펼치기
+              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
+                const itemId = rowData._itemId;
+                toggleItemCollapse(itemId);
+                return;
+              }
 
               // 업로드 링크 바 클릭 시 링크 복사
               if (rowData._rowType === ROW_TYPES.UPLOAD_LINK_BAR) {

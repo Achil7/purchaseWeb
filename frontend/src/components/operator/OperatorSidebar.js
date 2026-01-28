@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   Box, Typography, IconButton, Chip, Paper,
-  List, ListItemButton, ListItemIcon, CircularProgress, Collapse, Tooltip
+  List, ListItemButton, ListItemIcon, ListItemText, CircularProgress, Collapse, Tooltip
 } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -45,77 +45,81 @@ const CampaignItem = React.memo(({
       <ListItemIcon sx={{ minWidth: 24 }}>
         <FolderIcon sx={{ fontSize: 16 }} color={isHidden ? 'warning' : isSelected ? 'primary' : 'action'} />
       </ListItemIcon>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
-        <Typography variant="body2" fontWeight={isSelected ? 'bold' : 'normal'} noWrap sx={{ fontSize: '0.8rem', flex: 1, color: isHidden ? 'text.secondary' : 'inherit' }}>
-          {campaign.name}
-        </Typography>
-        {showHidden ? (
-          <>
-            <IconButton size="small" onClick={(e) => onToggleBulkDelete('campaign', campaign.id, e)} sx={{ p: 0.2 }}>
-              {isSelectedForBulkDelete ? (
-                <CheckBoxIcon sx={{ fontSize: 14, color: '#d32f2f' }} />
-              ) : (
-                <CheckBoxOutlineBlankIcon sx={{ fontSize: 14, color: '#999' }} />
-              )}
-            </IconButton>
-            <Tooltip title="복구">
-              <IconButton size="small" color="success" onClick={(e) => onRestoreCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
-                <RestoreIcon sx={{ fontSize: 14 }} />
-              </IconButton>
-            </Tooltip>
-          </>
-        ) : (
-          <>
-            {isNewlyAdded && (
-              <Chip
-                label="신규 배정"
-                size="small"
-                color="success"
-                sx={{ height: 18, fontSize: '0.65rem', fontWeight: 'bold', animation: 'pulse-chip 1.5s infinite' }}
-              />
-            )}
-            {stats.isCompleted ? (
-              <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
-                <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
-              </Tooltip>
-            ) : stats.totalPurchaseTarget > 0 ? (
-              <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
-                <Chip
-                  label={`${stats.completionRate}%`}
-                  size="small"
-                  sx={{
-                    height: 16, fontSize: '0.6rem',
-                    bgcolor: stats.completionRate >= 80 ? '#c8e6c9' : stats.completionRate >= 50 ? '#fff9c4' : '#ffecb3',
-                    color: stats.completionRate >= 80 ? '#2e7d32' : stats.completionRate >= 50 ? '#f57f17' : '#ff6f00',
-                    fontWeight: 'bold'
-                  }}
-                />
-              </Tooltip>
+      <ListItemText
+        primary={
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="body2" fontWeight={isSelected ? 'bold' : 'normal'} noWrap sx={{ fontSize: '0.8rem', flex: 1, color: isHidden ? 'text.secondary' : 'inherit' }}>
+              {campaign.name}
+            </Typography>
+            {showHidden ? (
+              <>
+                <IconButton size="small" onClick={(e) => onToggleBulkDelete('campaign', campaign.id, e)} sx={{ p: 0.2 }}>
+                  {isSelectedForBulkDelete ? (
+                    <CheckBoxIcon sx={{ fontSize: 14, color: '#d32f2f' }} />
+                  ) : (
+                    <CheckBoxOutlineBlankIcon sx={{ fontSize: 14, color: '#999' }} />
+                  )}
+                </IconButton>
+                <Tooltip title="복구">
+                  <IconButton size="small" color="success" onClick={(e) => onRestoreCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
+                    <RestoreIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Tooltip>
+              </>
             ) : (
-              <Chip label={stats.totalItems} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
+              <>
+                {isNewlyAdded && (
+                  <Chip
+                    label="신규 배정"
+                    size="small"
+                    color="success"
+                    sx={{ height: 18, fontSize: '0.65rem', fontWeight: 'bold', animation: 'pulse-chip 1.5s infinite' }}
+                  />
+                )}
+                {stats.isCompleted ? (
+                  <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
+                    <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
+                  </Tooltip>
+                ) : stats.totalPurchaseTarget > 0 ? (
+                  <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
+                    <Chip
+                      label={`${stats.completionRate}%`}
+                      size="small"
+                      sx={{
+                        height: 16, fontSize: '0.6rem',
+                        bgcolor: stats.completionRate >= 80 ? '#c8e6c9' : stats.completionRate >= 50 ? '#fff9c4' : '#ffecb3',
+                        color: stats.completionRate >= 80 ? '#2e7d32' : stats.completionRate >= 50 ? '#f57f17' : '#ff6f00',
+                        fontWeight: 'bold'
+                      }}
+                    />
+                  </Tooltip>
+                ) : (
+                  <Chip label={stats.totalItems} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
+                )}
+                {stats.newCount > 0 && (
+                  <Chip icon={<FiberNewIcon sx={{ fontSize: '0.7rem !important' }} />} label={stats.newCount} size="small" color="warning" sx={{ height: 16, fontSize: '0.6rem' }} />
+                )}
+                {stats.courierCount > 0 && (
+                  <Tooltip title={`택배대행 ${stats.courierCount}건`}>
+                    <Chip
+                      icon={<LocalShippingIcon sx={{ fontSize: '0.7rem !important' }} />}
+                      label={stats.courierCount}
+                      size="small"
+                      sx={{ height: 16, fontSize: '0.6rem', bgcolor: '#e3f2fd', color: '#1565c0', '& .MuiChip-icon': { color: '#1565c0' } }}
+                    />
+                  </Tooltip>
+                )}
+                {stats.warningCount > 0 && <WarningIcon color="error" sx={{ fontSize: 14 }} />}
+                <Tooltip title="숨기기">
+                  <IconButton size="small" color="default" onClick={(e) => onHideCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
+                    <VisibilityOffIcon sx={{ fontSize: 14, color: '#ccc' }} />
+                  </IconButton>
+                </Tooltip>
+              </>
             )}
-            {stats.newCount > 0 && (
-              <Chip icon={<FiberNewIcon sx={{ fontSize: '0.7rem !important' }} />} label={stats.newCount} size="small" color="warning" sx={{ height: 16, fontSize: '0.6rem' }} />
-            )}
-            {stats.courierCount > 0 && (
-              <Tooltip title={`택배대행 ${stats.courierCount}건`}>
-                <Chip
-                  icon={<LocalShippingIcon sx={{ fontSize: '0.7rem !important' }} />}
-                  label={stats.courierCount}
-                  size="small"
-                  sx={{ height: 16, fontSize: '0.6rem', bgcolor: '#e3f2fd', color: '#1565c0', '& .MuiChip-icon': { color: '#1565c0' } }}
-                />
-              </Tooltip>
-            )}
-            {stats.warningCount > 0 && <WarningIcon color="error" sx={{ fontSize: 14 }} />}
-            <Tooltip title="숨기기">
-              <IconButton size="small" color="default" onClick={(e) => onHideCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
-                <VisibilityOffIcon sx={{ fontSize: 14, color: '#ccc' }} />
-              </IconButton>
-            </Tooltip>
-          </>
-        )}
-      </Box>
+          </Box>
+        }
+      />
     </ListItemButton>
   );
 });
