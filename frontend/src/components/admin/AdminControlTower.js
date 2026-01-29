@@ -39,6 +39,7 @@ import {
 import { campaignService } from '../../services';
 import monthlyBrandService from '../../services/monthlyBrandService';
 import UserDashboardViewer from './UserDashboardViewer';
+import SalesMonthlyBrandDialog from '../sales/SalesMonthlyBrandDialog';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
@@ -98,6 +99,30 @@ function AdminControlTower() {
     });
   };
 
+  // 모든 연월브랜드 펼치기
+  const expandAllMonthlyBrands = useCallback(() => {
+    const newState = {};
+    monthlyBrands.forEach(mb => {
+      newState[mb.id] = true;
+    });
+    setExpandedMonthlyBrands(newState);
+    try {
+      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+    } catch (e) {
+      console.error('Failed to save expanded state:', e);
+    }
+  }, [monthlyBrands]);
+
+  // 모든 연월브랜드 접기
+  const collapseAllMonthlyBrands = useCallback(() => {
+    setExpandedMonthlyBrands({});
+    try {
+      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify({}));
+    } catch (e) {
+      console.error('Failed to save expanded state:', e);
+    }
+  }, []);
+
   // 영업사 변경 다이얼로그 상태
   const [salesChangeDialogOpen, setSalesChangeDialogOpen] = useState(false);
   const [selectedCampaignForSalesChange, setSelectedCampaignForSalesChange] = useState(null);
@@ -130,6 +155,10 @@ function AdminControlTower() {
   const [editName, setEditName] = useState('');
   const [savingUser, setSavingUser] = useState(false);
 
+  // 연월브랜드 수정 다이얼로그 상태
+  const [monthlyBrandDialogOpen, setMonthlyBrandDialogOpen] = useState(false);
+  const [selectedMonthlyBrandForEdit, setSelectedMonthlyBrandForEdit] = useState(null);
+
   // 영업사 변경 다이얼로그 열기
   const handleOpenSalesChangeDialog = async (campaign) => {
     setSelectedCampaignForSalesChange(campaign);
@@ -150,6 +179,20 @@ function AdminControlTower() {
     setSalesChangeDialogOpen(false);
     setSelectedCampaignForSalesChange(null);
     setNewSalesId('');
+  };
+
+  // 연월브랜드 수정 다이얼로그 열기
+  const handleEditMonthlyBrand = (monthlyBrand, e) => {
+    if (e) e.stopPropagation();
+    setSelectedMonthlyBrandForEdit(monthlyBrand);
+    setMonthlyBrandDialogOpen(true);
+  };
+
+  // 연월브랜드 수정 성공 시 목록 새로고침
+  const handleMonthlyBrandEditSuccess = () => {
+    setMonthlyBrandDialogOpen(false);
+    setSelectedMonthlyBrandForEdit(null);
+    loadAssignmentData();
   };
 
   // 영업사 변경 저장
@@ -467,14 +510,32 @@ function AdminControlTower() {
     return (
       <Box>
         {/* 타이틀 영역 */}
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Box>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+            <Typography variant="h6" fontWeight="bold" sx={{ mb: 0.5 }}>
               연월브랜드 및 캠페인 관리
             </Typography>
             <Typography variant="body2" color="text.secondary">
               연월브랜드를 선택하고 캠페인을 클릭하여 진행자를 배정하세요.
             </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={expandAllMonthlyBrands}
+              sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
+            >
+              모두 펼치기
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={collapseAllMonthlyBrands}
+              sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
+            >
+              모두 접기
+            </Button>
           </Box>
         </Box>
 
@@ -591,19 +652,31 @@ function AdminControlTower() {
                               <Typography variant="body2" color="text.secondary">-</Typography>
                             </TableCell>
                             <TableCell align="center">
-                              <Tooltip title="연월브랜드 삭제 (모든 캠페인/품목/구매자 포함)">
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenDeleteDialog('monthlyBrand', mb);
-                                  }}
-                                  sx={{ p: 0.3 }}
-                                >
-                                  <DeleteIcon sx={{ fontSize: 16 }} />
-                                </IconButton>
-                              </Tooltip>
+                              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
+                                <Tooltip title="연월브랜드 수정">
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={(e) => handleEditMonthlyBrand(mb, e)}
+                                    sx={{ p: 0.3 }}
+                                  >
+                                    <EditIcon sx={{ fontSize: 16 }} />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="연월브랜드 삭제 (모든 캠페인/품목/구매자 포함)">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenDeleteDialog('monthlyBrand', mb);
+                                    }}
+                                    sx={{ p: 0.3 }}
+                                  >
+                                    <DeleteIcon sx={{ fontSize: 16 }} />
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
                             </TableCell>
                           </TableRow>
 
@@ -1648,6 +1721,18 @@ function AdminControlTower() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* 연월브랜드 수정 다이얼로그 */}
+      <SalesMonthlyBrandDialog
+        open={monthlyBrandDialogOpen}
+        onClose={() => {
+          setMonthlyBrandDialogOpen(false);
+          setSelectedMonthlyBrandForEdit(null);
+        }}
+        onSuccess={handleMonthlyBrandEditSuccess}
+        mode="edit"
+        initialData={selectedMonthlyBrandForEdit}
+      />
     </Box>
   );
 }

@@ -53,6 +53,8 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const [selectedMonthlyBrandForCampaign, setSelectedMonthlyBrandForCampaign] = useState(null);
   const [campaignEditMode, setCampaignEditMode] = useState('create'); // 'create' or 'edit'
   const [selectedCampaignForEdit, setSelectedCampaignForEdit] = useState(null); // 수정할 캠페인
+  const [monthlyBrandEditMode, setMonthlyBrandEditMode] = useState('create'); // 'create' or 'edit'
+  const [selectedMonthlyBrandForEdit, setSelectedMonthlyBrandForEdit] = useState(null); // 수정할 연월브랜드
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [selectedItemForEdit, setSelectedItemForEdit] = useState(null);
 
@@ -317,10 +319,27 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     setBrandDialogOpen(false);
   };
 
-  // 연월브랜드 추가 성공 시 목록 새로고침
+  // 연월브랜드 추가/수정 성공 시 목록 새로고침
   const handleMonthlyBrandSuccess = () => {
     setMonthlyBrandDialogOpen(false);
+    setMonthlyBrandEditMode('create');
+    setSelectedMonthlyBrandForEdit(null);
     loadMonthlyBrands();
+  };
+
+  // 연월브랜드 수정 다이얼로그 열기
+  const handleEditMonthlyBrand = (monthlyBrand, e) => {
+    if (e) e.stopPropagation();
+    setSelectedMonthlyBrandForEdit(monthlyBrand);
+    setMonthlyBrandEditMode('edit');
+    setMonthlyBrandDialogOpen(true);
+  };
+
+  // 연월브랜드 추가 다이얼로그 열기
+  const handleAddMonthlyBrand = () => {
+    setSelectedMonthlyBrandForEdit(null);
+    setMonthlyBrandEditMode('create');
+    setMonthlyBrandDialogOpen(true);
   };
 
   // 캠페인 추가 버튼 클릭 (연월브랜드 ID 전달)
@@ -626,7 +645,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             color="inherit"
             variant="outlined"
             startIcon={<AddCircleIcon />}
-            onClick={() => setMonthlyBrandDialogOpen(true)}
+            onClick={handleAddMonthlyBrand}
             sx={{ mr: 1, borderColor: 'rgba(255,255,255,0.5)', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}
           >
             연월브랜드 추가
@@ -746,7 +765,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                       {showHidden ? '숨긴 항목이 없습니다' : '등록된 연월브랜드가 없습니다'}
                     </Typography>
                     {!showHidden && (
-                      <Button variant="outlined" size="small" startIcon={<AddCircleIcon />} onClick={() => setMonthlyBrandDialogOpen(true)}>
+                      <Button variant="outlined" size="small" startIcon={<AddCircleIcon />} onClick={handleAddMonthlyBrand}>
                         연월브랜드 추가
                       </Button>
                     )}
@@ -809,6 +828,11 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                     <Tooltip title="캠페인 추가">
                                       <IconButton size="small" color="success" onClick={(e) => handleAddCampaign(monthlyBrand.id, e)} sx={{ p: 0.3 }}>
                                         <PlaylistAddIcon sx={{ fontSize: 18 }} />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="연월브랜드 수정">
+                                      <IconButton size="small" color="primary" onClick={(e) => handleEditMonthlyBrand(monthlyBrand, e)} sx={{ p: 0.3 }}>
+                                        <EditIcon sx={{ fontSize: 16 }} />
                                       </IconButton>
                                     </Tooltip>
                                     <Tooltip title="숨기기">
@@ -1088,11 +1112,17 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         viewAsUserId={viewAsUserId}
       />
 
-      {/* 연월브랜드 추가 다이얼로그 */}
+      {/* 연월브랜드 추가/수정 다이얼로그 */}
       <SalesMonthlyBrandDialog
         open={monthlyBrandDialogOpen}
-        onClose={() => setMonthlyBrandDialogOpen(false)}
+        onClose={() => {
+          setMonthlyBrandDialogOpen(false);
+          setMonthlyBrandEditMode('create');
+          setSelectedMonthlyBrandForEdit(null);
+        }}
         onSuccess={handleMonthlyBrandSuccess}
+        mode={monthlyBrandEditMode}
+        initialData={selectedMonthlyBrandForEdit}
         viewAsUserId={viewAsUserId}
       />
 

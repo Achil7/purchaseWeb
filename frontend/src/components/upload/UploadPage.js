@@ -299,7 +299,7 @@ function UploadPage({ isSlotUpload = false }) {
           {/* 1단계: 이름 검색 */}
           <Box sx={{ mb: 3 }}>
             <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
-              1. 이름으로 주문 검색
+              1. 페이백 예금주 명으로 주문 검색
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
               <TextField
@@ -308,7 +308,7 @@ function UploadPage({ isSlotUpload = false }) {
                 value={searchName}
                 onChange={(e) => setSearchName(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="이름을 입력하세요 (예: 홍길동)"
+                placeholder="페이백 예금주 명을 입력하세요 (예: 홍길동)"
                 disabled={searching}
               />
               <Button
@@ -340,6 +340,7 @@ function UploadPage({ isSlotUpload = false }) {
                     <TableRow sx={{ bgcolor: '#f5f5f5' }}>
                       <TableCell padding="checkbox" />
                       <TableCell>주문번호</TableCell>
+                      <TableCell>입금명</TableCell>
                       <TableCell>구매자</TableCell>
                       <TableCell>수취인</TableCell>
                       <TableCell>아이디</TableCell>
@@ -367,6 +368,9 @@ function UploadPage({ isSlotUpload = false }) {
                           </TableCell>
                           <TableCell>
                             {buyer.order_number || '-'}
+                          </TableCell>
+                          <TableCell>
+                            {buyer.deposit_name || ''}
                           </TableCell>
                           <TableCell>
                             {buyer.buyer_name || '-'}
@@ -540,7 +544,7 @@ function UploadPage({ isSlotUpload = false }) {
                 이미지가 성공적으로 업로드되었습니다!
               </Typography>
               <Typography variant="body2" sx={{ mt: 1 }}>
-                추가 이미지를 업로드하려면 이름을 다시 검색하세요.
+                추가 이미지를 업로드하려면 페이백 예금주 명을 다시 검색하세요.
               </Typography>
             </Alert>
           )}

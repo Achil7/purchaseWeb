@@ -4,7 +4,6 @@ import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import SearchIcon from '@mui/icons-material/Search';
 import InfoIcon from '@mui/icons-material/Info';
 import ImageSwipeViewer from './ImageSwipeViewer';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -17,6 +16,7 @@ import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
 import itemSlotService from '../../services/itemSlotService';
 import itemService from '../../services/itemService';
+import imageService from '../../services/imageService';
 
 // Handsontable 모든 모듈 등록
 registerAllModules();
@@ -163,8 +163,12 @@ const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers, statusLa
       const images = rowData._reviewImages || [];
       const imageCount = images.length;
       if (imageCount > 0) {
-        const label = imageCount > 1 ? `리뷰 보기 (${imageCount})` : '리뷰 보기';
-        td.innerHTML = `<a href="#" class="review-link" style="color: #1976d2; text-decoration: underline; cursor: pointer; font-size: 11px;">${label}</a>`;
+        const label = imageCount > 1 ? `보기(${imageCount})` : '보기';
+        td.innerHTML = `
+          <span style="display: flex; align-items: center; justify-content: center; gap: 4px;">
+            <a href="#" class="review-link" style="color: #1976d2; text-decoration: underline; cursor: pointer; font-size: 11px;">${label}</a>
+            <a href="#" class="review-delete-link" style="color: #d32f2f; font-size: 10px; cursor: pointer;" title="리뷰샷 삭제">✕</a>
+          </span>`;
         td.style.textAlign = 'center';
       } else {
         td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
@@ -283,6 +287,15 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     currentIndex: 0,
     buyer: null
   });
+
+  // 리뷰샷 삭제 팝업 상태
+  const [deleteReviewPopup, setDeleteReviewPopup] = useState({
+    open: false,
+    images: [],
+    buyer: null,
+    rowIndex: null
+  });
+  const [deletingReview, setDeletingReview] = useState(false);
 
   // 제품 상세 정보 팝업 상태
   const [productDetailPopup, setProductDetailPopup] = useState({
@@ -716,6 +729,21 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     });
   }, []);
 
+  // 모든 그룹 키 목록
+  const allGroupKeys = useMemo(() => {
+    return Object.keys(groupedSlots);
+  }, [groupedSlots]);
+
+  // 모두 펼치기
+  const expandAll = useCallback(() => {
+    setCollapsedItems(new Set());
+  }, []);
+
+  // 모두 접기
+  const collapseAll = useCallback(() => {
+    setCollapsedItems(new Set(allGroupKeys));
+  }, [allGroupKeys]);
+
   // 업로드 링크 복사 핸들러
   const handleCopyUploadLink = useCallback((token) => {
     if (!token) return;
@@ -726,6 +754,28 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       console.error('Failed to copy:', err);
     });
   }, []);
+
+  // 금액 파싱 함수
+  const parseAmount = useCallback((value) => {
+    if (!value) return 0;
+    if (typeof value === 'number') return Math.round(value);
+    const numStr = String(value).replace(/[^0-9.-]/g, '');
+    const parsed = parseFloat(numStr);
+    return isNaN(parsed) ? 0 : Math.round(parsed);
+  }, []);
+
+  // 총 구매자 건수 계산 (원본 slots 데이터 기준 - 접기와 무관하게 전체 건수 표시)
+  const totalDataCount = useMemo(() => {
+    return slots.length;
+  }, [slots]);
+
+  // 금액 합계 계산 (원본 slots 데이터 기준)
+  const totalAmount = useMemo(() => {
+    return slots.reduce((sum, slot) => {
+      const buyer = slot.buyer || {};
+      return sum + parseAmount(buyer.amount);
+    }, 0);
+  }, [slots, parseAmount]);
 
   // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
   const productDataRenderer = useMemo(() =>
@@ -933,6 +983,36 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     }
   }, [changedSlots, changedItems, slots, loadSlots, searchDate, viewAsUserId]);
 
+  // 리뷰샷 삭제 핸들러
+  const handleDeleteReviewConfirm = useCallback(async () => {
+    const { images, buyer } = deleteReviewPopup;
+    if (!images || images.length === 0) return;
+
+    setDeletingReview(true);
+    try {
+      // 모든 이미지 삭제
+      for (const image of images) {
+        await imageService.deleteImage(image.id);
+      }
+
+      // 삭제 팝업 닫기
+      setDeleteReviewPopup({ open: false, images: [], buyer: null, rowIndex: null });
+      setSnackbar({ open: true, message: '리뷰샷이 삭제되었습니다', severity: 'success' });
+
+      // 캐시 무효화 및 데이터 새로고침
+      const formattedDate = format(searchDate, 'yyyy-MM-dd');
+      const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
+      slotsCache.delete(cacheKey);
+      loadSlots(true);
+    } catch (error) {
+      console.error('Delete review failed:', error);
+      const errorMessage = error.response?.data?.message || error.message || '알 수 없는 오류';
+      setSnackbar({ open: true, message: '리뷰샷 삭제 실패: ' + errorMessage, severity: 'error' });
+    } finally {
+      setDeletingReview(false);
+    }
+  }, [deleteReviewPopup, searchDate, viewAsUserId, loadSlots]);
+
   // 컬럼 설정
   const columns = useMemo(() => {
     const cols = Array(21).fill(null).map((_, index) => ({
@@ -952,29 +1032,53 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   const hasChanges = Object.keys(changedSlots).length > 0 || Object.keys(changedItems).length > 0;
   const totalChanges = Object.keys(changedSlots).length + Object.keys(changedItems).length;
 
+  // 배정된 품목 수 계산 (day_group별 고유 품목)
+  const uniqueItemCount = useMemo(() => {
+    const uniqueItems = new Set();
+    slots.forEach(slot => {
+      uniqueItems.add(`${slot.item_id}_${slot.day_group}`);
+    });
+    return uniqueItems.size;
+  }, [slots]);
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {/* 날짜 선택 영역 - 컴팩트하게 */}
-      <Paper sx={{ p: 1.5, mb: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+      {/* 날짜 헤더 - 캠페인 시트와 동일한 구조 */}
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        mb: 1,
+        px: 1,
+        flexShrink: 0
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          {/* 날짜 선택 */}
           <IconButton
             size="small"
             onClick={handlePreviousDate}
             disabled={!selectedDate}
             title="이전 날짜"
-            sx={{ bgcolor: 'action.hover' }}
           >
             <ChevronLeftIcon />
           </IconButton>
           <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={ko}>
             <DatePicker
-              label="날짜"
               value={selectedDate}
               onChange={(newValue) => setSelectedDate(newValue)}
               slotProps={{
                 textField: {
                   size: 'small',
-                  sx: { width: 150 }
+                  sx: {
+                    width: 140,
+                    '& .MuiOutlinedInput-root': {
+                      height: 32
+                    },
+                    '& .MuiOutlinedInput-input': {
+                      py: 0.5,
+                      fontSize: '0.85rem'
+                    }
+                  }
                 }
               }}
             />
@@ -984,38 +1088,123 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             onClick={handleNextDate}
             disabled={!selectedDate}
             title="다음 날짜"
-            sx={{ bgcolor: 'action.hover' }}
           >
             <ChevronRightIcon />
           </IconButton>
           <Button
-            variant="contained"
+            variant="outlined"
             size="small"
-            startIcon={<SearchIcon />}
             onClick={handleSearch}
             disabled={!selectedDate || loading}
+            sx={{ fontSize: '0.75rem', px: 1.5, py: 0.5 }}
           >
-            조회
+            {loading ? '조회 중...' : '조회'}
           </Button>
-          {hasChanges && (
-            <Button
-              variant="contained"
-              color="primary"
-              size="small"
-              startIcon={<SaveIcon />}
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? '저장 중...' : `저장 (${totalChanges})`}
-            </Button>
-          )}
+
+          {/* 날짜 표시 및 품목 수 - 캠페인명처럼 표시 */}
           {searchDate && (
-            <Typography variant="body2" color="text.secondary">
-              {format(searchDate, 'yyyy-MM-dd')} | {slots.length}개 슬롯
-            </Typography>
+            <>
+              <Typography variant="subtitle1" fontWeight="bold" sx={{ ml: 2 }}>
+                {format(searchDate, 'yyyy.MM.dd')}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                배정 품목 {uniqueItemCount}개
+              </Typography>
+            </>
           )}
         </Box>
-      </Paper>
+      </Box>
+
+      {/* 통계 바 - 캠페인 시트와 동일한 스타일 */}
+      <Box sx={{
+        mb: 0.5,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        bgcolor: '#2c387e',
+        color: 'white',
+        px: 2,
+        py: 1,
+        borderRadius: '4px 4px 0 0'
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+          {/* 건수 및 금액 */}
+          <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
+            전체 {totalDataCount}건
+          </Box>
+          <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
+            금액 합계: {totalAmount.toLocaleString()}원
+          </Box>
+
+          {/* 펼치기/접기 버튼 */}
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            <Button
+              size="small"
+              onClick={expandAll}
+              sx={{
+                color: 'white',
+                bgcolor: 'rgba(255,255,255,0.15)',
+                fontSize: '0.7rem',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.3,
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+              }}
+            >
+              모두 펼치기
+            </Button>
+            <Button
+              size="small"
+              onClick={collapseAll}
+              sx={{
+                color: 'white',
+                bgcolor: 'rgba(255,255,255,0.15)',
+                fontSize: '0.7rem',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.3,
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+              }}
+            >
+              모두 접기
+            </Button>
+          </Box>
+
+          <Box sx={{ fontSize: '0.75rem', opacity: 0.8 }}>
+            드래그 복사, Ctrl+C/V 지원
+          </Box>
+        </Box>
+
+        {/* 중앙 저장 안내 */}
+        <Box sx={{
+          color: '#ff5252',
+          fontWeight: 'bold',
+          fontSize: '0.85rem',
+          textAlign: 'center',
+          flex: 1
+        }}>
+          작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!
+        </Box>
+
+        {/* 저장 버튼 */}
+        {saving && (
+          <Box sx={{ fontSize: '0.85rem', color: '#90caf9', fontWeight: 'bold' }}>
+            저장 중...
+          </Box>
+        )}
+        {hasChanges && !saving && (
+          <Button
+            variant="contained"
+            color="success"
+            size="small"
+            startIcon={<SaveIcon />}
+            onClick={handleSave}
+            sx={{ bgcolor: '#4caf50' }}
+          >
+            저장 ({totalChanges})
+          </Button>
+        )}
+      </Box>
 
       {/* 데이터 영역 */}
       <Paper sx={{
@@ -1147,6 +1336,20 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
                   });
                 }
               }
+
+              // 리뷰 삭제 링크 클릭
+              if (target.tagName === 'A' && target.classList.contains('review-delete-link')) {
+                event.preventDefault();
+                const images = rowData._reviewImages || [];
+                if (images.length > 0) {
+                  setDeleteReviewPopup({
+                    open: true,
+                    images: images,
+                    buyer: rowData._buyer || null,
+                    rowIndex: coords.row
+                  });
+                }
+              }
             }}
             afterColumnResize={(currentColumn, newSize) => {
               // localStorage에만 저장 (setColumnWidths 호출 시 리렌더링으로 스크롤 점프 발생)
@@ -1165,8 +1368,22 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             rowHeights={23}
             autoScrollOnSelection={false}
             afterSelection={(row, column, row2, column2, preventScrolling) => {
-              // 셀 선택 시 자동 스크롤 방지
-              preventScrolling.value = true;
+              // 마우스 클릭 시에는 스크롤 방지, 키보드 이동 시에는 스크롤 허용
+              if (hotRef.current?.hotInstance?._isKeyboardNav) {
+                preventScrolling.value = false;
+                hotRef.current.hotInstance._isKeyboardNav = false;
+              } else {
+                preventScrolling.value = true;
+              }
+            }}
+            beforeKeyDown={(event) => {
+              // 방향키 입력 시 플래그 설정
+              const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
+              if (arrowKeys.includes(event.key)) {
+                if (hotRef.current?.hotInstance) {
+                  hotRef.current.hotInstance._isKeyboardNav = true;
+                }
+              }
             }}
           />
         )}
@@ -1180,6 +1397,43 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         initialIndex={imagePopup.currentIndex}
         buyerInfo={imagePopup.buyer}
       />
+
+      {/* 리뷰샷 삭제 확인 다이얼로그 */}
+      <Dialog
+        open={deleteReviewPopup.open}
+        onClose={() => setDeleteReviewPopup({ open: false, images: [], buyer: null, rowIndex: null })}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#d32f2f', color: 'white', fontWeight: 'bold' }}>
+          리뷰샷 삭제
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Typography>
+            {deleteReviewPopup.buyer?.buyer_name || '해당 구매자'}의 리뷰샷 {deleteReviewPopup.images?.length || 0}개를 삭제하시겠습니까?
+          </Typography>
+          <Typography sx={{ mt: 1, color: '#d32f2f', fontSize: '0.85rem' }}>
+            ※ 삭제 시 리뷰 제출 상태가 초기화됩니다.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            onClick={() => setDeleteReviewPopup({ open: false, images: [], buyer: null, rowIndex: null })}
+            disabled={deletingReview}
+          >
+            취소
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDeleteReviewConfirm}
+            disabled={deletingReview}
+            startIcon={deletingReview ? <CircularProgress size={16} color="inherit" /> : null}
+          >
+            {deletingReview ? '삭제 중...' : '삭제'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* 제품 상세 정보 팝업 */}
       <Dialog

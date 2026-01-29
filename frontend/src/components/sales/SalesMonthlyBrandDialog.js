@@ -5,12 +5,14 @@ import {
   Chip, CircularProgress
 } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import { monthlyBrandService } from '../../services';
 import { getAllBrands, assignBrandToMe } from '../../services/userService';
 import SalesBrandCreateDialog from './SalesBrandCreateDialog';
 
-function SalesMonthlyBrandDialog({ open, onClose, onSuccess, viewAsUserId = null }) {
+function SalesMonthlyBrandDialog({ open, onClose, onSuccess, viewAsUserId = null, mode = 'create', initialData = null }) {
+  const isEdit = mode === 'edit';
   const [formData, setFormData] = useState({
     name: '',
     brand_id: '',
@@ -33,17 +35,37 @@ function SalesMonthlyBrandDialog({ open, onClose, onSuccess, viewAsUserId = null
     return yy + mm;
   };
 
-  // 브랜드 목록 로드
+  // 브랜드 목록 로드 및 초기값 설정
   useEffect(() => {
     if (open) {
       loadBrands();
-      // 연월 기본값 설정
-      setFormData(prev => ({
-        ...prev,
-        year_month: getCurrentYearMonth()
-      }));
+
+      if (isEdit && initialData) {
+        // 수정 모드: 기존 데이터로 폼 초기화
+        setFormData({
+          name: initialData.name || '',
+          brand_id: initialData.brand_id || '',
+          year_month: initialData.year_month || '',
+          description: initialData.description || ''
+        });
+        // 선택된 브랜드 설정
+        if (initialData.brand) {
+          setSelectedBrand({
+            ...initialData.brand,
+            group: '내 브랜드',
+            isMyBrand: true,
+            hasMonthlyBrand: true
+          });
+        }
+      } else {
+        // 생성 모드: 연월 기본값 설정
+        setFormData(prev => ({
+          ...prev,
+          year_month: getCurrentYearMonth()
+        }));
+      }
     }
-  }, [open]);
+  }, [open, isEdit, initialData]);
 
   const loadBrands = async () => {
     setBrandsLoading(true);
@@ -169,8 +191,12 @@ function SalesMonthlyBrandDialog({ open, onClose, onSuccess, viewAsUserId = null
 
   const handleSubmit = async () => {
     // 필수 필드 검증
-    if (!formData.brand_id || !formData.name) {
-      setError('브랜드와 연월브랜드명을 입력해주세요');
+    if (!formData.name) {
+      setError('연월브랜드명을 입력해주세요');
+      return;
+    }
+    if (!isEdit && !formData.brand_id) {
+      setError('브랜드를 선택해주세요');
       return;
     }
 
@@ -178,13 +204,23 @@ function SalesMonthlyBrandDialog({ open, onClose, onSuccess, viewAsUserId = null
     setError('');
 
     try {
-      // Admin이 영업사 대신 생성하는 경우 viewAsUserId 전달
-      await monthlyBrandService.createMonthlyBrand(formData, viewAsUserId);
-      alert('연월브랜드가 등록되었습니다');
+      if (isEdit && initialData) {
+        // 수정 모드
+        await monthlyBrandService.updateMonthlyBrand(initialData.id, {
+          name: formData.name,
+          year_month: formData.year_month,
+          description: formData.description
+        });
+        alert('연월브랜드가 수정되었습니다');
+      } else {
+        // 생성 모드: Admin이 영업사 대신 생성하는 경우 viewAsUserId 전달
+        await monthlyBrandService.createMonthlyBrand(formData, viewAsUserId);
+        alert('연월브랜드가 등록되었습니다');
+      }
       handleClose();
       if (onSuccess) onSuccess();
     } catch (err) {
-      const message = err.response?.data?.message || '연월브랜드 등록 중 오류가 발생했습니다';
+      const message = err.response?.data?.message || (isEdit ? '연월브랜드 수정 중 오류가 발생했습니다' : '연월브랜드 등록 중 오류가 발생했습니다');
       setError(message);
     } finally {
       setLoading(false);
@@ -217,13 +253,13 @@ function SalesMonthlyBrandDialog({ open, onClose, onSuccess, viewAsUserId = null
     <>
       <Dialog open={open} onClose={(event, reason) => { if (reason !== 'backdropClick') handleClose(); }} fullWidth maxWidth="sm">
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', borderBottom: '1px solid #eee' }}>
-          <CalendarMonthIcon color="primary" />
-          연월브랜드 추가
+          {isEdit ? <EditIcon color="primary" /> : <CalendarMonthIcon color="primary" />}
+          {isEdit ? '연월브랜드 수정' : '연월브랜드 추가'}
         </DialogTitle>
 
         <DialogContent sx={{ mt: 2 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            브랜드를 검색하여 선택하거나 새로 등록하세요. (예: 2512어댑트)
+            {isEdit ? '연월브랜드 정보를 수정하세요.' : '브랜드를 검색하여 선택하거나 새로 등록하세요. (예: 2512어댑트)'}
           </Typography>
 
           {error && (
@@ -232,64 +268,76 @@ function SalesMonthlyBrandDialog({ open, onClose, onSuccess, viewAsUserId = null
             </Alert>
           )}
 
-          {/* 1행: 브랜드 검색 (Autocomplete), 연월 */}
+          {/* 1행: 브랜드 검색 (Autocomplete), 연월 - 수정 모드에서는 브랜드 변경 불가 */}
           <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            <Autocomplete
-              fullWidth
-              options={brandOptions}
-              groupBy={(option) => option.group}
-              getOptionLabel={(option) => option.name || ''}
-              value={selectedBrand}
-              onChange={handleBrandSelect}
-              loading={brandsLoading}
-              isOptionEqualToValue={(option, value) => option.id === value?.id}
-              filterOptions={(options, { inputValue }) => {
-                const filtered = options.filter(option => {
-                  if (option.isNew) return true; // 항상 "새 브랜드 등록" 표시
-                  return option.name.toLowerCase().includes(inputValue.toLowerCase());
-                });
-                return filtered;
-              }}
-              renderOption={(props, option) => {
-                const { key, ...otherProps } = props;
-                if (option.isNew) {
+            {isEdit ? (
+              // 수정 모드: 브랜드 변경 불가 (읽기 전용 표시)
+              <TextField
+                fullWidth
+                label="브랜드"
+                value={selectedBrand?.name || initialData?.brand?.name || ''}
+                disabled
+                helperText="브랜드는 변경할 수 없습니다"
+              />
+            ) : (
+              // 생성 모드: 브랜드 검색
+              <Autocomplete
+                fullWidth
+                options={brandOptions}
+                groupBy={(option) => option.group}
+                getOptionLabel={(option) => option.name || ''}
+                value={selectedBrand}
+                onChange={handleBrandSelect}
+                loading={brandsLoading}
+                isOptionEqualToValue={(option, value) => option.id === value?.id}
+                filterOptions={(options, { inputValue }) => {
+                  const filtered = options.filter(option => {
+                    if (option.isNew) return true; // 항상 "새 브랜드 등록" 표시
+                    return option.name.toLowerCase().includes(inputValue.toLowerCase());
+                  });
+                  return filtered;
+                }}
+                renderOption={(props, option) => {
+                  const { key, ...otherProps } = props;
+                  if (option.isNew) {
+                    return (
+                      <li key={key} {...otherProps}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'primary.main' }}>
+                          <AddIcon fontSize="small" />
+                          <Typography fontWeight="bold">{option.name}</Typography>
+                        </Box>
+                      </li>
+                    );
+                  }
                   return (
                     <li key={key} {...otherProps}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'primary.main' }}>
-                        <AddIcon fontSize="small" />
-                        <Typography fontWeight="bold">{option.name}</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {option.name}
+                        {option.hasMonthlyBrand && (
+                          <Chip label="담당" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+                        )}
                       </Box>
                     </li>
                   );
-                }
-                return (
-                  <li key={key} {...otherProps}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {option.name}
-                      {option.hasMonthlyBrand && (
-                        <Chip label="담당" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
-                      )}
-                    </Box>
-                  </li>
-                );
-              }}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="브랜드 검색 *"
-                  placeholder="브랜드명을 입력하세요"
-                  InputProps={{
-                    ...params.InputProps,
-                    endAdornment: (
-                      <>
-                        {brandsLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                        {params.InputProps.endAdornment}
-                      </>
-                    ),
-                  }}
-                />
-              )}
-            />
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="브랜드 검색 *"
+                    placeholder="브랜드명을 입력하세요"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {brandsLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
+              />
+            )}
             <TextField
               label="연월 (YYMM)"
               name="year_month"
@@ -339,7 +387,7 @@ function SalesMonthlyBrandDialog({ open, onClose, onSuccess, viewAsUserId = null
             color="primary"
             disabled={loading}
           >
-            {loading ? '등록 중...' : '등록하기'}
+            {loading ? (isEdit ? '수정 중...' : '등록 중...') : (isEdit ? '수정하기' : '등록하기')}
           </Button>
         </DialogActions>
       </Dialog>

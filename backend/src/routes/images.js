@@ -26,10 +26,10 @@ router.get('/item/:itemId', authenticate, imageController.getImagesByItem);
 
 /**
  * @route   DELETE /api/images/:id
- * @desc    이미지 삭제
+ * @desc    리뷰샷 삭제 (Buyer의 리뷰 관련 필드 초기화 포함)
  * @access  Private (Operator, Admin)
  */
-router.delete('/:id', authenticate, authorize(['operator', 'admin', 'sales']), imageController.deleteImage);
+router.delete('/:id', authenticate, authorize(['operator', 'admin']), imageController.deleteImage);
 
 /**
  * @route   GET /api/images/pending

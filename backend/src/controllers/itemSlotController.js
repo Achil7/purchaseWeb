@@ -1194,7 +1194,7 @@ exports.getSlotsByDate = async (req, res) => {
             model: Item,
             as: 'item',
             attributes: [
-              'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+              'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
               'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
               'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
             ],
@@ -1202,7 +1202,7 @@ exports.getSlotsByDate = async (req, res) => {
               {
                 model: Campaign,
                 as: 'campaign',
-                attributes: ['id', 'name'],
+                attributes: ['id', 'name', 'monthly_brand_id'],
                 include: [
                   {
                     model: MonthlyBrand,
@@ -1281,7 +1281,7 @@ exports.getSlotsByDate = async (req, res) => {
             model: Item,
             as: 'item',
             attributes: [
-              'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+              'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
               'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
               'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
             ],
@@ -1289,7 +1289,7 @@ exports.getSlotsByDate = async (req, res) => {
               {
                 model: Campaign,
                 as: 'campaign',
-                attributes: ['id', 'name'],
+                attributes: ['id', 'name', 'monthly_brand_id'],
                 include: [
                   {
                     model: MonthlyBrand,
@@ -1334,7 +1334,7 @@ exports.getSlotsByDate = async (req, res) => {
             model: Item,
             as: 'item',
             attributes: [
-              'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+              'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
               'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
               'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
             ],
@@ -1342,7 +1342,7 @@ exports.getSlotsByDate = async (req, res) => {
               {
                 model: Campaign,
                 as: 'campaign',
-                attributes: ['id', 'name'],
+                attributes: ['id', 'name', 'monthly_brand_id'],
                 include: [
                   {
                     model: MonthlyBrand,

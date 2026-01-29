@@ -636,7 +636,8 @@ exports.restoreCampaign = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const campaign = await Campaign.findByPk(id);
+    // paranoid: false로 soft-deleted 캠페인도 조회
+    const campaign = await Campaign.findByPk(id, { paranoid: false });
 
     if (!campaign) {
       return res.status(404).json({
@@ -645,7 +646,8 @@ exports.restoreCampaign = async (req, res) => {
       });
     }
 
-    await campaign.update({ is_hidden: false });
+    // is_hidden과 deleted_at 모두 초기화하여 완전히 복원
+    await campaign.update({ is_hidden: false, deleted_at: null });
 
     res.json({
       success: true,

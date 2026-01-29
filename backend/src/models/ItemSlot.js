@@ -22,7 +22,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 날짜 (사용자 입력)
     date: {
-      type: DataTypes.STRING(20),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     // 품목 기본 정보 (day_group별 독립 - 일마감 시 복사됨)
@@ -77,7 +77,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 예상구매자 (진행자 입력)
     expected_buyer: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     // 구매자 연결 (FK)
@@ -98,12 +98,12 @@ module.exports = (sequelize, DataTypes) => {
     },
     // 그룹별 이미지 업로드 링크 토큰
     upload_link_token: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.TEXT,
       allowNull: true
     },
     // 리뷰비용 (진행자 입력)
     review_cost: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.TEXT,
       allowNull: true
     }
   }, {

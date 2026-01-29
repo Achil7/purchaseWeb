@@ -552,7 +552,8 @@ router.patch('/:id/restore', authenticate, authorize(['sales', 'admin', 'operato
   try {
     const { id } = req.params;
 
-    const monthlyBrand = await MonthlyBrand.findByPk(id);
+    // paranoid: false로 soft-deleted 연월브랜드도 조회
+    const monthlyBrand = await MonthlyBrand.findByPk(id, { paranoid: false });
 
     if (!monthlyBrand) {
       return res.status(404).json({
@@ -561,7 +562,8 @@ router.patch('/:id/restore', authenticate, authorize(['sales', 'admin', 'operato
       });
     }
 
-    await monthlyBrand.update({ is_hidden: false });
+    // is_hidden과 deleted_at 모두 초기화하여 완전히 복원
+    await monthlyBrand.update({ is_hidden: false, deleted_at: null });
 
     res.json({
       success: true,

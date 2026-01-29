@@ -83,23 +83,23 @@ function AdminLayout() {
     await handleMarkAsRead(notification.id);
     setNotifAnchorEl(null);
 
-    // 제품 알림인 경우 해당 제품의 캠페인으로 이동
+    // 제품 알림인 경우 해당 제품의 캠페인 배정 페이지로 이동
     if (notification.reference_type === 'item' && notification.reference_id) {
       try {
         // 제품 정보를 조회하여 캠페인 ID 가져오기
         const { itemService } = await import('../../services');
         const response = await itemService.getItem(notification.reference_id);
         if (response.success && response.data?.campaign_id) {
-          navigate(`/admin/campaigns/${response.data.campaign_id}`);
-        } else {
-          navigate('/admin/campaigns');
+          navigate(`/admin/campaigns/${response.data.campaign_id}/assignment`);
         }
       } catch (error) {
         console.error('Failed to get item info:', error);
-        navigate('/admin/campaigns');
       }
     }
-    // 캠페인 알림이거나 reference_type이 없는 경우 단순 읽음 처리 (페이지 이동 없음)
+    // 캠페인 알림인 경우 해당 캠페인 배정 페이지로 이동
+    if (notification.reference_type === 'campaign' && notification.reference_id) {
+      navigate(`/admin/campaigns/${notification.reference_id}/assignment`);
+    }
   };
 
   useEffect(() => {

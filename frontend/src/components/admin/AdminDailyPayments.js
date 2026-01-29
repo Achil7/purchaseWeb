@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
-  Chip, CircularProgress, Alert, TextField, IconButton, Switch, Button, Tooltip
+  Chip, CircularProgress, Alert, TextField, IconButton, Switch, Button, Tooltip,
+  Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -12,7 +13,9 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import DownloadIcon from '@mui/icons-material/Download';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { buyerService } from '../../services';
+import imageService from '../../services/imageService';
 import { downloadExcel, convertDailyPaymentsToExcelData } from '../../utils/excelExport';
 import ImageSwipeViewer from '../common/ImageSwipeViewer';
 
@@ -51,6 +54,14 @@ function AdminDailyPayments() {
     currentIndex: 0,
     buyer: null
   });
+
+  // 리뷰샷 삭제 팝업 상태
+  const [deleteReviewPopup, setDeleteReviewPopup] = useState({
+    open: false,
+    buyer: null,
+    imageIds: []
+  });
+  const [deletingReview, setDeletingReview] = useState(false);
 
   useEffect(() => {
     loadBuyers();
@@ -150,6 +161,51 @@ function AdminDailyPayments() {
         currentIndex: 0,
         buyer: { buyer_name: buyer.buyer_name, order_number: buyer.order_number }
       });
+    }
+  };
+
+  // 리뷰샷 삭제 클릭
+  const handleDeleteReviewClick = (buyer) => {
+    const images = buyer.images || [];
+    const imageIds = images.map(img => img.id).filter(id => id && id !== 'single');
+
+    if (imageIds.length === 0) {
+      alert('삭제할 이미지가 없습니다.');
+      return;
+    }
+
+    setDeleteReviewPopup({
+      open: true,
+      buyer: buyer,
+      imageIds: imageIds
+    });
+  };
+
+  // 리뷰샷 삭제 확인
+  const handleDeleteReviewConfirm = async () => {
+    const { buyer, imageIds } = deleteReviewPopup;
+    if (!imageIds || imageIds.length === 0) return;
+
+    setDeletingReview(true);
+    try {
+      // 모든 이미지 삭제
+      for (const imageId of imageIds) {
+        await imageService.deleteImage(imageId);
+      }
+
+      // 삭제 팝업 닫기
+      setDeleteReviewPopup({ open: false, buyer: null, imageIds: [] });
+
+      // 목록에서 해당 구매자 제거 (리뷰샷 삭제 시 입금관리에서 사라짐)
+      setBuyers(prev => prev.filter(b => b.id !== buyer.id));
+
+      alert('리뷰샷이 삭제되었습니다.');
+    } catch (error) {
+      console.error('Delete review failed:', error);
+      const errorMessage = error.response?.data?.message || error.message || '알 수 없는 오류';
+      alert('리뷰샷 삭제 실패: ' + errorMessage);
+    } finally {
+      setDeletingReview(false);
     }
   };
 
@@ -446,22 +502,33 @@ function AdminDailyPayments() {
                         </TableCell>
                         <TableCell align="center">
                           {buyer.image_url ? (
-                            <Box
-                              onClick={() => handleImageClick(buyer)}
-                              sx={{ cursor: 'pointer', display: 'inline-block' }}
-                            >
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
                               <Box
-                                component="img"
-                                src={buyer.image_url}
-                                alt="리뷰이미지"
-                                sx={{
-                                  width: 40,
-                                  height: 40,
-                                  objectFit: 'cover',
-                                  borderRadius: 1,
-                                  border: '1px solid #eee'
-                                }}
-                              />
+                                onClick={() => handleImageClick(buyer)}
+                                sx={{ cursor: 'pointer', display: 'inline-block' }}
+                              >
+                                <Box
+                                  component="img"
+                                  src={buyer.image_url}
+                                  alt="리뷰이미지"
+                                  sx={{
+                                    width: 40,
+                                    height: 40,
+                                    objectFit: 'cover',
+                                    borderRadius: 1,
+                                    border: '1px solid #eee'
+                                  }}
+                                />
+                              </Box>
+                              <Tooltip title="리뷰샷 삭제">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleDeleteReviewClick(buyer)}
+                                  sx={{ color: '#d32f2f', p: 0.3 }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
                             </Box>
                           ) : (
                             <Typography variant="caption" color="text.disabled">-</Typography>
@@ -484,6 +551,43 @@ function AdminDailyPayments() {
           initialIndex={imagePopup.currentIndex}
           buyerInfo={imagePopup.buyer}
         />
+
+        {/* 리뷰샷 삭제 확인 다이얼로그 */}
+        <Dialog
+          open={deleteReviewPopup.open}
+          onClose={() => setDeleteReviewPopup({ open: false, buyer: null, imageIds: [] })}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle sx={{ bgcolor: '#d32f2f', color: 'white', fontWeight: 'bold' }}>
+            리뷰샷 삭제
+          </DialogTitle>
+          <DialogContent sx={{ pt: 3 }}>
+            <Typography>
+              {deleteReviewPopup.buyer?.buyer_name || '해당 구매자'}의 리뷰샷 {deleteReviewPopup.imageIds?.length || 0}개를 삭제하시겠습니까?
+            </Typography>
+            <Typography sx={{ mt: 1, color: '#d32f2f', fontSize: '0.85rem' }}>
+              ※ 삭제 시 리뷰 제출 상태가 초기화되며, 입금 관리 목록에서 제외됩니다.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ p: 2 }}>
+            <Button
+              onClick={() => setDeleteReviewPopup({ open: false, buyer: null, imageIds: [] })}
+              disabled={deletingReview}
+            >
+              취소
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={handleDeleteReviewConfirm}
+              disabled={deletingReview}
+              startIcon={deletingReview ? <CircularProgress size={16} color="inherit" /> : null}
+            >
+              {deletingReview ? '삭제 중...' : '삭제'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </LocalizationProvider>
   );

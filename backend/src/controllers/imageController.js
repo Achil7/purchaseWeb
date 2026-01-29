@@ -126,6 +126,7 @@ exports.searchBuyersByName = async (req, res) => {
     const result = matchedBuyers.map(buyer => ({
       id: buyer.id,
       order_number: buyer.order_number || '',
+      deposit_name: buyer.deposit_name || '',
       buyer_name: buyer.buyer_name || '',
       recipient_name: buyer.recipient_name || '',
       user_id: buyer.user_id || '',
@@ -277,7 +278,7 @@ exports.uploadImages = async (req, res) => {
       const previousImageId = hasExistingImage ? targetBuyer.images[0].id : null;
 
       // DB에 이미지 레코드 생성
-      // 재제출인 경우: status='pending', previous_image_id 설정
+      // 재제출인 경우: status='pending', previous_image_id 설정 (승인 시 이전 이미지 삭제)
       // 신규인 경우: status='approved' (기본값)
       const image = await Image.create({
         item_id: item.id,
@@ -459,18 +460,62 @@ exports.getImagesByItem = async (req, res) => {
 };
 
 /**
- * 이미지 삭제
+ * 이미지 삭제 (리뷰샷 삭제)
+ * - S3와 DB에서 이미지 삭제
+ * - Buyer의 review_submitted_at, expected_payment_date 초기화
+ * - ItemSlot의 status를 'active'로 복원
+ * - 권한: admin, operator (배정된 품목만)
  */
 exports.deleteImage = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
   try {
     const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
 
-    const image = await Image.findByPk(id);
+    const image = await Image.findByPk(id, {
+      include: [
+        {
+          model: Buyer,
+          as: 'buyer',
+          attributes: ['id', 'item_id']
+        },
+        {
+          model: Item,
+          as: 'item',
+          attributes: ['id', 'campaign_id']
+        }
+      ],
+      transaction
+    });
+
     if (!image) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: '이미지를 찾을 수 없습니다'
       });
+    }
+
+    // 권한 체크: operator는 자신에게 배정된 품목만 삭제 가능
+    if (userRole === 'operator') {
+      const { CampaignOperator } = require('../models');
+      const assignment = await CampaignOperator.findOne({
+        where: {
+          operator_id: userId,
+          item_id: image.item_id
+        },
+        transaction
+      });
+
+      if (!assignment) {
+        await transaction.rollback();
+        return res.status(403).json({
+          success: false,
+          message: '해당 품목에 대한 권한이 없습니다'
+        });
+      }
     }
 
     // S3에서 삭제
@@ -481,18 +526,51 @@ exports.deleteImage = async (req, res) => {
       // S3 삭제 실패해도 DB 레코드는 삭제 진행
     }
 
-    // DB에서 삭제
-    await image.destroy();
+    const buyerId = image.buyer_id;
+
+    // DB에서 이미지 삭제
+    await image.destroy({ transaction });
+
+    // Buyer의 리뷰 관련 필드 초기화
+    if (buyerId) {
+      // 해당 Buyer에 다른 이미지가 남아있는지 확인
+      const remainingImages = await Image.count({
+        where: { buyer_id: buyerId },
+        transaction
+      });
+
+      // 다른 이미지가 없으면 리뷰 관련 필드 초기화
+      if (remainingImages === 0) {
+        await Buyer.update({
+          review_submitted_at: null,
+          expected_payment_date: null
+        }, {
+          where: { id: buyerId },
+          transaction
+        });
+
+        // ItemSlot의 status를 'active'로 복원
+        await ItemSlot.update({
+          status: 'active'
+        }, {
+          where: { buyer_id: buyerId },
+          transaction
+        });
+      }
+    }
+
+    await transaction.commit();
 
     res.json({
       success: true,
-      message: '이미지가 삭제되었습니다'
+      message: '리뷰샷이 삭제되었습니다'
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Delete image error:', error);
     res.status(500).json({
       success: false,
-      message: '이미지 삭제 실패',
+      message: '리뷰샷 삭제 실패',
       error: error.message
     });
   }

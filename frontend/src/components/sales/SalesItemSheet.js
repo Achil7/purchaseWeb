@@ -399,6 +399,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // preserveCollapsedState: true면 현재 접기 상태 유지 (행 추가/삭제 시 사용)
   // skipLoading: true면 로딩 상태 변경 없이 데이터만 새로고침 (행 추가/삭제 시 깜빡임 방지)
   const loadSlots = useCallback(async (targetCampaignId, forceRefresh = false, preserveCollapsedState = false, skipLoading = false) => {
+    console.log('[DEBUG] loadSlots called:', { targetCampaignId, forceRefresh, preserveCollapsedState, skipLoading });
     if (!targetCampaignId) return;
 
     // 캐시 키 생성
@@ -419,11 +420,14 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           if (saved) {
             const savedIds = JSON.parse(saved);
             const validIds = savedIds.filter(id => allItemIds.includes(id));
+            console.log('[DEBUG] setCollapsedItems from CACHE (localStorage):', validIds);
             setCollapsedItems(new Set(validIds));
           } else {
+            console.log('[DEBUG] setCollapsedItems from CACHE (default all):', allItemIds);
             setCollapsedItems(new Set(allItemIds));
           }
         } catch (e) {
+          console.log('[DEBUG] setCollapsedItems from CACHE (error):', allItemIds);
           setCollapsedItems(new Set(allItemIds));
         }
       }
@@ -465,11 +469,14 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             if (saved) {
               const savedIds = JSON.parse(saved);
               const validIds = savedIds.filter(id => allItemIds.includes(id));
+              console.log('[DEBUG] setCollapsedItems from API (localStorage):', validIds);
               setCollapsedItems(new Set(validIds));
             } else {
+              console.log('[DEBUG] setCollapsedItems from API (default all):', allItemIds);
               setCollapsedItems(new Set(allItemIds));
             }
           } catch (e) {
+            console.log('[DEBUG] setCollapsedItems from API (error):', allItemIds);
             setCollapsedItems(new Set(allItemIds));
           }
         }
@@ -521,13 +528,16 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
   // 캠페인 변경 또는 items 변경 시 슬롯 리로드 (중복 useEffect 통합)
   // 성능 최적화: loadSlots를 의존성에서 제거하여 불필요한 재실행 방지
+  // 행 추가/삭제 후 loadSlots 참조 변경으로 인한 불필요한 재실행 방지
   useEffect(() => {
+    console.log('[DEBUG] useEffect triggered - campaignId:', campaignId, 'items.length:', items.length);
     if (campaignId) {
       // 캠페인 변경 시 이전 slots 데이터를 즉시 초기화
       setSlots([]);
       loadSlots(campaignId);
     }
-  }, [campaignId, items.length, loadSlots]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId, items.length]);
 
   // 접기 상태 복원은 loadSlots 함수 내에서 API 응답 직후 처리됨
 
@@ -577,6 +587,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       // buyer 필드 목록 (slot이 아닌 buyer 객체에 속하는 필드들)
       const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'tracking_number', 'deposit_name', 'payment_confirmed'];
 
+      console.log('[DEBUG] handleSaveChanges - BEFORE setSlots, hiddenRowIndicesRef:', hiddenRowIndicesRef.current?.length);
+
       setSlots(prevSlots => {
         return prevSlots.map(slot => {
           let updatedSlot = slot;
@@ -618,6 +630,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           return updatedSlot;
         });
       });
+
+      console.log('[DEBUG] handleSaveChanges - AFTER setSlots called');
 
       // ref 및 state 초기화
       changedSlotsRef.current = {};
@@ -861,6 +875,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
   // hiddenRows 플러그인용 숨길 행 인덱스 계산
   const hiddenRowIndices = useMemo(() => {
+    console.log('[DEBUG] hiddenRowIndices calc - collapsedItems.size:', collapsedItems.size, 'items:', [...collapsedItems]);
     if (collapsedItems.size === 0) return [];
 
     const hidden = [];
@@ -884,30 +899,56 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       }
     });
 
+    console.log('[DEBUG] hiddenRowIndices result:', hidden.length, 'rows hidden');
     return hidden;
   }, [baseTableData, collapsedItems]);
 
-  // hiddenRowIndices를 ref로 저장하여 useEffect에서 최신 값 참조
+  // hiddenRowIndices를 ref로 유지 (afterLoadData에서 사용)
   const hiddenRowIndicesRef = useRef(hiddenRowIndices);
   hiddenRowIndicesRef.current = hiddenRowIndices;
 
-  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시에만)
+  // collapsedItems 변경 시 hiddenRows 플러그인 수동 업데이트
+  // (HotTable의 hiddenRows prop은 data 변경 시에만 적용되고, 동적 변경은 감지 못함)
   useEffect(() => {
+    console.log('[DEBUG] useEffect[hiddenRowIndices] triggered - indices:', hiddenRowIndices.length);
     const hot = hotRef.current?.hotInstance;
-    if (!hot) return;
+    if (!hot) {
+      console.log('[DEBUG] useEffect[hiddenRowIndices] - hot instance not found');
+      return;
+    }
 
     const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-    if (!hiddenRowsPlugin) return;
-
-    // 먼저 모든 행 표시
-    hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
-    // 그 다음 숨길 행만 숨기기
-    const indices = hiddenRowIndicesRef.current;
-    if (indices.length > 0) {
-      hiddenRowsPlugin.hideRows(indices);
+    if (!hiddenRowsPlugin) {
+      console.log('[DEBUG] useEffect[hiddenRowIndices] - hiddenRowsPlugin not found');
+      return;
     }
-    hot.render();
-  }, [collapsedItems]); // hiddenRowIndices 대신 collapsedItems만 의존
+
+    // 현재 숨겨진 행과 새로 숨길 행 비교
+    const currentHidden = new Set(hiddenRowsPlugin.getHiddenRows());
+    const newHidden = new Set(hiddenRowIndices);
+    console.log('[DEBUG] useEffect[hiddenRowIndices] - currentHidden:', currentHidden.size, 'newHidden:', newHidden.size);
+
+    // 변경이 없으면 스킵
+    if (currentHidden.size === newHidden.size &&
+        [...currentHidden].every(r => newHidden.has(r))) {
+      console.log('[DEBUG] useEffect[hiddenRowIndices] - no change, skipping');
+      return;
+    }
+
+    // 차이점만 업데이트 (batch로 묶어서 한 번에 렌더링)
+    hot.batch(() => {
+      const rowsToShow = [...currentHidden].filter(r => !newHidden.has(r));
+      const rowsToHide = [...newHidden].filter(r => !currentHidden.has(r));
+      console.log('[DEBUG] useEffect[hiddenRowIndices] - rowsToShow:', rowsToShow.length, 'rowsToHide:', rowsToHide.length);
+
+      if (rowsToShow.length > 0) {
+        hiddenRowsPlugin.showRows(rowsToShow);
+      }
+      if (rowsToHide.length > 0) {
+        hiddenRowsPlugin.hideRows(rowsToHide);
+      }
+    });
+  }, [hiddenRowIndices]);
 
   // 성능 최적화: tableData를 ref로 참조하여 handleAfterChange 재생성 방지
   const tableDataRef = useRef(tableData);
@@ -997,6 +1038,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // 개별 품목 접기/펼치기 토글
   // 성능 최적화: localStorage 저장을 디바운스하여 I/O 지연
   const toggleItemCollapse = useCallback((itemId) => {
+    console.log('[DEBUG] setCollapsedItems from TOGGLE:', itemId);
     setCollapsedItems(prev => {
       const next = new Set(prev);
       if (next.has(itemId)) {
@@ -1019,6 +1061,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
   // 모두 펼치기
   const expandAll = useCallback(() => {
+    console.log('[DEBUG] setCollapsedItems from EXPAND_ALL');
     const emptySet = new Set();
     setCollapsedItems(emptySet);
     // 즉시 저장 (사용자 명시적 액션)
@@ -1031,6 +1074,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     const allItemIds = slots
       .map(s => s.item_id)
       .filter((id, idx, arr) => arr.indexOf(id) === idx);
+    console.log('[DEBUG] setCollapsedItems from COLLAPSE_ALL:', allItemIds);
     const allCollapsed = new Set(allItemIds);
     setCollapsedItems(allCollapsed);
     // 즉시 저장 (사용자 명시적 액션)
@@ -1125,6 +1169,31 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         setChangedSlots(newSlotUpdates);
       }
     });
+
+    // 셀 편집 후 hiddenRows 플러그인 상태 복원 (Handsontable 내부 렌더링으로 리셋될 수 있음)
+    setTimeout(() => {
+      const hot = hotRef.current?.hotInstance;
+      if (!hot) return;
+
+      const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+      if (!hiddenRowsPlugin) return;
+
+      const indices = hiddenRowIndicesRef.current;
+      if (indices.length === 0) return;
+
+      const currentHidden = new Set(hiddenRowsPlugin.getHiddenRows());
+      const targetHidden = new Set(indices);
+
+      // 현재 숨겨진 행이 목표와 다르면 복원
+      if (currentHidden.size !== targetHidden.size || ![...currentHidden].every(r => targetHidden.has(r))) {
+        hot.batch(() => {
+          const rowsToHide = [...targetHidden].filter(r => !currentHidden.has(r));
+          if (rowsToHide.length > 0) {
+            hiddenRowsPlugin.hideRows(rowsToHide);
+          }
+        });
+      }
+    }, 0);
   }, []);  // 의존성 배열 비움 - ref만 사용
 
   // 삭제 확인 다이얼로그 열기
@@ -1586,7 +1655,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             imeFastEdit={true}
             minSpareRows={0}
             hiddenRows={{
-              rows: hiddenRowIndices,
+              rows: hiddenRowIndices,  // prop으로 직접 전달하여 data 변경 시에도 유지
               indicators: false
             }}
             contextMenu={{
@@ -1611,10 +1680,16 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                     const dayGroup = rowData._dayGroup;
 
                     try {
-                      await itemSlotService.createSlot(itemId, dayGroup);
+                      const response = await itemSlotService.createSlot(itemId, dayGroup);
+                      const newSlot = response.data;
+
+                      // 로컬 상태에 새 슬롯만 추가 (전체 리로드 대신)
+                      setSlots(prevSlots => [...prevSlots, newSlot]);
+
+                      // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
+                      slotsCache.delete(`sales_${campaignId}`);
+
                       setSnackbar({ open: true, message: '행이 추가되었습니다' });
-                      // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
-                      loadSlots(campaignId, true, true, true);
                     } catch (error) {
                       console.error('Failed to add row:', error);
                       alert('행 추가 실패: ' + (error.response?.data?.message || error.message));
@@ -1652,9 +1727,14 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
                     try {
                       await itemSlotService.deleteSlotsBulk(slotIds);
+
+                      // 로컬 상태에서 삭제된 슬롯만 제거 (전체 리로드 대신)
+                      setSlots(prevSlots => prevSlots.filter(s => !slotIds.includes(s.id)));
+
+                      // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
+                      slotsCache.delete(`sales_${campaignId}`);
+
                       setSnackbar({ open: true, message: `${slotIds.length}개 행이 삭제되었습니다` });
-                      // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
-                      loadSlots(campaignId, true, true, true);
                     } catch (error) {
                       console.error('Failed to delete rows:', error);
                       alert('행 삭제 실패: ' + (error.response?.data?.message || error.message));
@@ -1859,9 +1939,65 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
               newData.forEach(row => data.push(row));
             }}
             afterChange={handleAfterChange}
+            // 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
+            // 중요: showRows() 먼저 호출하면 모든 행이 순간적으로 표시되어 깜빡임 발생
+            // 차분(diff) 방식으로 필요한 행만 숨기거나 표시
+            afterLoadData={(sourceData, initialLoad) => {
+              console.log('[DEBUG] afterLoadData called - initialLoad:', initialLoad);
+              const hot = hotRef.current?.hotInstance;
+              if (!hot) {
+                console.log('[DEBUG] afterLoadData - hot instance not found');
+                return;
+              }
+
+              const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+              if (!hiddenRowsPlugin) {
+                console.log('[DEBUG] afterLoadData - hiddenRowsPlugin not found');
+                return;
+              }
+
+              const indices = hiddenRowIndicesRef.current;
+              console.log('[DEBUG] afterLoadData - indices length:', indices.length);
+              if (indices.length === 0) {
+                console.log('[DEBUG] afterLoadData - no indices to hide, returning');
+                return;
+              }
+
+              // 데이터 로드 후 hiddenRows 강제 재적용 (Handsontable이 리셋할 수 있음)
+              const currentHiddenBefore = hiddenRowsPlugin.getHiddenRows();
+              console.log('[DEBUG] afterLoadData - currentHidden BEFORE batch:', currentHiddenBefore.length);
+
+              hot.batch(() => {
+                // 먼저 모든 행 표시
+                const currentHidden = hiddenRowsPlugin.getHiddenRows();
+                if (currentHidden.length > 0) {
+                  hiddenRowsPlugin.showRows(currentHidden);
+                }
+                // 숨겨야 할 행 숨기기
+                hiddenRowsPlugin.hideRows(indices);
+                console.log('[DEBUG] afterLoadData - hideRows called with', indices.length, 'indices');
+              });
+
+              const currentHiddenAfter = hiddenRowsPlugin.getHiddenRows();
+              console.log('[DEBUG] afterLoadData - currentHidden AFTER batch:', currentHiddenAfter.length);
+            }}
             afterSelection={(row, column, row2, column2, preventScrolling) => {
-              // 셀 선택 시 자동 스크롤 방지
-              preventScrolling.value = true;
+              // 마우스 클릭 시에는 스크롤 방지, 키보드 이동 시에는 스크롤 허용
+              if (hotRef.current?.hotInstance?._isKeyboardNav) {
+                preventScrolling.value = false;
+                hotRef.current.hotInstance._isKeyboardNav = false;
+              } else {
+                preventScrolling.value = true;
+              }
+            }}
+            beforeKeyDown={(event) => {
+              // 방향키 입력 시 플래그 설정
+              const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
+              if (arrowKeys.includes(event.key)) {
+                if (hotRef.current?.hotInstance) {
+                  hotRef.current.hotInstance._isKeyboardNav = true;
+                }
+              }
             }}
             beforeOnCellMouseDown={(event, coords, TD) => {
               // 토글 셀(제품 데이터 행의 col0) 클릭 시 기본 동작 방지
@@ -1870,23 +2006,37 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                 event.stopImmediatePropagation();
               }
             }}
-            // afterRender - 메모 기능 비활성화
-            // afterRender={() => {
-            //   const hot = hotRef.current?.hotInstance;
-            //   if (!hot || Object.keys(memos).length === 0) return;
-            //
-            //   // 저장된 메모 데이터를 시트에 적용
-            //   Object.entries(memos).forEach(([key, value]) => {
-            //     const [rowStr, colStr] = key.split('_');
-            //     const row = parseInt(rowStr, 10);
-            //     const col = parseInt(colStr, 10);
-            //
-            //     const currentValue = hot.getDataAtCell(row, col);
-            //     if (currentValue !== value && value) {
-            //       hot.setDataAtCell(row, col, value, 'loadMemo');
-            //     }
-            //   });
-            // }}
+            afterRender={() => {
+              const hot = hotRef.current?.hotInstance;
+              if (!hot) return;
+
+              const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+              if (!hiddenRowsPlugin) return;
+
+              const indices = hiddenRowIndicesRef.current;
+              if (indices.length === 0) return;
+
+              // 현재 숨겨진 행 확인
+              const currentHidden = hiddenRowsPlugin.getHiddenRows();
+              const currentSet = new Set(currentHidden);
+              const targetSet = new Set(indices);
+
+              // 이미 올바르게 숨겨져 있으면 스킵 (무한 루프 방지)
+              if (currentSet.size === targetSet.size &&
+                  [...currentSet].every(r => targetSet.has(r))) {
+                return;
+              }
+
+              console.log('[DEBUG] afterRender - restoring hiddenRows, current:', currentHidden.length, 'target:', indices.length);
+
+              // hiddenRows 복원
+              hot.batch(() => {
+                if (currentHidden.length > 0) {
+                  hiddenRowsPlugin.showRows(currentHidden);
+                }
+                hiddenRowsPlugin.hideRows(indices);
+              });
+            }}
             afterOnCellMouseUp={(event, coords) => {
               const rowData = tableData[coords.row];
               if (!rowData) return;

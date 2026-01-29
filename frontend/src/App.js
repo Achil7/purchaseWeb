@@ -9,7 +9,6 @@ import Login from './components/Login';
 
 // --- 페이지들 ---
 import AdminLayout from './components/admin/AdminLayout';
-import AdminCampaignTable from './components/admin/AdminCampaignTable';
 import AdminMonthlyBuyers from './components/admin/AdminMonthlyBuyers';
 import AdminDailyPayments from './components/admin/AdminDailyPayments';
 import AdminTrackingManagement from './components/admin/AdminTrackingManagement';
@@ -90,8 +89,6 @@ function App() {
             {/* 메인 페이지 = 컨트롤 타워 */}
             <Route index element={<AdminControlTower />} />
             <Route path="control-tower" element={<AdminControlTower />} />
-            <Route path="campaigns" element={<AdminCampaignTable />} />
-            <Route path="campaigns/:campaignId" element={<AdminCampaignTable />} />
             <Route path="campaigns/:campaignId/assignment" element={<AdminCampaignAssignment />} />
             <Route path="daily-items" element={<AdminMonthlyBuyers />} />
             <Route path="daily-payments" element={<AdminDailyPayments />} />

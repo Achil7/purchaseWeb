@@ -1189,8 +1189,22 @@ function UnifiedItemSheetInner({
             rowHeights={23}
             autoScrollOnSelection={false}
             afterSelection={(row, column, row2, column2, preventScrolling) => {
-              // 셀 선택 시 자동 스크롤 방지
-              preventScrolling.value = true;
+              // 마우스 클릭 시에는 스크롤 방지, 키보드 이동 시에는 스크롤 허용
+              if (hotRef.current?.hotInstance?._isKeyboardNav) {
+                preventScrolling.value = false;
+                hotRef.current.hotInstance._isKeyboardNav = false;
+              } else {
+                preventScrolling.value = true;
+              }
+            }}
+            beforeKeyDown={(event) => {
+              // 방향키 입력 시 플래그 설정
+              const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
+              if (arrowKeys.includes(event.key)) {
+                if (hotRef.current?.hotInstance) {
+                  hotRef.current.hotInstance._isKeyboardNav = true;
+                }
+              }
             }}
             filters={true}
             dropdownMenu={['filter_by_condition', 'filter_by_value', 'filter_action_bar']}
