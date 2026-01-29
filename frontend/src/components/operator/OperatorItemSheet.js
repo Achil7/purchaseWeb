@@ -169,9 +169,9 @@ const createBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNumbers,
       if (imageCount > 0) {
         const label = imageCount > 1 ? `보기(${imageCount})` : '보기';
         td.innerHTML = `
-          <span style="display: flex; align-items: center; justify-content: center; gap: 4px;">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 14px;">
             <a href="#" class="review-link" style="color: #1976d2; text-decoration: underline; cursor: pointer; font-size: 11px;">${label}</a>
-            <a href="#" class="review-delete-link" style="color: #d32f2f; font-size: 10px; cursor: pointer;" title="리뷰샷 삭제">✕</a>
+            <a href="#" class="review-delete-link" style="color: #d32f2f; font-size: 11px; cursor: pointer; font-weight: bold;" title="리뷰샷 삭제">✕</a>
           </span>`;
         td.style.textAlign = 'center';
       } else {
@@ -1112,11 +1112,13 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   const colHeaders = Array(21).fill('');
 
   // 구매자 컬럼 필드 매핑 (20개 컬럼 → API 필드명)
-  // col0: 접기(readOnly), col1: 날짜(slot.date), col2: 순번(readOnly), col3: 제품명(readOnly), col4: 옵션(readOnly),
+  // col0: 접기(readOnly), col1: 날짜(slot.date), col2: 순번(readOnly), col3: 제품명(slot), col4: 옵션(slot),
   // col5: 예상구매자(편집가능-slot), col6: 주문번호, col7: 구매자, col8: 수취인, col9: 아이디, col10: 연락처, col11: 주소, col12: 계좌, col13: 금액,
   // col14: 송장번호, col15: 리뷰샷(readOnly), col16: 상태, col17: 리뷰비(slot), col18: 입금명, col19: 입금여부
   const buyerFieldMap = {
     col1: 'date',  // 날짜 (slot 필드)
+    col3: 'product_name',  // 제품명 (slot 필드)
+    col4: 'purchase_option',  // 옵션 (slot 필드)
     col5: 'expected_buyer',  // 예상 구매자 (slot 필드)
     col6: 'order_number',
     col7: 'buyer_name',
@@ -1133,8 +1135,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     col19: 'payment_confirmed'
     // col0: 접기 (readOnly)
     // col2: 순번 (readOnly)
-    // col3: 제품명 (readOnly)
-    // col4: 옵션 (readOnly)
     // col15: 리뷰샷 (readOnly)
   };
 
@@ -1696,6 +1696,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         color: 'white',
         px: 2,
         py: 1,
+        minHeight: 48,
         borderRadius: '4px 4px 0 0'
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>

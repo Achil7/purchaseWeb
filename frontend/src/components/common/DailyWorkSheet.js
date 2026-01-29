@@ -1048,7 +1048,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        mb: 1,
+        mb: 0.5,
         px: 1,
         flexShrink: 0
       }}>
@@ -1070,7 +1070,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
                 textField: {
                   size: 'small',
                   sx: {
-                    width: 140,
+                    width: 160,
                     '& .MuiOutlinedInput-root': {
                       height: 32
                     },
@@ -1125,6 +1125,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         color: 'white',
         px: 2,
         py: 1,
+        minHeight: 48,
         borderRadius: '4px 4px 0 0'
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>

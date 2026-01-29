@@ -120,7 +120,7 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['day_group'] },
       { fields: ['upload_link_token'] },
       { fields: ['deleted_at'] },
-      { unique: true, fields: ['item_id', 'slot_number'] }
+      { unique: true, fields: ['item_id', 'day_group', 'slot_number'] }
     ]
   });
 
