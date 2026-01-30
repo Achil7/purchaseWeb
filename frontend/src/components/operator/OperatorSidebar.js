@@ -1,8 +1,9 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   Box, Typography, IconButton, Chip, Paper,
   List, ListItemButton, ListItemIcon, ListItemText, CircularProgress, Collapse, Tooltip
 } from '@mui/material';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import FolderIcon from '@mui/icons-material/Folder';
 import ExpandLess from '@mui/icons-material/ExpandLess';
@@ -21,8 +22,13 @@ import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import { monthlyBrandService } from '../../services';
 
-const DRAWER_WIDTH = 280;
+const DEFAULT_DRAWER_WIDTH = 280;
+const MIN_DRAWER_WIDTH = 200;
+const MAX_DRAWER_WIDTH = 500;
+const SIDEBAR_WIDTH_KEY = 'operator_sidebar_width';
 const EXPANDED_MB_KEY = 'operator_expanded_monthly_brands';
 
 // 캠페인 아이템 컴포넌트 - React.memo로 불필요한 리렌더링 방지
@@ -148,7 +154,9 @@ function OperatorSidebar({
   newlyAddedCampaignIds,
   campaignStatsMap,
   isEmbedded,
-  getAssignmentStatus
+  getAssignmentStatus,
+  viewAsUserId,
+  onMonthlyBrandsReorder
 }) {
   // ========== 사이드바 내부 상태 (부모에 영향 없음) ==========
 
@@ -180,12 +188,60 @@ function OperatorSidebar({
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // 사이드바 너비 리사이즈 상태
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    return saved ? parseInt(saved, 10) : DEFAULT_DRAWER_WIDTH;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef({
+    startX: 0,
+    startWidth: sidebarWidth
+  });
+
   // 일괄 삭제용 선택 상태
   const [selectedForBulkDelete, setSelectedForBulkDelete] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // 디바운스용 ref
   const saveExpandedTimeoutRef = useRef(null);
+
+  // ========== 리사이즈 핸들러 ==========
+
+  const handleMouseDown = useCallback((e) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeRef.current = {
+      startX: e.clientX,
+      startWidth: sidebarWidth
+    };
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isResizing) return;
+      const delta = e.clientX - resizeRef.current.startX;
+      const newWidth = Math.min(MAX_DRAWER_WIDTH, Math.max(MIN_DRAWER_WIDTH, resizeRef.current.startWidth + delta));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isResizing) {
+        setIsResizing(false);
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, sidebarWidth]);
 
   // ========== 성능 최적화 ==========
 
@@ -358,18 +414,51 @@ function OperatorSidebar({
     }
   };
 
+  // 드래그 앤 드롭 핸들러 (연월브랜드 순서 변경)
+  const handleDragEnd = useCallback(async (result) => {
+    if (!result.destination) return;
+    if (result.destination.index === result.source.index) return;
+
+    // 숨김 항목 모드에서는 드래그 불가
+    if (showHidden) return;
+
+    const items = Array.from(filteredMonthlyBrands);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    // 새 순서의 ID 배열
+    const orderedIds = items.map(mb => mb.id);
+
+    // 부모에게 낙관적 업데이트 요청
+    if (onMonthlyBrandsReorder) {
+      onMonthlyBrandsReorder(items);
+    }
+
+    try {
+      await monthlyBrandService.reorderMonthlyBrandsOperator(orderedIds, viewAsUserId);
+    } catch (err) {
+      console.error('Failed to reorder monthly brands:', err);
+      alert('순서 변경에 실패했습니다.');
+      // 실패 시 원래 상태로 복원 - 부모에게 원래 목록 전달
+      if (onMonthlyBrandsReorder) {
+        onMonthlyBrandsReorder(null); // null은 새로고침 필요 신호
+      }
+    }
+  }, [filteredMonthlyBrands, showHidden, viewAsUserId, onMonthlyBrandsReorder]);
+
   // ========== 렌더링 ==========
 
   return (
+    <Box sx={{ display: 'flex', flexShrink: 0, position: 'relative' }}>
     <Paper
       sx={{
-        width: sidebarCollapsed ? 40 : DRAWER_WIDTH,
+        width: sidebarCollapsed ? 40 : sidebarWidth,
         flexShrink: 0,
         height: isEmbedded ? '100%' : 'calc(100vh - 64px)',
         display: 'flex',
         flexDirection: 'column',
         borderRadius: 0,
-        borderRight: '1px solid #e0e0e0'
+        borderRight: 'none'
       }}
     >
       {!sidebarCollapsed && (
@@ -435,87 +524,131 @@ function OperatorSidebar({
               </Typography>
             </Box>
           ) : (
-            <List component="nav" disablePadding dense>
-              {filteredMonthlyBrands.map((monthlyBrand) => {
-                const isMbHidden = hiddenMonthlyBrandIdsSet.has(monthlyBrand.id);
-                if (!showHidden && isMbHidden) return null;
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <Droppable droppableId="monthly-brands-operator" isDropDisabled={showHidden}>
+                {(provided) => (
+                  <List
+                    component="nav"
+                    disablePadding
+                    dense
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                  >
+                    {filteredMonthlyBrands.map((monthlyBrand, index) => {
+                      const isMbHidden = hiddenMonthlyBrandIdsSet.has(monthlyBrand.id);
+                      if (!showHidden && isMbHidden) return null;
 
-                return (
-                  <React.Fragment key={monthlyBrand.id}>
-                    <ListItemButton
-                      onClick={() => handleMonthlyBrandToggle(monthlyBrand.id)}
-                      sx={{
-                        bgcolor: isMbHidden ? '#fff3e0' : expandedMonthlyBrands[monthlyBrand.id] ? '#e8eaf6' : 'inherit',
-                        borderBottom: '1px solid #f0f0f0',
-                        py: 0.5
-                      }}
-                    >
-                      <ListItemIcon sx={{ minWidth: 28 }}>
-                        <CalendarMonthIcon fontSize="small" color={isMbHidden ? 'warning' : 'primary'} />
-                      </ListItemIcon>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2" fontWeight="bold" noWrap sx={{ flex: 1, fontSize: '0.85rem', color: isMbHidden ? 'text.secondary' : 'inherit' }}>
-                          {monthlyBrand.name}
-                        </Typography>
-                        {showHidden && isMbHidden ? (
-                          <>
-                            <IconButton size="small" onClick={(e) => toggleBulkDeleteSelection('mb', monthlyBrand.id, e)} sx={{ p: 0.3 }}>
-                              {selectedForBulkDelete.has(`mb_${monthlyBrand.id}`) ? (
-                                <CheckBoxIcon sx={{ fontSize: 18, color: '#d32f2f' }} />
-                              ) : (
-                                <CheckBoxOutlineBlankIcon sx={{ fontSize: 18, color: '#999' }} />
-                              )}
-                            </IconButton>
-                            <Tooltip title="복구">
-                              <IconButton size="small" color="success" onClick={(e) => handleRestoreMonthlyBrand(monthlyBrand.id, e)} sx={{ p: 0.3 }}>
-                                <RestoreIcon sx={{ fontSize: 18 }} />
-                              </IconButton>
-                            </Tooltip>
-                          </>
-                        ) : !showHidden ? (
-                          <Tooltip title="숨기기">
-                            <IconButton size="small" color="default" onClick={(e) => handleHideMonthlyBrand(monthlyBrand.id, e)} sx={{ p: 0.3 }}>
-                              <VisibilityOffIcon sx={{ fontSize: 16, color: '#bbb' }} />
-                            </IconButton>
-                          </Tooltip>
-                        ) : null}
-                        <Chip label={monthlyBrand.campaigns.length} size="small" sx={{ height: 18, minWidth: 20, fontSize: '0.65rem' }} />
-                      </Box>
-                      {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
-                    </ListItemButton>
+                      return (
+                        <Draggable
+                          key={monthlyBrand.id}
+                          draggableId={`mb-${monthlyBrand.id}`}
+                          index={index}
+                          isDragDisabled={showHidden}
+                        >
+                          {(provided, snapshot) => (
+                            <React.Fragment>
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                              >
+                                <ListItemButton
+                                  onClick={() => handleMonthlyBrandToggle(monthlyBrand.id)}
+                                  sx={{
+                                    bgcolor: snapshot.isDragging ? '#bbdefb' : isMbHidden ? '#fff3e0' : expandedMonthlyBrands[monthlyBrand.id] ? '#e8eaf6' : 'inherit',
+                                    borderBottom: '1px solid #f0f0f0',
+                                    py: 0.5,
+                                    boxShadow: snapshot.isDragging ? 3 : 0
+                                  }}
+                                >
+                                  {/* 드래그 핸들 - 숨김 항목이 아닐 때만 표시 */}
+                                  {!showHidden && (
+                                    <Box
+                                      {...provided.dragHandleProps}
+                                      sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        mr: 0.5,
+                                        cursor: 'grab',
+                                        '&:active': { cursor: 'grabbing' }
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <DragIndicatorIcon sx={{ fontSize: 18, color: '#9e9e9e' }} />
+                                    </Box>
+                                  )}
+                                  <ListItemIcon sx={{ minWidth: 28 }}>
+                                    <CalendarMonthIcon fontSize="small" color={isMbHidden ? 'warning' : 'primary'} />
+                                  </ListItemIcon>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
+                                    <Typography variant="body2" fontWeight="bold" noWrap sx={{ flex: 1, fontSize: '0.85rem', color: isMbHidden ? 'text.secondary' : 'inherit' }}>
+                                      {monthlyBrand.name}
+                                    </Typography>
+                                    {showHidden && isMbHidden ? (
+                                      <>
+                                        <IconButton size="small" onClick={(e) => toggleBulkDeleteSelection('mb', monthlyBrand.id, e)} sx={{ p: 0.3 }}>
+                                          {selectedForBulkDelete.has(`mb_${monthlyBrand.id}`) ? (
+                                            <CheckBoxIcon sx={{ fontSize: 18, color: '#d32f2f' }} />
+                                          ) : (
+                                            <CheckBoxOutlineBlankIcon sx={{ fontSize: 18, color: '#999' }} />
+                                          )}
+                                        </IconButton>
+                                        <Tooltip title="복구">
+                                          <IconButton size="small" color="success" onClick={(e) => handleRestoreMonthlyBrand(monthlyBrand.id, e)} sx={{ p: 0.3 }}>
+                                            <RestoreIcon sx={{ fontSize: 18 }} />
+                                          </IconButton>
+                                        </Tooltip>
+                                      </>
+                                    ) : !showHidden ? (
+                                      <Tooltip title="숨기기">
+                                        <IconButton size="small" color="default" onClick={(e) => handleHideMonthlyBrand(monthlyBrand.id, e)} sx={{ p: 0.3 }}>
+                                          <VisibilityOffIcon sx={{ fontSize: 16, color: '#bbb' }} />
+                                        </IconButton>
+                                      </Tooltip>
+                                    ) : null}
+                                    <Chip label={monthlyBrand.campaigns.length} size="small" sx={{ height: 18, minWidth: 20, fontSize: '0.65rem' }} />
+                                  </Box>
+                                  {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+                                </ListItemButton>
 
-                    <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
-                      <List component="div" disablePadding dense>
-                        {monthlyBrand.campaigns.length > 0 ? (
-                          monthlyBrand.campaigns.map((campaign) => (
-                            <CampaignItem
-                              key={campaign.id}
-                              campaign={campaign}
-                              stats={getCampaignStats(campaign)}
-                              isSelected={selectedCampaignId === campaign.id}
-                              isHidden={hiddenCampaignIdsSet.has(campaign.id)}
-                              isNewlyAdded={newlyAddedCampaignIds?.has(campaign.id)}
-                              showHidden={showHidden}
-                              isSelectedForBulkDelete={selectedForBulkDelete.has(`campaign_${campaign.id}`)}
-                              onCampaignClick={handleCampaignClick}
-                              onToggleBulkDelete={toggleBulkDeleteSelection}
-                              onRestoreCampaign={handleRestoreCampaign}
-                              onHideCampaign={handleHideCampaign}
-                            />
-                          ))
-                        ) : (
-                          <Box sx={{ pl: 4, py: 1 }}>
-                            <Typography variant="caption" color="text.secondary">
-                              {showHidden ? '숨긴 캠페인 없음' : '캠페인 없음'}
-                            </Typography>
-                          </Box>
-                        )}
-                      </List>
-                    </Collapse>
-                  </React.Fragment>
-                );
-              })}
-            </List>
+                                <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
+                                  <List component="div" disablePadding dense>
+                                    {monthlyBrand.campaigns.length > 0 ? (
+                                      monthlyBrand.campaigns.map((campaign) => (
+                                        <CampaignItem
+                                          key={campaign.id}
+                                          campaign={campaign}
+                                          stats={getCampaignStats(campaign)}
+                                          isSelected={selectedCampaignId === campaign.id}
+                                          isHidden={hiddenCampaignIdsSet.has(campaign.id)}
+                                          isNewlyAdded={newlyAddedCampaignIds?.has(campaign.id)}
+                                          showHidden={showHidden}
+                                          isSelectedForBulkDelete={selectedForBulkDelete.has(`campaign_${campaign.id}`)}
+                                          onCampaignClick={handleCampaignClick}
+                                          onToggleBulkDelete={toggleBulkDeleteSelection}
+                                          onRestoreCampaign={handleRestoreCampaign}
+                                          onHideCampaign={handleHideCampaign}
+                                        />
+                                      ))
+                                    ) : (
+                                      <Box sx={{ pl: 4, py: 1 }}>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {showHidden ? '숨긴 캠페인 없음' : '캠페인 없음'}
+                                        </Typography>
+                                      </Box>
+                                    )}
+                                  </List>
+                                </Collapse>
+                              </div>
+                            </React.Fragment>
+                          )}
+                        </Draggable>
+                      );
+                    })}
+                    {provided.placeholder}
+                  </List>
+                )}
+              </Droppable>
+            </DragDropContext>
           )}
         </Box>
       )}
@@ -540,6 +673,22 @@ function OperatorSidebar({
         {!sidebarCollapsed && <Typography variant="caption" sx={{ ml: 0.5 }}>접기</Typography>}
       </Box>
     </Paper>
+
+    {/* 리사이즈 핸들 */}
+    {!sidebarCollapsed && (
+      <Box
+        onMouseDown={handleMouseDown}
+        sx={{
+          width: 4,
+          cursor: 'col-resize',
+          bgcolor: isResizing ? '#1976d2' : 'transparent',
+          '&:hover': { bgcolor: '#90caf9' },
+          transition: 'background-color 0.2s',
+          flexShrink: 0
+        }}
+      />
+    )}
+    </Box>
   );
 }
 

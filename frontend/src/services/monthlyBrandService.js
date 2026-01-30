@@ -86,6 +86,39 @@ export const getAllMonthlyBrands = async () => {
   return response.data;
 };
 
+/**
+ * 연월브랜드 순서 변경 (영업사용)
+ * @param orderedIds - 순서대로 정렬된 연월브랜드 ID 배열
+ * @param viewAsUserId - Admin이 영업사 대신 변경할 때 사용
+ */
+export const reorderMonthlyBrands = async (orderedIds, viewAsUserId = null) => {
+  const params = viewAsUserId ? { viewAsUserId } : {};
+  const response = await api.patch('/monthly-brands/reorder', { orderedIds }, { params });
+  return response.data;
+};
+
+/**
+ * 연월브랜드 순서 변경 (브랜드사용)
+ * @param orderedIds - 순서대로 정렬된 연월브랜드 ID 배열
+ * @param viewAsUserId - Admin이 브랜드사 대신 변경할 때 사용
+ */
+export const reorderMonthlyBrandsBrand = async (orderedIds, viewAsUserId = null) => {
+  const params = viewAsUserId ? { viewAsUserId } : {};
+  const response = await api.patch('/monthly-brands/reorder-brand', { orderedIds }, { params });
+  return response.data;
+};
+
+/**
+ * 연월브랜드 순서 변경 (진행자용)
+ * @param orderedIds - 순서대로 정렬된 연월브랜드 ID 배열
+ * @param viewAsUserId - Admin이 진행자 대신 변경할 때 사용
+ */
+export const reorderMonthlyBrandsOperator = async (orderedIds, viewAsUserId = null) => {
+  const params = viewAsUserId ? { viewAsUserId } : {};
+  const response = await api.patch('/monthly-brands/reorder-operator', { orderedIds }, { params });
+  return response.data;
+};
+
 export default {
   getMonthlyBrands,
   getMyBrandMonthlyBrands,
@@ -96,5 +129,8 @@ export default {
   deleteMonthlyBrandCascade,
   hideMonthlyBrand,
   restoreMonthlyBrand,
-  getAllMonthlyBrands
+  getAllMonthlyBrands,
+  reorderMonthlyBrands,
+  reorderMonthlyBrandsBrand,
+  reorderMonthlyBrandsOperator
 };

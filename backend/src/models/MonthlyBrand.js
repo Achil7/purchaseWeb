@@ -47,6 +47,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
       comment: '숨김 여부'
+    },
+    sort_order: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
+      comment: '정렬 순서 (낮을수록 위에 표시)'
     }
   }, {
     tableName: 'monthly_brands',
@@ -60,7 +66,8 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['created_by'] },
       { fields: ['year_month'] },
       { fields: ['status'] },
-      { fields: ['deleted_at'] }
+      { fields: ['deleted_at'] },
+      { fields: ['created_by', 'sort_order'], name: 'idx_monthly_brands_created_by_sort_order' }
     ]
   });
 

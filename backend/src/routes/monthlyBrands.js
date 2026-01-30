@@ -73,7 +73,7 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
           ]
         }
       ],
-      order: [['created_at', 'DESC']]
+      order: [['sort_order', 'ASC'], ['created_at', 'ASC']]
     });
 
     res.json({
@@ -128,7 +128,8 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
         }
       ],
       order: [
-        ['created_at', 'DESC'],
+        ['sort_order', 'ASC'],
+        ['created_at', 'ASC'],
         [{ model: Campaign, as: 'campaigns' }, 'name', 'ASC']
       ]
     });
@@ -283,7 +284,7 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
           ]
         }
       ],
-      order: [['created_at', 'DESC']]
+      order: [['sort_order', 'ASC'], ['created_at', 'ASC']]
     });
 
     // 캠페인이 없는 연월브랜드 필터링 (자신이 생성했지만 캠페인이 모두 이전된 경우 제외)
@@ -404,6 +405,12 @@ router.post('/', authenticate, authorize(['sales', 'admin']), async (req, res) =
       createdBy = parseInt(req.query.viewAsUserId, 10);
     }
 
+    // 현재 해당 영업사의 최대 sort_order 조회
+    const maxSortOrder = await MonthlyBrand.max('sort_order', {
+      where: { created_by: createdBy }
+    });
+    const newSortOrder = (maxSortOrder || 0) + 1;
+
     // 연월브랜드 생성
     const monthlyBrand = await MonthlyBrand.create({
       name,
@@ -411,7 +418,8 @@ router.post('/', authenticate, authorize(['sales', 'admin']), async (req, res) =
       created_by: createdBy,
       year_month: year_month || null,
       description: description || null,
-      status: status || 'active'
+      status: status || 'active',
+      sort_order: newSortOrder
     });
 
     // 생성된 연월브랜드 조회 (관계 포함)
@@ -787,6 +795,231 @@ router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operat
       success: false,
       message: '연월브랜드 삭제 중 오류가 발생했습니다',
       error: error.message
+    });
+  }
+});
+
+/**
+ * @route   PATCH /api/monthly-brands/reorder
+ * @desc    연월브랜드 순서 변경 (영업사용 - created_by 기준)
+ * @access  Private (Sales, Admin)
+ * @body    { orderedIds: [id1, id2, ...] } - 순서대로 정렬된 연월브랜드 ID 배열
+ */
+router.patch('/reorder', authenticate, authorize(['sales', 'admin']), async (req, res) => {
+  const sequelize = require('../models').sequelize;
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { orderedIds } = req.body;
+
+    if (!orderedIds || !Array.isArray(orderedIds) || orderedIds.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'orderedIds 배열이 필요합니다'
+      });
+    }
+
+    // 권한 확인: Admin은 viewAsUserId로 영업사 대신 변경 가능
+    let targetUserId = req.user.id;
+    if (req.user.role === 'admin' && req.query.viewAsUserId) {
+      targetUserId = parseInt(req.query.viewAsUserId, 10);
+    }
+
+    // 해당 연월브랜드들이 모두 해당 사용자의 것인지 확인
+    const monthlyBrands = await MonthlyBrand.findAll({
+      where: {
+        id: { [Op.in]: orderedIds },
+        created_by: targetUserId
+      },
+      attributes: ['id']
+    });
+
+    if (monthlyBrands.length !== orderedIds.length) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        message: '권한이 없는 연월브랜드가 포함되어 있습니다'
+      });
+    }
+
+    // 순서 업데이트
+    for (let i = 0; i < orderedIds.length; i++) {
+      await MonthlyBrand.update(
+        { sort_order: i + 1 },
+        {
+          where: { id: orderedIds[i] },
+          transaction
+        }
+      );
+    }
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: '연월브랜드 순서가 변경되었습니다'
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Reorder monthly brands error:', error);
+    res.status(500).json({
+      success: false,
+      message: '연월브랜드 순서 변경 중 오류가 발생했습니다'
+    });
+  }
+});
+
+/**
+ * @route   PATCH /api/monthly-brands/reorder-operator
+ * @desc    연월브랜드 순서 변경 (진행자용 - 배정받은 연월브랜드 기준)
+ * @access  Private (Operator, Admin)
+ * @body    { orderedIds: [id1, id2, ...] } - 순서대로 정렬된 연월브랜드 ID 배열
+ */
+router.patch('/reorder-operator', authenticate, authorize(['operator', 'admin']), async (req, res) => {
+  const sequelize = require('../models').sequelize;
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { orderedIds } = req.body;
+
+    if (!orderedIds || !Array.isArray(orderedIds) || orderedIds.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'orderedIds 배열이 필요합니다'
+      });
+    }
+
+    // 권한 확인: Admin은 viewAsUserId로 진행자 대신 변경 가능
+    let targetUserId = req.user.id;
+    if (req.user.role === 'admin' && req.query.viewAsUserId) {
+      targetUserId = parseInt(req.query.viewAsUserId, 10);
+    }
+
+    // 해당 진행자가 배정받은 연월브랜드 ID 목록 조회
+    const assignedMonthlyBrandIds = await CampaignOperator.findAll({
+      where: { operator_id: targetUserId },
+      include: [{
+        model: Campaign,
+        as: 'campaign',
+        attributes: ['monthly_brand_id']
+      }],
+      attributes: [],
+      raw: true,
+      nest: true
+    });
+
+    const allowedMonthlyBrandIds = [...new Set(
+      assignedMonthlyBrandIds
+        .map(co => co.campaign?.monthly_brand_id)
+        .filter(id => id != null)
+    )];
+
+    // 모든 orderedIds가 배정받은 연월브랜드인지 확인
+    const invalidIds = orderedIds.filter(id => !allowedMonthlyBrandIds.includes(id));
+    if (invalidIds.length > 0) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        message: '배정받지 않은 연월브랜드가 포함되어 있습니다'
+      });
+    }
+
+    // 순서 업데이트
+    for (let i = 0; i < orderedIds.length; i++) {
+      await MonthlyBrand.update(
+        { sort_order: i + 1 },
+        {
+          where: { id: orderedIds[i] },
+          transaction
+        }
+      );
+    }
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: '연월브랜드 순서가 변경되었습니다'
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Reorder monthly brands (operator) error:', error);
+    res.status(500).json({
+      success: false,
+      message: '연월브랜드 순서 변경 중 오류가 발생했습니다'
+    });
+  }
+});
+
+/**
+ * @route   PATCH /api/monthly-brands/reorder-brand
+ * @desc    연월브랜드 순서 변경 (브랜드사용 - brand_id 기준)
+ * @access  Private (Brand, Admin)
+ * @body    { orderedIds: [id1, id2, ...] } - 순서대로 정렬된 연월브랜드 ID 배열
+ */
+router.patch('/reorder-brand', authenticate, authorize(['brand', 'admin']), async (req, res) => {
+  const sequelize = require('../models').sequelize;
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { orderedIds } = req.body;
+
+    if (!orderedIds || !Array.isArray(orderedIds) || orderedIds.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'orderedIds 배열이 필요합니다'
+      });
+    }
+
+    // 권한 확인: Admin은 viewAsUserId로 브랜드사 대신 변경 가능
+    let targetUserId = req.user.id;
+    if (req.user.role === 'admin' && req.query.viewAsUserId) {
+      targetUserId = parseInt(req.query.viewAsUserId, 10);
+    }
+
+    // 해당 연월브랜드들이 모두 해당 브랜드사의 것인지 확인 (brand_id 기준)
+    const monthlyBrands = await MonthlyBrand.findAll({
+      where: {
+        id: { [Op.in]: orderedIds },
+        brand_id: targetUserId
+      },
+      attributes: ['id']
+    });
+
+    if (monthlyBrands.length !== orderedIds.length) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        message: '권한이 없는 연월브랜드가 포함되어 있습니다'
+      });
+    }
+
+    // 순서 업데이트
+    for (let i = 0; i < orderedIds.length; i++) {
+      await MonthlyBrand.update(
+        { sort_order: i + 1 },
+        {
+          where: { id: orderedIds[i] },
+          transaction
+        }
+      );
+    }
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: '연월브랜드 순서가 변경되었습니다'
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Reorder monthly brands (brand) error:', error);
+    res.status(500).json({
+      success: false,
+      message: '연월브랜드 순서 변경 중 오류가 발생했습니다'
     });
   }
 });

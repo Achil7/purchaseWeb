@@ -494,6 +494,16 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
           newlyAddedCampaignIds={newlyAddedCampaignIds}
           campaignStatsMap={campaignStatsMap}
           isEmbedded={isEmbedded}
+          viewAsUserId={viewAsUserId}
+          onMonthlyBrandsReorder={(reorderedBrands) => {
+            if (reorderedBrands === null) {
+              // 실패 시 새로고침
+              loadMonthlyBrands();
+            } else {
+              // 낙관적 업데이트
+              setMonthlyBrands(reorderedBrands);
+            }
+          }}
         />
 
         {/* 메인 콘텐츠 영역 */}

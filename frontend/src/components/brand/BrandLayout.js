@@ -5,6 +5,7 @@ import {
   Badge, Menu, MenuItem, ListItemText, Divider,
   List, ListItemButton, ListItemIcon, CircularProgress, Chip, Tooltip, Collapse
 } from '@mui/material';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
@@ -20,12 +21,16 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import RestoreIcon from '@mui/icons-material/Restore';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import BrandItemSheet from './BrandItemSheet';
 import { notificationService, monthlyBrandService } from '../../services';
 
-const DRAWER_WIDTH = 280;
+const DEFAULT_DRAWER_WIDTH = 280;
+const MIN_DRAWER_WIDTH = 200;
+const MAX_DRAWER_WIDTH = 500;
+const SIDEBAR_WIDTH_KEY = 'brand_sidebar_width';
 
 function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = false }) {
   const navigate = useNavigate();
@@ -60,6 +65,18 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // 사이드바 너비 상태 - localStorage에서 복원
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+      return saved ? parseInt(saved, 10) : DEFAULT_DRAWER_WIDTH;
+    } catch {
+      return DEFAULT_DRAWER_WIDTH;
+    }
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef(null);
+
   // 알림 상태
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -67,6 +84,47 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 디바운스용 ref
   const saveExpandedTimeoutRef = useRef(null);
+
+  // 사이드바 리사이즈 핸들러
+  const handleMouseDown = useCallback((e) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeRef.current = {
+      startX: e.clientX,
+      startWidth: sidebarWidth
+    };
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isResizing || !resizeRef.current) return;
+
+      const diff = e.clientX - resizeRef.current.startX;
+      const newWidth = Math.min(MAX_DRAWER_WIDTH, Math.max(MIN_DRAWER_WIDTH, resizeRef.current.startWidth + diff));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isResizing) {
+        setIsResizing(false);
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing, sidebarWidth]);
 
   // 시트 컴포넌트 메모이제이션 - 사이드바 토글 시 리렌더링 방지
   const memoizedSheet = useMemo(() => {
@@ -278,6 +336,36 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     }
   };
 
+  // 드래그 앤 드롭 핸들러 (연월브랜드 순서 변경)
+  const handleDragEnd = useCallback(async (result) => {
+    if (!result.destination) return;
+    if (result.destination.index === result.source.index) return;
+
+    // 숨김 항목은 드래그 불가
+    if (showHidden) return;
+
+    const filteredMonthlyBrands = monthlyBrands.filter(mb => !mb.is_hidden);
+    const items = Array.from(filteredMonthlyBrands);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+
+    // 새 순서의 ID 배열
+    const orderedIds = items.map(mb => mb.id);
+
+    // 낙관적 UI 업데이트
+    const hiddenItems = monthlyBrands.filter(mb => mb.is_hidden);
+    setMonthlyBrands([...items, ...hiddenItems]);
+
+    try {
+      await monthlyBrandService.reorderMonthlyBrandsBrand(orderedIds, viewAsUserId);
+    } catch (err) {
+      console.error('Failed to reorder monthly brands:', err);
+      alert('순서 변경에 실패했습니다.');
+      // 실패 시 원래 상태로 복원
+      loadMonthlyBrands();
+    }
+  }, [monthlyBrands, showHidden, viewAsUserId, loadMonthlyBrands]);
+
   const handleLogout = async () => {
     if (isAdminMode) {
       navigate('/admin');
@@ -459,17 +547,18 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       {/* 메인 컨테이너 - 사이드바 + 콘텐츠 */}
       <Box sx={{ display: 'flex', flex: 1, pt: isEmbedded ? 0 : 8, overflow: 'hidden', minHeight: 0 }}>
       {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록 */}
-      <Paper
-        sx={{
-          width: sidebarCollapsed ? 40 : DRAWER_WIDTH,
-          flexShrink: 0,
-          height: isEmbedded ? '100%' : 'calc(100vh - 64px)',
-          display: 'flex',
-          flexDirection: 'column',
-          borderRadius: 0,
-          borderRight: '1px solid #e0e0e0'
-        }}
-      >
+      <Box sx={{ display: 'flex', flexShrink: 0, position: 'relative' }}>
+        <Paper
+          sx={{
+            width: sidebarCollapsed ? 40 : sidebarWidth,
+            flexShrink: 0,
+            height: isEmbedded ? '100%' : 'calc(100vh - 64px)',
+            display: 'flex',
+            flexDirection: 'column',
+            borderRadius: 0,
+            borderRight: 'none'
+          }}
+        >
         {!sidebarCollapsed && (
           <Box sx={{ flex: 1, overflow: 'auto', pb: 1 }}>
             <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#e8eaf6', borderBottom: '1px solid #e0e0e0' }}>
@@ -528,114 +617,158 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               }
 
               return (
-                <List component="nav" disablePadding dense>
-                  {filteredMonthlyBrands.map((monthlyBrand) => {
-                    const campaigns = monthlyBrand.campaigns || [];
-                    return (
-                      <React.Fragment key={monthlyBrand.id}>
-                        <ListItemButton
-                          onClick={() => handleMonthlyBrandToggle(monthlyBrand.id)}
-                          sx={{
-                            bgcolor: monthlyBrand.is_hidden ? '#fff3e0' : expandedMonthlyBrands[monthlyBrand.id] ? '#e8eaf6' : 'inherit',
-                            borderBottom: '1px solid #f0f0f0',
-                            py: 0.5
-                          }}
-                        >
-                          <ListItemIcon sx={{ minWidth: 28 }}>
-                            <CalendarMonthIcon fontSize="small" color={monthlyBrand.is_hidden ? 'warning' : 'primary'} />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary={
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <Typography variant="body2" fontWeight="bold" noWrap sx={{ flex: 1, fontSize: '0.85rem', color: monthlyBrand.is_hidden ? 'text.secondary' : 'inherit' }}>
-                                  {monthlyBrand.name}
-                                </Typography>
-                                {showHidden && monthlyBrand.is_hidden ? (
-                                  <Tooltip title="복구">
-                                    <IconButton size="small" color="success" onClick={(e) => handleRestoreMonthlyBrand(monthlyBrand, e)} sx={{ p: 0.3 }}>
-                                      <RestoreIcon sx={{ fontSize: 18 }} />
-                                    </IconButton>
-                                  </Tooltip>
-                                ) : !showHidden ? (
-                                  <Tooltip title="숨기기">
-                                    <IconButton size="small" color="default" onClick={(e) => handleHideMonthlyBrand(monthlyBrand, e)} sx={{ p: 0.3 }}>
-                                      <VisibilityOffIcon sx={{ fontSize: 16, color: '#bbb' }} />
-                                    </IconButton>
-                                  </Tooltip>
-                                ) : null}
-                                <Chip label={campaigns.length} size="small" sx={{ height: 18, minWidth: 20, fontSize: '0.65rem' }} />
-                              </Box>
-                            }
-                          />
-                          {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
-                        </ListItemButton>
-
-                        <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
-                          <List component="div" disablePadding dense>
-                            {campaigns.length > 0 ? (
-                              campaigns.map((campaign) => {
-                                const isSelected = selectedCampaign?.id === campaign.id;
-                                const stats = getCampaignStats(campaign);
-                                return (
-                                  <ListItemButton
-                                    key={campaign.id}
-                                    onClick={() => handleCampaignClick(campaign)}
-                                    sx={{
-                                      pl: 4, py: 0.3,
-                                      bgcolor: isSelected ? '#c5cae9' : 'inherit',
-                                      borderLeft: isSelected ? '3px solid #2c387e' : '3px solid transparent',
-                                      '&:hover': { bgcolor: isSelected ? '#c5cae9' : '#f5f5f5' }
-                                    }}
+                <DragDropContext onDragEnd={handleDragEnd}>
+                  <Droppable droppableId="monthly-brands-brand" isDropDisabled={showHidden}>
+                    {(provided) => (
+                      <List
+                        component="nav"
+                        disablePadding
+                        dense
+                        ref={provided.innerRef}
+                        {...provided.droppableProps}
+                      >
+                        {filteredMonthlyBrands.map((monthlyBrand, index) => {
+                          const campaigns = monthlyBrand.campaigns || [];
+                          return (
+                            <Draggable
+                              key={monthlyBrand.id}
+                              draggableId={`mb-${monthlyBrand.id}`}
+                              index={index}
+                              isDragDisabled={showHidden}
+                            >
+                              {(provided, snapshot) => (
+                                <React.Fragment>
+                                  <div
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
                                   >
-                                    <ListItemIcon sx={{ minWidth: 24 }}>
-                                      <FolderIcon sx={{ fontSize: 16 }} color={isSelected ? 'primary' : 'action'} />
-                                    </ListItemIcon>
-                                    <ListItemText
-                                      primary={
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                          <Typography variant="body2" fontWeight={isSelected ? 'bold' : 'normal'} noWrap sx={{ fontSize: '0.8rem', flex: 1 }}>
-                                            {campaign.name}
-                                          </Typography>
-                                          {stats.isCompleted ? (
-                                            <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalBuyerCount}`}>
-                                              <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
-                                            </Tooltip>
-                                          ) : stats.totalBuyerCount > 0 ? (
-                                            <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalBuyerCount}`}>
-                                              <Chip
-                                                label={`${stats.completionRate}%`}
-                                                size="small"
-                                                sx={{
-                                                  height: 16, fontSize: '0.6rem',
-                                                  bgcolor: stats.completionRate >= 80 ? '#c8e6c9' : stats.completionRate >= 50 ? '#fff9c4' : '#ffecb3',
-                                                  color: stats.completionRate >= 80 ? '#2e7d32' : stats.completionRate >= 50 ? '#f57f17' : '#ff6f00',
-                                                  fontWeight: 'bold'
-                                                }}
-                                              />
-                                            </Tooltip>
-                                          ) : (
-                                            <Chip label={`${campaign.items?.length || 0}개`} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
-                                          )}
-                                          <Chip label={getStatusLabel(campaign.status)} size="small" color={getStatusColor(campaign.status)} variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
+                                    <ListItemButton
+                                      onClick={() => handleMonthlyBrandToggle(monthlyBrand.id)}
+                                      sx={{
+                                        bgcolor: snapshot.isDragging ? '#bbdefb' : monthlyBrand.is_hidden ? '#fff3e0' : expandedMonthlyBrands[monthlyBrand.id] ? '#e8eaf6' : 'inherit',
+                                        borderBottom: '1px solid #f0f0f0',
+                                        py: 0.5,
+                                        boxShadow: snapshot.isDragging ? 3 : 0
+                                      }}
+                                    >
+                                      {/* 드래그 핸들 - 숨김 항목이 아닐 때만 표시 */}
+                                      {!showHidden && (
+                                        <Box
+                                          {...provided.dragHandleProps}
+                                          sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            mr: 0.5,
+                                            cursor: 'grab',
+                                            '&:active': { cursor: 'grabbing' }
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <DragIndicatorIcon sx={{ fontSize: 18, color: '#9e9e9e' }} />
                                         </Box>
-                                      }
-                                    />
-                                  </ListItemButton>
-                                );
-                              })
-                            ) : (
-                              <Box sx={{ pl: 4, py: 1 }}>
-                                <Typography variant="caption" color="text.secondary">
-                                  캠페인 없음
-                                </Typography>
-                              </Box>
-                            )}
-                          </List>
-                        </Collapse>
-                      </React.Fragment>
-                    );
-                  })}
-                </List>
+                                      )}
+                                      <ListItemIcon sx={{ minWidth: 28 }}>
+                                        <CalendarMonthIcon fontSize="small" color={monthlyBrand.is_hidden ? 'warning' : 'primary'} />
+                                      </ListItemIcon>
+                                      <ListItemText
+                                        primary={
+                                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            <Typography variant="body2" fontWeight="bold" noWrap sx={{ flex: 1, fontSize: '0.85rem', color: monthlyBrand.is_hidden ? 'text.secondary' : 'inherit' }}>
+                                              {monthlyBrand.name}
+                                            </Typography>
+                                            {showHidden && monthlyBrand.is_hidden ? (
+                                              <Tooltip title="복구">
+                                                <IconButton size="small" color="success" onClick={(e) => handleRestoreMonthlyBrand(monthlyBrand, e)} sx={{ p: 0.3 }}>
+                                                  <RestoreIcon sx={{ fontSize: 18 }} />
+                                                </IconButton>
+                                              </Tooltip>
+                                            ) : !showHidden ? (
+                                              <Tooltip title="숨기기">
+                                                <IconButton size="small" color="default" onClick={(e) => handleHideMonthlyBrand(monthlyBrand, e)} sx={{ p: 0.3 }}>
+                                                  <VisibilityOffIcon sx={{ fontSize: 16, color: '#bbb' }} />
+                                                </IconButton>
+                                              </Tooltip>
+                                            ) : null}
+                                            <Chip label={campaigns.length} size="small" sx={{ height: 18, minWidth: 20, fontSize: '0.65rem' }} />
+                                          </Box>
+                                        }
+                                      />
+                                      {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+                                    </ListItemButton>
+
+                                    <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
+                                      <List component="div" disablePadding dense>
+                                        {campaigns.length > 0 ? (
+                                          campaigns.map((campaign) => {
+                                            const isSelected = selectedCampaign?.id === campaign.id;
+                                            const stats = getCampaignStats(campaign);
+                                            return (
+                                              <ListItemButton
+                                                key={campaign.id}
+                                                onClick={() => handleCampaignClick(campaign)}
+                                                sx={{
+                                                  pl: 4, py: 0.3,
+                                                  bgcolor: isSelected ? '#c5cae9' : 'inherit',
+                                                  borderLeft: isSelected ? '3px solid #2c387e' : '3px solid transparent',
+                                                  '&:hover': { bgcolor: isSelected ? '#c5cae9' : '#f5f5f5' }
+                                                }}
+                                              >
+                                                <ListItemIcon sx={{ minWidth: 24 }}>
+                                                  <FolderIcon sx={{ fontSize: 16 }} color={isSelected ? 'primary' : 'action'} />
+                                                </ListItemIcon>
+                                                <ListItemText
+                                                  primary={
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                      <Typography variant="body2" fontWeight={isSelected ? 'bold' : 'normal'} noWrap sx={{ fontSize: '0.8rem', flex: 1 }}>
+                                                        {campaign.name}
+                                                      </Typography>
+                                                      {stats.isCompleted ? (
+                                                        <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalBuyerCount}`}>
+                                                          <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
+                                                        </Tooltip>
+                                                      ) : stats.totalBuyerCount > 0 ? (
+                                                        <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalBuyerCount}`}>
+                                                          <Chip
+                                                            label={`${stats.completionRate}%`}
+                                                            size="small"
+                                                            sx={{
+                                                              height: 16, fontSize: '0.6rem',
+                                                              bgcolor: stats.completionRate >= 80 ? '#c8e6c9' : stats.completionRate >= 50 ? '#fff9c4' : '#ffecb3',
+                                                              color: stats.completionRate >= 80 ? '#2e7d32' : stats.completionRate >= 50 ? '#f57f17' : '#ff6f00',
+                                                              fontWeight: 'bold'
+                                                            }}
+                                                          />
+                                                        </Tooltip>
+                                                      ) : (
+                                                        <Chip label={`${campaign.items?.length || 0}개`} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
+                                                      )}
+                                                      <Chip label={getStatusLabel(campaign.status)} size="small" color={getStatusColor(campaign.status)} variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
+                                                    </Box>
+                                                  }
+                                                />
+                                              </ListItemButton>
+                                            );
+                                          })
+                                        ) : (
+                                          <Box sx={{ pl: 4, py: 1 }}>
+                                            <Typography variant="caption" color="text.secondary">
+                                              캠페인 없음
+                                            </Typography>
+                                          </Box>
+                                        )}
+                                      </List>
+                                    </Collapse>
+                                  </div>
+                                </React.Fragment>
+                              )}
+                            </Draggable>
+                          );
+                        })}
+                        {provided.placeholder}
+                      </List>
+                    )}
+                  </Droppable>
+                </DragDropContext>
               );
             })()}
           </Box>
@@ -661,6 +794,22 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           {!sidebarCollapsed && <Typography variant="caption" sx={{ ml: 0.5 }}>접기</Typography>}
         </Box>
       </Paper>
+
+      {/* 리사이즈 핸들 */}
+      {!sidebarCollapsed && (
+        <Box
+          onMouseDown={handleMouseDown}
+          sx={{
+            width: 4,
+            cursor: 'col-resize',
+            bgcolor: isResizing ? '#1976d2' : 'transparent',
+            '&:hover': { bgcolor: '#90caf9' },
+            transition: 'background-color 0.2s',
+            flexShrink: 0
+          }}
+        />
+      )}
+      </Box>
 
       {/* 메인 콘텐츠 영역 */}
       <Box
