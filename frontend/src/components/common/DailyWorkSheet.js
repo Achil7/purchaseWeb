@@ -680,7 +680,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             _calculatedStatus: calculatedStatus,
             col0: '',
             col1: '',
-            col2: slot.date || '',
+            col2: buyer.date || slot.date || '',  // Buyer.date 우선, 없으면 slot.date
             col3: slotIndex + 1,
             col4: slot.product_name || item.product_name || '',
             col5: slot.purchase_option || '',
@@ -856,7 +856,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
   // 셀 변경 핸들러
   const handleAfterChange = useCallback((changes, source) => {
-    if (!changes || source === 'loadData') return;
+    if (!changes || source === 'loadData' || source === 'syncBuyerDate') return;
 
     const slotUpdates = { ...changedSlotsRef.current };
     const itemUpdates = { ...changedItemsRef.current };
@@ -893,6 +893,36 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             itemUpdates[updateKey] = { itemId, dayGroup };
           }
           itemUpdates[updateKey][apiField] = newValue ?? '';
+
+          // 핵심: 날짜 필드(col2) 변경 시 같은 그룹의 구매자 행 날짜도 즉시 업데이트
+          if (prop === 'col2' && apiField === 'date') {
+            const newDate = newValue ?? '';
+            const hot = hotRef.current?.hotInstance;
+            if (hot) {
+              const groupKey = `${itemId}_${dayGroup}`;
+              // 성능 최적화: 변경할 셀들을 배열로 모아서 한 번에 업데이트
+              const cellsToUpdate = [];
+              tableData.forEach((buyerRow, buyerRowIndex) => {
+                const buyerMeta = rowMeta[buyerRowIndex];
+                if (buyerMeta?.type === ROW_TYPES.BUYER_DATA &&
+                    `${buyerMeta.itemId}_${buyerMeta.dayGroup}` === groupKey) {
+                  cellsToUpdate.push([buyerRowIndex, 2, newDate]);
+
+                  // changedSlots에도 추가 (저장 시 DB 반영)
+                  if (buyerMeta.slotId) {
+                    if (!slotUpdates[buyerMeta.slotId]) {
+                      slotUpdates[buyerMeta.slotId] = { id: buyerMeta.slotId };
+                    }
+                    slotUpdates[buyerMeta.slotId].date = newDate;
+                  }
+                }
+              });
+              // 한 번의 호출로 모든 셀 업데이트 (렌더링 1회)
+              if (cellsToUpdate.length > 0) {
+                hot.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
+              }
+            }
+          }
         }
       }
 
@@ -926,7 +956,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
     setChangedSlots(slotUpdates);
     setChangedItems(itemUpdates);
-  }, [rowMeta]);  // 성능 최적화: changedSlots, changedItems 제거 (ref로 대체)
+  }, [rowMeta, tableData]);  // 성능 최적화: changedSlots, changedItems 제거 (ref로 대체), tableData 추가
 
   // 저장 핸들러
   const handleSave = useCallback(async () => {
@@ -951,15 +981,18 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         const dayGroupUpdates = Object.values(changedItems);
         for (const update of dayGroupUpdates) {
           const { itemId, dayGroup, ...productData } = update;
-          const dayGroupSlotIds = slots
-            .filter(s => s.item_id === itemId && s.day_group === dayGroup)
-            .map(s => s.id);
+          const dayGroupSlots = slots
+            .filter(s => s.item_id === itemId && s.day_group === dayGroup);
+          const dayGroupSlotIds = dayGroupSlots.map(s => s.id);
 
           if (dayGroupSlotIds.length > 0) {
-            const slotsToUpdateProduct = dayGroupSlotIds.map(id => ({
-              id,
-              ...productData
-            }));
+            // 제품 테이블의 date가 변경되면 해당 그룹의 모든 구매자 date도 같이 업데이트 (단방향 연동)
+            const slotsToUpdateProduct = dayGroupSlotIds.map(id => {
+              const slotData = { id, ...productData };
+              // date가 변경되었다면 해당 슬롯의 buyer.date도 업데이트하도록 포함
+              // (백엔드에서 슬롯 date 변경 시 buyer.date도 자동 업데이트)
+              return slotData;
+            });
             await itemSlotService.updateSlotsBulk(slotsToUpdateProduct);
           }
         }

@@ -298,19 +298,19 @@ exports.uploadImages = async (req, res) => {
         previous_image_id: previousImageId
       }, { transaction });
 
-      // 신규 업로드인 경우에만 입금 예정일 업데이트
+      // 신규 업로드 및 재제출 모두 입금 예정일 업데이트
+      const now = new Date();
+      const expectedPaymentDate = getNextBusinessDay(now);
+
+      await Buyer.update({
+        review_submitted_at: now,
+        expected_payment_date: formatDateToYYYYMMDD(expectedPaymentDate)
+      }, {
+        where: { id: targetBuyer.id },
+        transaction
+      });
+
       if (!hasExistingImage) {
-        const now = new Date();
-        const expectedPaymentDate = getNextBusinessDay(now);
-
-        await Buyer.update({
-          review_submitted_at: now,
-          expected_payment_date: formatDateToYYYYMMDD(expectedPaymentDate)
-        }, {
-          where: { id: targetBuyer.id },
-          transaction
-        });
-
         uploadedImages.push({
           ...image.toJSON(),
           buyer_name: targetBuyer.buyer_name,
@@ -323,7 +323,8 @@ exports.uploadImages = async (req, res) => {
           ...image.toJSON(),
           buyer_name: targetBuyer.buyer_name,
           order_number: targetBuyer.order_number,
-          previousImageId: previousImageId
+          previousImageId: previousImageId,
+          expected_payment_date: formatDateToYYYYMMDD(expectedPaymentDate)
         });
       }
     }

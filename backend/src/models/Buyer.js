@@ -103,6 +103,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       allowNull: true
     },
+    // 날짜 (구매자별 독립적인 날짜)
+    date: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
     // 생성 정보
     created_by: {
       type: DataTypes.INTEGER,
@@ -126,7 +131,8 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['account_normalized'] },
       { fields: ['is_temporary'] },
       { fields: ['shipping_delayed'] },
-      { fields: ['deleted_at'] }
+      { fields: ['deleted_at'] },
+      { fields: ['date'] }
     ]
   });
 

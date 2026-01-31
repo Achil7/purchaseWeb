@@ -843,7 +843,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             _buyer: buyer,
             _hasBuyerData: !!hasBuyerData,
             col0: '',
-            col1: slot.date || '',
+            col1: buyer.date || slot.date || '',  // Buyer.date 우선, 없으면 slot.date
             col2: slotIndex + 1,
             col3: slot.product_name || '',
             col4: slot.purchase_option || '',
@@ -1085,7 +1085,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // 성능 최적화: afterChange 콜백을 useCallback으로 분리하여 재생성 방지
   const handleAfterChange = useCallback((changes, source) => {
     // 유효하지 않은 변경이면 무시
-    if (!changes || source === 'loadData') return;
+    if (!changes || source === 'loadData' || source === 'syncBuyerDate') return;
 
     const currentTableData = tableDataRef.current;
 
@@ -1130,6 +1130,36 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         };
         changedItemsRef.current = newItemUpdates;
         setChangedItems(newItemUpdates);
+
+        // 핵심: 날짜 필드(col1) 변경 시 같은 품목의 구매자 행 날짜도 즉시 업데이트
+        if (prop === 'col1' && fieldName === 'date') {
+          const newDate = newValue ?? '';
+          const hot = hotRef.current?.hotInstance;
+          if (hot) {
+            // 성능 최적화: 변경할 셀들을 배열로 모아서 한 번에 업데이트
+            const cellsToUpdate = [];
+            currentTableData.forEach((buyerRow, buyerRowIndex) => {
+              if (buyerRow._rowType === ROW_TYPES.BUYER_DATA &&
+                  buyerRow._itemId === itemId) {
+                cellsToUpdate.push([buyerRowIndex, 1, newDate]);
+
+                // changedSlots에도 추가 (저장 시 DB 반영)
+                const buyerSlotId = buyerRow._slotId;
+                if (buyerSlotId) {
+                  changedSlotsRef.current = {
+                    ...changedSlotsRef.current,
+                    [buyerSlotId]: { ...(changedSlotsRef.current[buyerSlotId] || {}), date: newDate }
+                  };
+                }
+              }
+            });
+            // 한 번의 호출로 모든 셀 업데이트 (렌더링 1회)
+            if (cellsToUpdate.length > 0) {
+              hot.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
+            }
+            setChangedSlots(changedSlotsRef.current);
+          }
+        }
       }
       // BUYER_DATA 행 변경 처리 (19개 컬럼) - 영업사는 리뷰비 컬럼 제외
       else if (rowData._rowType === ROW_TYPES.BUYER_DATA) {

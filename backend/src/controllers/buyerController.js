@@ -169,6 +169,7 @@ exports.createBuyer = async (req, res) => {
       account_normalized,
       amount,
       notes,
+      date: req.body.date || null,
       created_by,
       is_temporary: false
     });
@@ -442,6 +443,7 @@ exports.createBuyersBulk = async (req, res) => {
           account_normalized,
           amount: data.amount ? parseInt(String(data.amount).replace(/,/g, ''), 10) : 0,
           notes: data.notes || null,
+          date: data.date || null,
           created_by,
           is_temporary: false
         }, { transaction });
@@ -827,9 +829,9 @@ exports.toggleShippingDelayed = async (req, res) => {
 };
 
 /**
- * 일별 구매자 조회 (리뷰샷 업로드 날짜 기준, Asia/Seoul)
+ * 일별 구매자 조회 (입금예정일 기준)
  * GET /api/buyers/by-date?year=2025&month=12&day=13
- * 해당 날짜에 리뷰샷을 업로드한 구매자만 조회 (연월브랜드/캠페인/제품 무관)
+ * 해당 입금예정일에 해당하는 구매자 조회 (연월브랜드/캠페인/제품 무관)
  */
 exports.getBuyersByDate = async (req, res) => {
   try {
@@ -853,26 +855,20 @@ exports.getBuyersByDate = async (req, res) => {
       });
     }
 
-    // KST 기준으로 해당 일의 시작과 끝 계산 (dateUtils 사용)
-    const { start: startDateKST, end: endDateKST } = getKSTDateRange(yearInt, monthInt, dayInt);
+    // 입금예정일 형식: YYYY-MM-DD
+    const expectedPaymentDateStr = `${yearInt}-${String(monthInt).padStart(2, '0')}-${String(dayInt).padStart(2, '0')}`;
 
-    // 해당 날짜에 리뷰샷(이미지)을 업로드한 구매자만 조회
-    // Image.created_at이 해당 날짜에 속하는 구매자
+    // 해당 입금예정일에 해당하는 구매자 조회
     const buyers = await Buyer.findAll({
       where: {
-        is_temporary: false
+        is_temporary: false,
+        expected_payment_date: expectedPaymentDateStr
       },
       include: [
         {
           model: Image,
           as: 'images',
-          where: {
-            created_at: {
-              [Op.gte]: startDateKST,
-              [Op.lt]: endDateKST
-            }
-          },
-          required: true,  // INNER JOIN - 해당 날짜에 이미지를 업로드한 구매자만
+          required: false,  // LEFT JOIN - 이미지가 없어도 조회
           attributes: ['id', 's3_url', 'file_name', 'created_at']
         },
         {
@@ -894,7 +890,7 @@ exports.getBuyersByDate = async (req, res) => {
           required: false
         }
       ],
-      order: [[{ model: Image, as: 'images' }, 'created_at', 'DESC']]
+      order: [['review_submitted_at', 'DESC']]
     });
 
     // 총 금액 계산
@@ -916,6 +912,7 @@ exports.getBuyersByDate = async (req, res) => {
       payment_confirmed_at: buyer.payment_confirmed_at,  // 입금확인 날짜 추가
       deposit_name: buyer.deposit_name,  // 구매자별 입금명
       expected_payment_date: buyer.expected_payment_date,  // 입금 예정일
+      review_submitted_at: buyer.review_submitted_at,  // 리뷰 제출일
       created_at: buyer.created_at,
       image_uploaded_at: buyer.images && buyer.images.length > 0 ? buyer.images[0].created_at : null,
       image_url: buyer.images && buyer.images.length > 0 ? buyer.images[0].s3_url : null,

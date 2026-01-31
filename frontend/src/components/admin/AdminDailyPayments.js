@@ -110,7 +110,7 @@ function AdminDailyPayments() {
     const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
     const day = String(selectedDate.getDate()).padStart(2, '0');
     const dateStr = `${year}${month}${day}`;
-    downloadExcel(excelData, `daily_payments_${dateStr}`, '일별입금관리');
+    downloadExcel(excelData, `daily_payments_${dateStr}`, '일별입금관리', false);
   }, [buyers, selectedDate]);
 
   // 한국 시간 포맷 (YYMMDD)
@@ -123,6 +123,18 @@ function AdminDailyPayments() {
     const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
     const dd = String(kstDate.getUTCDate()).padStart(2, '0');
     return `${yy}${mm}${dd}`;
+  };
+
+  // 리뷰 제출일 포맷 (YYYY-MM-DD)
+  const formatReviewDate = (dateStr) => {
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('ko-KR', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).replace(/\. /g, '-').replace('.', '');
   };
 
   // 입금확인 토글
@@ -426,7 +438,7 @@ function AdminDailyPayments() {
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 120 }}>캠페인</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 150 }}>제품명</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 100 }}>입금명</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 100 }}>입금예정일</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 100 }}>리뷰 제출일</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 100 }}>주문번호</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 80 }}>구매자</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e8eaf6', minWidth: 80 }}>수취인</TableCell>
@@ -441,7 +453,7 @@ function AdminDailyPayments() {
                   {buyers.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={12} align="center" sx={{ py: 4, color: '#999' }}>
-                        해당 날짜에 리뷰샷을 업로드한 구매자가 없습니다.
+                        해당 입금예정일에 해당하는 구매자가 없습니다.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -459,7 +471,7 @@ function AdminDailyPayments() {
                           {buyer.deposit_name || buyer.item?.deposit_name || '-'}
                         </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap', color: '#e65100' }}>
-                          {buyer.expected_payment_date || '-'}
+                          {buyer.review_submitted_at ? formatReviewDate(buyer.review_submitted_at) : '-'}
                         </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           {buyer.order_number || '-'}

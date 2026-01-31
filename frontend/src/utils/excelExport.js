@@ -7,7 +7,7 @@ import { saveAs } from 'file-saver';
  * @param {string} fileName - 파일명 (확장자 제외)
  * @param {string} sheetName - 시트명
  */
-export const downloadExcel = (data, fileName, sheetName = 'Sheet1') => {
+export const downloadExcel = (data, fileName, sheetName = 'Sheet1', appendDate = true) => {
   const ws = XLSX.utils.aoa_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
@@ -15,8 +15,12 @@ export const downloadExcel = (data, fileName, sheetName = 'Sheet1') => {
   const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  saveAs(blob, `${fileName}_${date}.xlsx`);
+  if (appendDate) {
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    saveAs(blob, `${fileName}_${date}.xlsx`);
+  } else {
+    saveAs(blob, `${fileName}.xlsx`);
+  }
 };
 
 /**
@@ -234,7 +238,7 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
  * Admin 일별 입금관리 데이터를 엑셀용 배열로 변환
  */
 export const convertDailyPaymentsToExcelData = (buyers) => {
-  const headers = ['캠페인', '제품명', '입금명', '주문번호', '구매자', '수취인',
+  const headers = ['캠페인', '제품명', '입금명', '리뷰 제출일', '주문번호', '구매자', '수취인',
                    '계좌', '금액', '리뷰비', '입금확인', '입금일', '리뷰샷URL'];
 
   const data = [headers];
@@ -244,6 +248,9 @@ export const convertDailyPaymentsToExcelData = (buyers) => {
       buyer.campaign?.name || '',
       buyer.item?.product_name || '',
       buyer.deposit_name || '',
+      buyer.review_submitted_at
+        ? new Date(buyer.review_submitted_at).toLocaleDateString('ko-KR')
+        : '',
       buyer.order_number || '',
       buyer.buyer_name || '',
       buyer.recipient_name || '',

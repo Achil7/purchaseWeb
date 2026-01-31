@@ -79,6 +79,14 @@ exports.updateSlot = async (req, res) => {
 
     await slot.update(filteredData);
 
+    // 슬롯의 date가 변경되었고, 연결된 buyer가 있으면 buyer.date도 업데이트 (단방향 연동)
+    if (filteredData.date !== undefined && slot.buyer_id) {
+      await Buyer.update(
+        { date: filteredData.date },
+        { where: { id: slot.buyer_id } }
+      );
+    }
+
     // 업데이트된 슬롯 다시 조회 (buyer 포함)
     const updatedSlot = await ItemSlot.findByPk(id, {
       include: [
@@ -124,7 +132,7 @@ exports.updateSlotsBulk = async (req, res) => {
     // 슬롯 필드 (ItemSlot 모델 기준) - day_group별 독립 제품 정보 필드 포함
     const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'product_url'];
     // 구매자 필드 (Buyer 모델 기준)
-    const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status', 'deposit_name'];
+    const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status', 'deposit_name', 'date'];
 
     const results = [];
     for (const slotData of slots) {
@@ -175,6 +183,8 @@ exports.updateSlotsBulk = async (req, res) => {
           }
         } else if (hasNonEmptyBuyerData) {
           // 새 Buyer 생성 (비어있지 않은 데이터가 있을 때만)
+          // date는 buyerData에서 가져오거나, 슬롯의 date를 사용
+          const newBuyerDate = buyerData.date || slotUpdateData.date || slot.date || null;
           const newBuyer = await Buyer.create({
             item_id: slot.item_id,
             order_number: buyerData.order_number || null,
@@ -190,10 +200,20 @@ exports.updateSlotsBulk = async (req, res) => {
             tracking_number: buyerData.tracking_number || null,
             courier_company: buyerData.courier_company || null,
             deposit_name: buyerData.deposit_name || null,
+            date: newBuyerDate,
             created_by: userId
           });
           slotUpdateData.buyer_id = newBuyer.id;
         }
+      }
+
+      // 슬롯의 date가 변경되었고, 연결된 buyer가 있으면 buyer.date도 업데이트 (단방향 연동)
+      // (새로 생성된 buyer는 이미 date가 설정됨)
+      if (slotUpdateData.date !== undefined && slot.buyer_id && !buyerData.date) {
+        await Buyer.update(
+          { date: slotUpdateData.date },
+          { where: { id: slot.buyer_id } }
+        );
       }
 
       // 슬롯 업데이트
@@ -252,8 +272,8 @@ exports.getSlotsByCampaign = async (req, res) => {
       model: Buyer,
       as: 'buyer',
       attributes: isBrandView
-        ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number', 'expected_payment_date', 'review_submitted_at']
-        : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at'],
+        ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number', 'expected_payment_date', 'review_submitted_at', 'date']
+        : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at', 'date'],
       include: [
         {
           model: Image,
@@ -1078,8 +1098,9 @@ exports.splitDayGroup = async (req, res) => {
 
 /**
  * 날짜별 슬롯 조회 (날짜별 작업 페이지용)
- * - Operator: 배정된 품목의 슬롯만 반환
- * - Sales: 본인이 생성한 캠페인의 슬롯만 반환
+ * - Buyer.date 기준으로 필터링 (구매자별 독립 날짜)
+ * - Operator: 배정된 품목의 구매자만 반환
+ * - Sales: 본인이 생성한 캠페인의 구매자만 반환
  * - Admin: viewAsUserId로 특정 사용자 데이터 조회 가능
  */
 exports.getSlotsByDate = async (req, res) => {
@@ -1131,8 +1152,55 @@ exports.getSlotsByDate = async (req, res) => {
 
     let slots = [];
 
+    // 공통 include 옵션 (Buyer.date 기준 필터링)
+    const buyerIncludeWithDateFilter = {
+      model: Buyer,
+      as: 'buyer',
+      where: {
+        date: { [Op.in]: dateFormats }
+      },
+      required: true,  // INNER JOIN - Buyer.date가 해당 날짜인 것만
+      attributes: [
+        'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
+        'contact', 'address', 'account_info', 'amount', 'payment_status',
+        'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'date'
+      ],
+      include: [
+        {
+          model: Image,
+          as: 'images',
+          attributes: ['id', 's3_url', 'file_name', 'created_at'],
+          order: [['created_at', 'ASC']]
+        }
+      ]
+    };
+
+    const itemInclude = {
+      model: Item,
+      as: 'item',
+      attributes: [
+        'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+        'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
+        'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
+      ],
+      include: [
+        {
+          model: Campaign,
+          as: 'campaign',
+          attributes: ['id', 'name', 'monthly_brand_id'],
+          include: [
+            {
+              model: MonthlyBrand,
+              as: 'monthlyBrand',
+              attributes: ['id', 'name']
+            }
+          ]
+        }
+      ]
+    };
+
     if (targetRole === 'operator') {
-      // Operator: 배정된 품목의 슬롯만 조회
+      // Operator: 배정된 품목의 슬롯만 조회 (Buyer.date 기준)
       const assignments = await CampaignOperator.findAll({
         where: { operator_id: targetUserId },
         attributes: ['item_id', 'day_group']
@@ -1164,17 +1232,16 @@ exports.getSlotsByDate = async (req, res) => {
       // 배정된 품목 ID들
       const assignedItemIds = Object.keys(itemDayGroupMap).map(id => parseInt(id, 10));
 
-      // day_group 기반 슬롯 필터링 조건 생성
+      // day_group 기반 슬롯 필터링 조건 생성 (Buyer.date 조건은 include에서 처리)
       const slotConditions = [];
       for (const itemId of assignedItemIds) {
         const dayGroups = itemDayGroupMap[itemId];
         if (dayGroups === null) {
-          slotConditions.push({ item_id: itemId, date: { [Op.in]: dateFormats } });
+          slotConditions.push({ item_id: itemId });
         } else if (dayGroups && dayGroups.length > 0) {
           slotConditions.push({
             item_id: itemId,
-            day_group: { [Op.in]: dayGroups },
-            date: { [Op.in]: dateFormats }
+            day_group: { [Op.in]: dayGroups }
           });
         }
       }
@@ -1189,48 +1256,7 @@ exports.getSlotsByDate = async (req, res) => {
 
       slots = await ItemSlot.findAll({
         where: { [Op.or]: slotConditions },
-        include: [
-          {
-            model: Item,
-            as: 'item',
-            attributes: [
-              'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
-              'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
-              'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
-            ],
-            include: [
-              {
-                model: Campaign,
-                as: 'campaign',
-                attributes: ['id', 'name', 'monthly_brand_id'],
-                include: [
-                  {
-                    model: MonthlyBrand,
-                    as: 'monthlyBrand',
-                    attributes: ['id', 'name']
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            model: Buyer,
-            as: 'buyer',
-            attributes: [
-              'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
-              'contact', 'address', 'account_info', 'amount', 'payment_status',
-              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name'
-            ],
-            include: [
-              {
-                model: Image,
-                as: 'images',
-                attributes: ['id', 's3_url', 'file_name', 'created_at'],
-                order: [['created_at', 'ASC']]  // 업로드 순서대로 (limit 제거)
-              }
-            ]
-          }
-        ],
+        include: [itemInclude, buyerIncludeWithDateFilter],
         order: [
           ['item_id', 'ASC'],
           ['day_group', 'ASC'],
@@ -1239,7 +1265,7 @@ exports.getSlotsByDate = async (req, res) => {
       });
 
     } else if (targetRole === 'sales') {
-      // Sales: 본인이 생성한 캠페인의 슬롯만 조회
+      // Sales: 본인이 생성한 캠페인의 슬롯만 조회 (Buyer.date 기준)
       const campaigns = await Campaign.findAll({
         where: { created_by: targetUserId },
         attributes: ['id']
@@ -1273,51 +1299,9 @@ exports.getSlotsByDate = async (req, res) => {
 
       slots = await ItemSlot.findAll({
         where: {
-          item_id: { [Op.in]: itemIds },
-          date: { [Op.in]: dateFormats }
+          item_id: { [Op.in]: itemIds }
         },
-        include: [
-          {
-            model: Item,
-            as: 'item',
-            attributes: [
-              'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
-              'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
-              'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
-            ],
-            include: [
-              {
-                model: Campaign,
-                as: 'campaign',
-                attributes: ['id', 'name', 'monthly_brand_id'],
-                include: [
-                  {
-                    model: MonthlyBrand,
-                    as: 'monthlyBrand',
-                    attributes: ['id', 'name']
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            model: Buyer,
-            as: 'buyer',
-            attributes: [
-              'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
-              'contact', 'address', 'account_info', 'amount', 'payment_status',
-              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name'
-            ],
-            include: [
-              {
-                model: Image,
-                as: 'images',
-                attributes: ['id', 's3_url', 'file_name', 'created_at'],
-                order: [['created_at', 'ASC']]  // 업로드 순서대로 (limit 제거)
-              }
-            ]
-          }
-        ],
+        include: [itemInclude, buyerIncludeWithDateFilter],
         order: [
           ['item_id', 'ASC'],
           ['day_group', 'ASC'],
@@ -1326,51 +1310,9 @@ exports.getSlotsByDate = async (req, res) => {
       });
 
     } else {
-      // Admin 또는 기타: 모든 슬롯 조회
+      // Admin 또는 기타: 모든 슬롯 조회 (Buyer.date 기준)
       slots = await ItemSlot.findAll({
-        where: { date },
-        include: [
-          {
-            model: Item,
-            as: 'item',
-            attributes: [
-              'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
-              'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
-              'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
-            ],
-            include: [
-              {
-                model: Campaign,
-                as: 'campaign',
-                attributes: ['id', 'name', 'monthly_brand_id'],
-                include: [
-                  {
-                    model: MonthlyBrand,
-                    as: 'monthlyBrand',
-                    attributes: ['id', 'name']
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            model: Buyer,
-            as: 'buyer',
-            attributes: [
-              'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
-              'contact', 'address', 'account_info', 'amount', 'payment_status',
-              'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name'
-            ],
-            include: [
-              {
-                model: Image,
-                as: 'images',
-                attributes: ['id', 's3_url', 'file_name', 'created_at'],
-                order: [['created_at', 'ASC']]  // 업로드 순서대로 (limit 제거)
-              }
-            ]
-          }
-        ],
+        include: [itemInclude, buyerIncludeWithDateFilter],
         order: [
           ['item_id', 'ASC'],
           ['day_group', 'ASC'],

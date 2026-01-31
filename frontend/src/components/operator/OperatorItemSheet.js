@@ -839,7 +839,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
             _buyer: buyer,
             _hasBuyerData: !!hasBuyerData,
             col0: '',
-            col1: slot.date || '',
+            col1: buyer.date || slot.date || '',  // Buyer.date 우선, 없으면 slot.date
             col2: slotIndex + 1,
             col3: slot.product_name || '',
             col4: slot.purchase_option || '',
@@ -1163,7 +1163,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // 데이터 변경 핸들러 (구매자 데이터 + 제품 정보 수정 가능)
   // 성능 최적화: changedSlots, changedItems, tableData를 ref로 접근하여 useCallback 재생성 방지
   const handleAfterChange = useCallback((changes, source) => {
-    if (!changes || source === 'loadData' || source === 'loadMemo') return;
+    if (!changes || source === 'loadData' || source === 'loadMemo' || source === 'syncBuyerDate') return;
 
     // 변경사항이 없으면 조기 반환
     const hasActualChanges = changes.some(([, , oldValue, newValue]) => oldValue !== newValue);
@@ -1199,6 +1199,36 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
         // 사용자 입력값을 그대로 저장 (계산 시에만 숫자 추출)
         itemUpdates[dayGroupKey][apiField] = newValue ?? '';
+
+        // 핵심: 날짜 필드(col1) 변경 시 같은 그룹의 구매자 행 날짜도 즉시 업데이트
+        if (prop === 'col1' && apiField === 'date') {
+          const newDate = newValue ?? '';
+          const hot = hotRef.current?.hotInstance;
+          if (hot) {
+            // 성능 최적화: 변경할 셀들을 배열로 모아서 한 번에 업데이트
+            const cellsToUpdate = [];
+            currentTableData.forEach((buyerRow, buyerRowIndex) => {
+              if (buyerRow._rowType === ROW_TYPES.BUYER_DATA &&
+                  buyerRow._itemId === itemId &&
+                  buyerRow._dayGroup === dayGroup) {
+                cellsToUpdate.push([buyerRowIndex, 1, newDate]);
+
+                // changedSlots에도 추가 (저장 시 DB 반영)
+                const buyerSlotId = slotIndexMap[buyerRowIndex];
+                if (buyerSlotId) {
+                  if (!slotUpdates[buyerSlotId]) {
+                    slotUpdates[buyerSlotId] = { id: buyerSlotId };
+                  }
+                  slotUpdates[buyerSlotId].date = newDate;
+                }
+              }
+            });
+            // 한 번의 호출로 모든 셀 업데이트 (렌더링 1회)
+            if (cellsToUpdate.length > 0) {
+              hot.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
+            }
+          }
+        }
         return;
       }
 
