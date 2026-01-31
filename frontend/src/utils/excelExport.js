@@ -243,7 +243,7 @@ export const convertDailyPaymentsToExcelData = (buyers) => {
     data.push([
       buyer.campaign?.name || '',
       buyer.item?.product_name || '',
-      buyer.item?.deposit_name || '',
+      buyer.deposit_name || '',
       buyer.order_number || '',
       buyer.buyer_name || '',
       buyer.recipient_name || '',
