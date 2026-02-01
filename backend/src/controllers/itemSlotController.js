@@ -1098,9 +1098,10 @@ exports.splitDayGroup = async (req, res) => {
 
 /**
  * 날짜별 슬롯 조회 (날짜별 작업 페이지용)
- * - Buyer.date 기준으로 필터링 (구매자별 독립 날짜)
- * - Operator: 배정된 품목의 구매자만 반환
- * - Sales: 본인이 생성한 캠페인의 구매자만 반환
+ * - ItemSlot.date 기준으로 필터링 (해당 날짜의 모든 슬롯 반환)
+ * - 구매자 미등록 빈 슬롯도 포함 (LEFT JOIN)
+ * - Operator: 배정된 품목의 슬롯만 반환
+ * - Sales: 본인이 생성한 캠페인의 슬롯만 반환
  * - Admin: viewAsUserId로 특정 사용자 데이터 조회 가능
  */
 exports.getSlotsByDate = async (req, res) => {
@@ -1152,14 +1153,12 @@ exports.getSlotsByDate = async (req, res) => {
 
     let slots = [];
 
-    // 공통 include 옵션 (Buyer.date 기준 필터링)
-    const buyerIncludeWithDateFilter = {
+    // 공통 include 옵션 (Buyer는 LEFT JOIN - 빈 슬롯도 포함)
+    // 날짜 필터링은 ItemSlot.date 기준으로 WHERE절에서 처리
+    const buyerInclude = {
       model: Buyer,
       as: 'buyer',
-      where: {
-        date: { [Op.in]: dateFormats }
-      },
-      required: true,  // INNER JOIN - Buyer.date가 해당 날짜인 것만
+      required: false,  // LEFT JOIN - 구매자 없는 빈 슬롯도 포함
       attributes: [
         'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
         'contact', 'address', 'account_info', 'amount', 'payment_status',
@@ -1178,6 +1177,7 @@ exports.getSlotsByDate = async (req, res) => {
     const itemInclude = {
       model: Item,
       as: 'item',
+      required: true,  // INNER JOIN - Item이 있어야 함
       attributes: [
         'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
         'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
@@ -1187,11 +1187,15 @@ exports.getSlotsByDate = async (req, res) => {
         {
           model: Campaign,
           as: 'campaign',
+          required: true,  // INNER JOIN - 숨겨진 캠페인 제외
+          where: { is_hidden: false },
           attributes: ['id', 'name', 'monthly_brand_id'],
           include: [
             {
               model: MonthlyBrand,
               as: 'monthlyBrand',
+              required: true,  // INNER JOIN - 숨겨진 연월브랜드 제외
+              where: { is_hidden: false },
               attributes: ['id', 'name']
             }
           ]
@@ -1200,7 +1204,7 @@ exports.getSlotsByDate = async (req, res) => {
     };
 
     if (targetRole === 'operator') {
-      // Operator: 배정된 품목의 슬롯만 조회 (Buyer.date 기준)
+      // Operator: 배정된 품목의 슬롯만 조회 (ItemSlot.date 기준)
       const assignments = await CampaignOperator.findAll({
         where: { operator_id: targetUserId },
         attributes: ['item_id', 'day_group']
@@ -1232,7 +1236,7 @@ exports.getSlotsByDate = async (req, res) => {
       // 배정된 품목 ID들
       const assignedItemIds = Object.keys(itemDayGroupMap).map(id => parseInt(id, 10));
 
-      // day_group 기반 슬롯 필터링 조건 생성 (Buyer.date 조건은 include에서 처리)
+      // day_group 기반 슬롯 필터링 조건 생성 (ItemSlot.date 조건 추가)
       const slotConditions = [];
       for (const itemId of assignedItemIds) {
         const dayGroups = itemDayGroupMap[itemId];
@@ -1255,8 +1259,11 @@ exports.getSlotsByDate = async (req, res) => {
       }
 
       slots = await ItemSlot.findAll({
-        where: { [Op.or]: slotConditions },
-        include: [itemInclude, buyerIncludeWithDateFilter],
+        where: {
+          [Op.or]: slotConditions,
+          date: { [Op.in]: dateFormats }  // ItemSlot.date 기준 필터링
+        },
+        include: [itemInclude, buyerInclude],
         order: [
           ['item_id', 'ASC'],
           ['day_group', 'ASC'],
@@ -1265,7 +1272,7 @@ exports.getSlotsByDate = async (req, res) => {
       });
 
     } else if (targetRole === 'sales') {
-      // Sales: 본인이 생성한 캠페인의 슬롯만 조회 (Buyer.date 기준)
+      // Sales: 본인이 생성한 캠페인의 슬롯만 조회 (ItemSlot.date 기준)
       const campaigns = await Campaign.findAll({
         where: { created_by: targetUserId },
         attributes: ['id']
@@ -1299,9 +1306,10 @@ exports.getSlotsByDate = async (req, res) => {
 
       slots = await ItemSlot.findAll({
         where: {
-          item_id: { [Op.in]: itemIds }
+          item_id: { [Op.in]: itemIds },
+          date: { [Op.in]: dateFormats }  // ItemSlot.date 기준 필터링
         },
-        include: [itemInclude, buyerIncludeWithDateFilter],
+        include: [itemInclude, buyerInclude],
         order: [
           ['item_id', 'ASC'],
           ['day_group', 'ASC'],
@@ -1310,9 +1318,12 @@ exports.getSlotsByDate = async (req, res) => {
       });
 
     } else {
-      // Admin 또는 기타: 모든 슬롯 조회 (Buyer.date 기준)
+      // Admin 또는 기타: 모든 슬롯 조회 (ItemSlot.date 기준)
       slots = await ItemSlot.findAll({
-        include: [itemInclude, buyerIncludeWithDateFilter],
+        where: {
+          date: { [Op.in]: dateFormats }  // ItemSlot.date 기준 필터링
+        },
+        include: [itemInclude, buyerInclude],
         order: [
           ['item_id', 'ASC'],
           ['day_group', 'ASC'],

@@ -212,8 +212,8 @@ const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers, statusLa
   };
 };
 
-// 기본 컬럼 너비 - 21개 컬럼
-const DEFAULT_COLUMN_WIDTHS = [30, 180, 70, 60, 120, 80, 50, 80, 60, 50, 50, 50, 80, 30, 80, 100, 80, 50, 60, 70, 70];
+// 기본 컬럼 너비 - 22개 컬럼 (col21 여백 컬럼 포함)
+const DEFAULT_COLUMN_WIDTHS = [30, 180, 70, 60, 120, 80, 50, 80, 60, 50, 50, 50, 80, 30, 80, 100, 80, 50, 60, 70, 70, 50];
 
 /**
  * 날짜별 작업 시트 컴포넌트
@@ -374,8 +374,12 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   // 초기 컬럼 너비 로드
   useEffect(() => {
     const saved = getSavedColumnWidths();
-    if (saved && saved.length === DEFAULT_COLUMN_WIDTHS.length) {
-      setColumnWidths(saved);
+    if (saved && Array.isArray(saved) && saved.length > 0) {
+      // 저장된 너비와 기본 너비를 병합 (저장된 값 우선, 부족하면 기본값 사용)
+      const merged = DEFAULT_COLUMN_WIDTHS.map((defaultWidth, i) =>
+        saved[i] !== undefined ? saved[i] : defaultWidth
+      );
+      setColumnWidths(merged);
     }
   }, [getSavedColumnWidths]);
 

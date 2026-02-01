@@ -963,9 +963,15 @@ router.delete('/:id', authenticate, authorize(['admin']), async (req, res) => {
           }
           await Item.destroy({ where: { campaign_id: campaign.id }, transaction });
         }
+        // FK 제약 우회: 먼저 monthly_brand_id를 null로 설정
+        await Campaign.update(
+          { monthly_brand_id: null },
+          { where: { monthly_brand_id: mb.id }, transaction }
+        );
         await Campaign.destroy({ where: { monthly_brand_id: mb.id }, transaction });
+        // 연월브랜드 개별 삭제
+        await mb.destroy({ transaction });
       }
-      await MonthlyBrand.destroy({ where: { brand_id: userId }, transaction });
 
       // 영업사가 생성한 연월브랜드의 하위 데이터 삭제
       const createdMonthlyBrands = await MonthlyBrand.findAll({
@@ -988,9 +994,15 @@ router.delete('/:id', authenticate, authorize(['admin']), async (req, res) => {
           }
           await Item.destroy({ where: { campaign_id: campaign.id }, transaction });
         }
+        // FK 제약 우회: 먼저 monthly_brand_id를 null로 설정
+        await Campaign.update(
+          { monthly_brand_id: null },
+          { where: { monthly_brand_id: mb.id }, transaction }
+        );
         await Campaign.destroy({ where: { monthly_brand_id: mb.id }, transaction });
+        // 연월브랜드 개별 삭제
+        await mb.destroy({ transaction });
       }
-      await MonthlyBrand.destroy({ where: { created_by: userId }, transaction });
 
       // 영업사가 직접 생성한 캠페인 (연월브랜드 없이) 삭제
       const directCampaigns = await Campaign.findAll({
