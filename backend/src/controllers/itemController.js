@@ -1,4 +1,4 @@
-const { Item, Campaign, Buyer, Image, User, CampaignOperator, ItemSlot, MonthlyBrand } = require('../models');
+const { Item, Campaign, Buyer, Image, User, CampaignOperator, ItemSlot, MonthlyBrand, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { notifyAllAdmins, createNotification } = require('./notificationController');
@@ -461,19 +461,14 @@ exports.getMyAssignedItems = async (req, res) => {
   try {
     const operatorId = req.user.id;
 
-    // 진행자에게 배정된 품목들을 캠페인별로 그룹화 (day_group 정보 포함)
+    // 진행자에게 배정된 품목들을 캠페인별로 그룹화 (Buyer 제외 - 성능 최적화)
     const assignments = await CampaignOperator.findAll({
       where: { operator_id: operatorId },
       include: [
         {
           model: Item,
           as: 'item',
-          include: [
-            {
-              model: Buyer,
-              as: 'buyers'
-            }
-          ]
+          attributes: ['id', 'product_name', 'status', 'keyword']
         },
         {
           model: Campaign,
@@ -490,9 +485,35 @@ exports.getMyAssignedItems = async (req, res) => {
       order: [['assigned_at', 'DESC']]
     });
 
+    // 품목 ID들 수집
+    const itemIds = [...new Set(assignments.map(a => a.item_id).filter(Boolean))];
+
+    // 구매자 통계 별도 조회 (COUNT만)
+    let buyerStats = {};
+    if (itemIds.length > 0) {
+      const stats = await Buyer.findAll({
+        where: { item_id: { [Op.in]: itemIds } },
+        attributes: [
+          'item_id',
+          [sequelize.fn('COUNT', sequelize.col('id')), 'total_count'],
+          [sequelize.fn('SUM', sequelize.literal("CASE WHEN is_temporary = true THEN 1 ELSE 0 END")), 'temp_count'],
+          [sequelize.fn('SUM', sequelize.literal("CASE WHEN is_temporary = false THEN 1 ELSE 0 END")), 'normal_count']
+        ],
+        group: ['item_id'],
+        raw: true
+      });
+
+      for (const stat of stats) {
+        buyerStats[stat.item_id] = {
+          totalCount: parseInt(stat.total_count, 10) || 0,
+          tempCount: parseInt(stat.temp_count, 10) || 0,
+          normalCount: parseInt(stat.normal_count, 10) || 0
+        };
+      }
+    }
+
     // 캠페인별로 그룹화
     const campaignMap = new Map();
-    // 품목별 배정된 day_groups 매핑
     const itemDayGroupMap = {};
 
     for (const assignment of assignments) {
@@ -519,38 +540,27 @@ exports.getMyAssignedItems = async (req, res) => {
       }
 
       if (assignment.item) {
-        // 이미 추가된 품목인지 확인 (같은 품목이 여러 day_group으로 배정된 경우)
         const existingItem = campaignMap.get(campaignId).items.find(i => i.id === assignment.item.id);
         if (existingItem) {
-          continue; // 이미 추가된 품목은 스킵
+          continue;
         }
 
-        // 빈 행 체크 함수 (주요 필드가 모두 비어있으면 빈 행)
-        const isEmptyBuyer = (b) => {
-          return !b.order_number && !b.buyer_name && !b.recipient_name && !b.user_id && !b.account_info;
-        };
-        // 실제 데이터가 있는 구매자만 필터링
-        const validBuyers = assignment.item.buyers?.filter(b => !isEmptyBuyer(b)) || [];
-        // 임시 구매자(선 업로드) 카운트
-        const tempBuyerCount = validBuyers.filter(b => b.is_temporary).length;
-        // 정상 구매자 수 (임시 제외)
-        const normalBuyerCount = validBuyers.filter(b => !b.is_temporary).length;
+        const stats = buyerStats[assignment.item.id] || { totalCount: 0, tempCount: 0, normalCount: 0 };
 
         campaignMap.get(campaignId).items.push({
           id: assignment.item.id,
           product_name: assignment.item.product_name,
           status: assignment.item.status,
           keyword: assignment.item.keyword,
-          buyerCount: validBuyers.length,
-          normalBuyerCount,
-          tempBuyerCount,
+          buyerCount: stats.totalCount,
+          normalBuyerCount: stats.normalCount,
+          tempBuyerCount: stats.tempCount,
           assigned_at: assignment.assigned_at,
-          assignedDayGroups: [] // 나중에 채움
+          assignedDayGroups: []
         });
       }
     }
 
-    // 각 품목에 배정된 day_groups 정보 추가
     for (const campaign of campaignMap.values()) {
       for (const item of campaign.items) {
         item.assignedDayGroups = itemDayGroupMap[item.id] || [];
@@ -599,26 +609,14 @@ exports.getMyMonthlyBrands = async (req, res) => {
       operatorId = req.user.id;
     }
 
-    // 진행자에게 배정된 품목들 조회
+    // 진행자에게 배정된 품목들 조회 (buyers/images 제외 - 성능 최적화)
     const assignments = await CampaignOperator.findAll({
       where: { operator_id: operatorId },
       include: [
         {
           model: Item,
           as: 'item',
-          include: [
-            {
-              model: Buyer,
-              as: 'buyers',
-              include: [
-                {
-                  model: Image,
-                  as: 'images',
-                  attributes: ['id']
-                }
-              ]
-            }
-          ]
+          attributes: ['id', 'product_name', 'status', 'keyword', 'total_purchase_count', 'courier_service_yn']
         },
         {
           model: Campaign,
@@ -639,6 +637,60 @@ exports.getMyMonthlyBrands = async (req, res) => {
       ],
       order: [['assigned_at', 'DESC']]
     });
+
+    // 품목별 구매자 통계를 별도 쿼리로 조회 (COUNT만 - 훨씬 가벼움)
+    const itemIds = [...new Set(assignments.map(a => a.item?.id).filter(Boolean))];
+
+    let buyerStats = {};
+    if (itemIds.length > 0) {
+      const stats = await Buyer.findAll({
+        where: { item_id: itemIds },
+        attributes: [
+          'item_id',
+          [sequelize.fn('COUNT', sequelize.col('id')), 'total_count'],
+          [sequelize.fn('SUM', sequelize.literal("CASE WHEN is_temporary = true THEN 1 ELSE 0 END")), 'temp_count'],
+          [sequelize.fn('SUM', sequelize.literal("CASE WHEN is_temporary = false THEN 1 ELSE 0 END")), 'normal_count']
+        ],
+        group: ['item_id'],
+        raw: true
+      });
+
+      // 리뷰 완료 수 (이미지가 있는 구매자) - 별도 쿼리
+      const reviewStats = await Buyer.findAll({
+        where: {
+          item_id: itemIds,
+          is_temporary: false
+        },
+        include: [{
+          model: Image,
+          as: 'images',
+          attributes: [],
+          required: true  // INNER JOIN - 이미지 있는 것만
+        }],
+        attributes: [
+          'item_id',
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "Buyer"."id"')), 'review_count']
+        ],
+        group: ['Buyer.item_id'],
+        raw: true
+      });
+
+      // 통계 매핑
+      for (const stat of stats) {
+        buyerStats[stat.item_id] = {
+          totalCount: parseInt(stat.total_count, 10) || 0,
+          tempCount: parseInt(stat.temp_count, 10) || 0,
+          normalCount: parseInt(stat.normal_count, 10) || 0,
+          reviewCount: 0
+        };
+      }
+
+      for (const stat of reviewStats) {
+        if (buyerStats[stat.item_id]) {
+          buyerStats[stat.item_id].reviewCount = parseInt(stat.review_count, 10) || 0;
+        }
+      }
+    }
 
     // 연월브랜드별로 그룹화
     const monthlyBrandMap = new Map();
@@ -680,30 +732,20 @@ exports.getMyMonthlyBrands = async (req, res) => {
       }
 
       const item = assignment.item;
-      // 빈 행 체크 함수 (주요 필드가 모두 비어있으면 빈 행)
-      const isEmptyBuyer = (b) => {
-        return !b.order_number && !b.buyer_name && !b.recipient_name && !b.user_id && !b.account_info;
-      };
-      // 실제 데이터가 있는 구매자만 필터링
-      const validBuyers = item.buyers?.filter(b => !isEmptyBuyer(b)) || [];
-      // 임시 구매자(선 업로드) 카운트
-      const tempBuyerCount = validBuyers.filter(b => b.is_temporary).length;
-      // 정상 구매자 수 (임시 제외)
-      const normalBuyerCount = validBuyers.filter(b => !b.is_temporary).length;
-      // 리뷰 완료 수 (이미지가 있는 정상 구매자 수)
-      const reviewCompletedCount = validBuyers.filter(b => !b.is_temporary && b.images && b.images.length > 0).length;
+      // 구매자 통계는 미리 조회한 데이터 사용
+      const stats = buyerStats[item.id] || { totalCount: 0, tempCount: 0, normalCount: 0, reviewCount: 0 };
 
       mb.campaigns.get(campaign.id).items.push({
         id: item.id,
         product_name: item.product_name,
         status: item.status,
         keyword: item.keyword,
-        buyerCount: validBuyers.length,
-        normalBuyerCount,
-        tempBuyerCount,
-        reviewCompletedCount,
-        totalPurchaseCount: parseInt(item.total_purchase_count, 10) || 0,  // TEXT를 숫자로 파싱
-        courier_service_yn: item.courier_service_yn,  // 택배대행 여부 (원본 TEXT 유지)
+        buyerCount: stats.totalCount,
+        normalBuyerCount: stats.normalCount,
+        tempBuyerCount: stats.tempCount,
+        reviewCompletedCount: stats.reviewCount,
+        totalPurchaseCount: parseInt(item.total_purchase_count, 10) || 0,
+        courier_service_yn: item.courier_service_yn,
         assigned_at: assignment.assigned_at
       });
     }
@@ -970,6 +1012,7 @@ exports.getItemsByCampaign = async (req, res) => {
   try {
     const { campaignId } = req.params;
 
+    // 1단계: 품목 기본 정보 조회 (Buyer 제외 - 성능 최적화)
     const items = await Item.findAll({
       where: { campaign_id: campaignId },
       include: [
@@ -977,11 +1020,6 @@ exports.getItemsByCampaign = async (req, res) => {
           model: Campaign,
           as: 'campaign',
           attributes: ['id', 'name']
-        },
-        {
-          model: Buyer,
-          as: 'buyers',
-          attributes: ['id', 'buyer_name', 'amount', 'payment_status', 'is_temporary']
         },
         {
           model: CampaignOperator,
@@ -1006,15 +1044,40 @@ exports.getItemsByCampaign = async (req, res) => {
       order: [['created_at', 'DESC']]
     });
 
-    // 각 품목에 day_group 목록 및 각 day_group의 첫 번째 날짜 추가
+    // 2단계: 구매자 통계 별도 조회 (COUNT만)
+    const itemIds = items.map(i => i.id);
+    let buyerStats = {};
+
+    if (itemIds.length > 0) {
+      const stats = await Buyer.findAll({
+        where: { item_id: { [Op.in]: itemIds } },
+        attributes: [
+          'item_id',
+          [sequelize.fn('COUNT', sequelize.col('id')), 'total_count'],
+          [sequelize.fn('SUM', sequelize.literal("CASE WHEN is_temporary = true THEN 1 ELSE 0 END")), 'temp_count'],
+          [sequelize.fn('SUM', sequelize.literal("CASE WHEN is_temporary = false THEN 1 ELSE 0 END")), 'normal_count']
+        ],
+        group: ['item_id'],
+        raw: true
+      });
+
+      for (const stat of stats) {
+        buyerStats[stat.item_id] = {
+          totalCount: parseInt(stat.total_count, 10) || 0,
+          tempCount: parseInt(stat.temp_count, 10) || 0,
+          normalCount: parseInt(stat.normal_count, 10) || 0
+        };
+      }
+    }
+
+    // 각 품목에 day_group 목록 및 구매자 통계 추가
     const itemsWithDayGroups = items.map(item => {
       const itemData = item.toJSON();
       const slots = itemData.slots || [];
+      const stats = buyerStats[item.id] || { totalCount: 0, tempCount: 0, normalCount: 0 };
 
-      // 슬롯에서 고유한 day_group 목록 추출
       const dayGroups = [...new Set(slots.map(s => s.day_group).filter(d => d != null))].sort((a, b) => a - b);
 
-      // 각 day_group의 첫 번째 슬롯의 날짜 가져오기
       const dayGroupDates = {};
       dayGroups.forEach(dayGroup => {
         const firstSlot = slots
@@ -1023,11 +1086,15 @@ exports.getItemsByCampaign = async (req, res) => {
         dayGroupDates[dayGroup] = firstSlot?.date || null;
       });
 
-      delete itemData.slots; // slots 데이터는 제거
+      delete itemData.slots;
       return {
         ...itemData,
-        dayGroups, // day_group 목록 추가 (예: [1, 2, 3])
-        dayGroupDates // 각 day_group의 첫 번째 날짜 (예: { 1: "01/09", 2: "01/10" })
+        dayGroups,
+        dayGroupDates,
+        buyers: [], // 빈 배열 (기존 호환성 유지)
+        buyerCount: stats.totalCount,
+        normalBuyerCount: stats.normalCount,
+        tempBuyerCount: stats.tempCount
       };
     });
 
