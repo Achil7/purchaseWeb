@@ -1,4 +1,4 @@
-const { Campaign, Item, User, CampaignOperator, Buyer, MonthlyBrand } = require('../models');
+const { Campaign, Item, User, CampaignOperator, Buyer, MonthlyBrand, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const { notifyAllAdmins } = require('./notificationController');
 const { formatDateToYYYYMMDD_KST } = require('../utils/dateUtils');
@@ -90,6 +90,7 @@ exports.getCampaigns = async (req, res) => {
       };
     }
 
+    // 1단계: 캠페인 기본 정보 조회 (Buyer 제외 - 성능 최적화)
     const campaigns = await Campaign.findAll({
       where: whereClause,
       include: [
@@ -112,13 +113,6 @@ exports.getCampaigns = async (req, res) => {
             'total_purchase_count', 'daily_purchase_count', 'product_url', 'purchase_option',
             'product_price', 'shipping_deadline', 'review_guide', 'courier_service_yn',
             'notes', 'deposit_name', 'registered_at', 'created_at'
-          ],
-          include: [
-            {
-              model: Buyer,
-              as: 'buyers',
-              attributes: ['id']
-            }
           ]
         },
         {
@@ -130,10 +124,40 @@ exports.getCampaigns = async (req, res) => {
       order: [['registered_at', 'ASC'], ['created_at', 'ASC']]
     });
 
+    // 2단계: 품목별 구매자 수 별도 조회 (COUNT만)
+    const allItemIds = campaigns.flatMap(c => c.items?.map(i => i.id) || []);
+    let buyerStats = {};
+
+    if (allItemIds.length > 0) {
+      const stats = await Buyer.findAll({
+        where: { item_id: { [Op.in]: allItemIds } },
+        attributes: [
+          'item_id',
+          [sequelize.fn('COUNT', sequelize.col('id')), 'buyer_count']
+        ],
+        group: ['item_id'],
+        raw: true
+      });
+
+      for (const stat of stats) {
+        buyerStats[stat.item_id] = parseInt(stat.buyer_count, 10) || 0;
+      }
+    }
+
+    // 3단계: 응답 데이터 조합 (기존 형식 유지)
+    const campaignsWithBuyerCount = campaigns.map(campaign => {
+      const campaignJson = campaign.toJSON();
+      campaignJson.items = campaignJson.items.map(item => ({
+        ...item,
+        buyers: Array(buyerStats[item.id] || 0).fill({ id: 0 }) // 기존 호환성: buyers 배열 길이로 count
+      }));
+      return campaignJson;
+    });
+
     res.json({
       success: true,
-      data: campaigns,
-      count: campaigns.length
+      data: campaignsWithBuyerCount,
+      count: campaignsWithBuyerCount.length
     });
   } catch (error) {
     console.error('Get campaigns error:', error);
