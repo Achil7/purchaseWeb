@@ -28,6 +28,7 @@ import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import EditIcon from '@mui/icons-material/Edit';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import EventBusyIcon from '@mui/icons-material/EventBusy';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import SalesBrandCreateDialog from './SalesBrandCreateDialog';
@@ -994,6 +995,10 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                 const courierCount = (campaign.items || []).filter(item =>
                                   item.courier_service_yn === 'Y' || item.courier_service_yn === true
                                 ).length;
+                                // 날짜 비어있는 슬롯 수 계산
+                                const emptyDateCount = (campaign.items || []).reduce(
+                                  (sum, item) => sum + (item.emptyDateSlotCount || 0), 0
+                                );
                                 return (
                                   <ListItemButton
                                     key={campaign.id}
@@ -1053,6 +1058,22 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                                       bgcolor: '#e3f2fd',
                                                       color: '#1565c0',
                                                       '& .MuiChip-icon': { color: '#1565c0' }
+                                                    }}
+                                                  />
+                                                </Tooltip>
+                                              )}
+                                              {emptyDateCount > 0 && (
+                                                <Tooltip title={`날짜 미입력 ${emptyDateCount}건`}>
+                                                  <Chip
+                                                    icon={<EventBusyIcon sx={{ fontSize: '0.7rem !important' }} />}
+                                                    label={emptyDateCount}
+                                                    size="small"
+                                                    sx={{
+                                                      height: 16,
+                                                      fontSize: '0.6rem',
+                                                      bgcolor: '#fff3e0',
+                                                      color: '#e65100',
+                                                      '& .MuiChip-icon': { color: '#e65100' }
                                                     }}
                                                   />
                                                 </Tooltip>

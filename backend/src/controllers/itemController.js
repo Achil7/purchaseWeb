@@ -608,6 +608,11 @@ exports.getMyMonthlyBrands = async (req, res) => {
           as: 'item',
           include: [
             {
+              model: ItemSlot,
+              as: 'slots',
+              attributes: ['id', 'date', 'day_group']
+            },
+            {
               model: Buyer,
               as: 'buyers',
               include: [
@@ -693,6 +698,9 @@ exports.getMyMonthlyBrands = async (req, res) => {
       // 리뷰 완료 수 (이미지가 있는 정상 구매자 수)
       const reviewCompletedCount = validBuyers.filter(b => !b.is_temporary && b.images && b.images.length > 0).length;
 
+      // 날짜가 비어있는 슬롯 수 계산
+      const emptyDateSlotCount = (item.slots || []).filter(s => !s.date || s.date.trim() === '').length;
+
       mb.campaigns.get(campaign.id).items.push({
         id: item.id,
         product_name: item.product_name,
@@ -704,7 +712,8 @@ exports.getMyMonthlyBrands = async (req, res) => {
         reviewCompletedCount,
         totalPurchaseCount: parseInt(item.total_purchase_count, 10) || 0,  // TEXT를 숫자로 파싱
         courier_service_yn: item.courier_service_yn,  // 택배대행 여부 (원본 TEXT 유지)
-        assigned_at: assignment.assigned_at
+        assigned_at: assignment.assigned_at,
+        emptyDateSlotCount  // 날짜 비어있는 슬롯 수
       });
     }
 

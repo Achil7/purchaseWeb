@@ -231,6 +231,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
         let totalReviewCompleted = 0;
         let totalPurchaseTarget = 0;
         let courierCount = 0;
+        let emptyDateCount = 0;
 
         for (const item of items) {
           const status = getAssignmentStatus(item.assigned_at);
@@ -246,6 +247,8 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
           if (item.courier_service_yn === 'Y' || item.courier_service_yn === true) {
             courierCount++;
           }
+          // 날짜 비어있는 슬롯 수 합산
+          emptyDateCount += item.emptyDateSlotCount || 0;
         }
 
         const isCompleted = totalPurchaseTarget > 0 && totalReviewCompleted >= totalPurchaseTarget;
@@ -259,7 +262,8 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
           totalPurchaseTarget,
           isCompleted,
           completionRate,
-          courierCount
+          courierCount,
+          emptyDateCount
         });
       });
     });

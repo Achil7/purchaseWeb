@@ -23,6 +23,7 @@ import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import EventBusyIcon from '@mui/icons-material/EventBusy';
 import { monthlyBrandService } from '../../services';
 
 const DEFAULT_DRAWER_WIDTH = 280;
@@ -115,6 +116,16 @@ const CampaignItem = React.memo(({
                     />
                   </Tooltip>
                 )}
+                {stats.emptyDateCount > 0 && (
+                  <Tooltip title={`날짜 미입력 ${stats.emptyDateCount}건`}>
+                    <Chip
+                      icon={<EventBusyIcon sx={{ fontSize: '0.7rem !important' }} />}
+                      label={stats.emptyDateCount}
+                      size="small"
+                      sx={{ height: 16, fontSize: '0.6rem', bgcolor: '#fff3e0', color: '#e65100', '& .MuiChip-icon': { color: '#e65100' } }}
+                    />
+                  </Tooltip>
+                )}
                 {stats.warningCount > 0 && <WarningIcon color="error" sx={{ fontSize: 14 }} />}
                 <Tooltip title="숨기기">
                   <IconButton size="small" color="default" onClick={(e) => onHideCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
@@ -139,7 +150,8 @@ const DEFAULT_CAMPAIGN_STATS = {
   totalPurchaseTarget: 0,
   isCompleted: false,
   completionRate: 0,
-  courierCount: 0
+  courierCount: 0,
+  emptyDateCount: 0
 };
 
 /**

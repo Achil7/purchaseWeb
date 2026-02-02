@@ -279,7 +279,14 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
             {
               model: Item,
               as: 'items',
-              attributes: ['id', 'product_name', 'shipping_type', 'courier_service_yn', 'product_price', 'status', 'total_purchase_count', 'daily_purchase_count', 'purchase_option', 'keyword', 'notes']
+              attributes: ['id', 'product_name', 'shipping_type', 'courier_service_yn', 'product_price', 'status', 'total_purchase_count', 'daily_purchase_count', 'purchase_option', 'keyword', 'notes'],
+              include: [
+                {
+                  model: ItemSlot,
+                  as: 'slots',
+                  attributes: ['id', 'date']
+                }
+              ]
             }
           ]
         }
@@ -295,9 +302,26 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
       return mb.campaigns && mb.campaigns.length > 0;
     });
 
+    // 각 품목별 emptyDateSlotCount 계산 추가
+    const processedMonthlyBrands = filteredMonthlyBrands.map(mb => {
+      const mbData = mb.toJSON();
+      if (mbData.campaigns) {
+        mbData.campaigns = mbData.campaigns.map(campaign => {
+          if (campaign.items) {
+            campaign.items = campaign.items.map(item => ({
+              ...item,
+              emptyDateSlotCount: (item.slots || []).filter(s => !s.date || s.date.trim() === '').length
+            }));
+          }
+          return campaign;
+        });
+      }
+      return mbData;
+    });
+
     res.json({
       success: true,
-      data: filteredMonthlyBrands
+      data: processedMonthlyBrands
     });
   } catch (error) {
     console.error('Get monthly brands error:', error);

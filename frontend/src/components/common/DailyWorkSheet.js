@@ -1399,7 +1399,144 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
               }
               saveColumnWidths(widths);
             }}
-            contextMenu={true}
+            beforePaste={(data, coords) => {
+              // DailyWorkSheet에서 주문번호 컬럼은 col7 (인덱스 7)
+              const startCol = coords[0].startCol;
+              if (startCol !== 7) return; // 다른 컬럼이면 기본 동작
+
+              // 붙여넣기 대상 행이 구매자 데이터 행인지 확인
+              const startRow = coords[0].startRow;
+              const targetRowData = tableData[startRow];
+              if (!targetRowData || targetRowData._rowType !== ROW_TYPES.BUYER_DATA) return;
+
+              // 첫 번째 셀에 슬래시가 있는지 확인
+              const firstCell = data[0]?.[0];
+              if (!firstCell || typeof firstCell !== 'string' || !firstCell.includes('/')) return;
+
+              // 모든 행을 처리
+              const newData = [];
+
+              for (const row of data) {
+                const cellValue = row[0];
+                if (!cellValue || typeof cellValue !== 'string') continue;
+
+                // 셀 내에 줄바꿈이 있으면 분리 (Windows: \r\n, Unix: \n)
+                const lines = cellValue.split(/\r?\n/).filter(line => line.trim());
+
+                for (const line of lines) {
+                  if (!line.includes('/')) continue;
+
+                  const parts = line.split('/');
+                  // DailyWorkSheet 컬럼 매핑: col7~col14
+                  // col7: 주문번호, col8: 구매자, col9: 수취인, col10: 아이디,
+                  // col11: 연락처, col12: 주소, col13: 계좌, col14: 금액
+                  newData.push([
+                    parts[0]?.trim() || '',  // col7: 주문번호
+                    parts[1]?.trim() || '',  // col8: 구매자
+                    parts[2]?.trim() || '',  // col9: 수취인
+                    parts[3]?.trim() || '',  // col10: 아이디
+                    parts[4]?.trim() || '',  // col11: 연락처
+                    parts[5]?.trim() || '',  // col12: 주소
+                    parts[6]?.trim() || '',  // col13: 계좌
+                    parts[7]?.trim() || ''   // col14: 금액
+                  ]);
+                }
+              }
+
+              if (newData.length === 0) return;
+
+              // 원본 data 배열 수정 (Handsontable이 이 데이터로 붙여넣기)
+              data.length = 0;
+              newData.forEach(row => data.push(row));
+            }}
+            contextMenu={{
+              items: {
+                copy: { name: '복사' },
+                cut: { name: '잘라내기' },
+                paste: { name: '붙여넣기' },
+                sp1: { name: '---------' },
+                add_row: {
+                  name: '➕ 행 추가',
+                  callback: async function(key, selection) {
+                    const row = selection[0]?.start?.row;
+                    if (row === undefined) return;
+
+                    const meta = rowMeta[row];
+                    // 구매자 데이터 행이나 구매자 헤더 행이 아니면 무시
+                    if (!meta || (meta.type !== ROW_TYPES.BUYER_DATA && meta.type !== ROW_TYPES.BUYER_HEADER)) {
+                      alert('구매자 행에서 우클릭하여 행을 추가해주세요.');
+                      return;
+                    }
+
+                    const itemId = meta.itemId;
+                    const dayGroup = meta.dayGroup;
+
+                    try {
+                      const response = await itemSlotService.createSlot(itemId, dayGroup);
+                      const newSlot = response.data;
+
+                      // 로컬 상태에 새 슬롯 추가
+                      setSlots(prevSlots => [...prevSlots, newSlot]);
+
+                      // 캐시 무효화
+                      const formattedDate = format(searchDate, 'yyyy-MM-dd');
+                      const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
+                      slotsCache.delete(cacheKey);
+
+                      setSnackbar({ open: true, message: '행이 추가되었습니다', severity: 'success' });
+                    } catch (error) {
+                      console.error('Failed to add row:', error);
+                      setSnackbar({ open: true, message: '행 추가 실패: ' + (error.response?.data?.message || error.message), severity: 'error' });
+                    }
+                  }
+                },
+                delete_rows: {
+                  name: '🗑️ 선택한 행 삭제',
+                  callback: async function(key, selection) {
+                    const selectedRows = new Set();
+                    selection.forEach(sel => {
+                      for (let r = sel.start.row; r <= sel.end.row; r++) {
+                        selectedRows.add(r);
+                      }
+                    });
+
+                    const slotIds = [];
+                    selectedRows.forEach(row => {
+                      const meta = rowMeta[row];
+                      if (meta?.type === ROW_TYPES.BUYER_DATA && meta.slotId) {
+                        slotIds.push(meta.slotId);
+                      }
+                    });
+
+                    if (slotIds.length === 0) {
+                      alert('삭제할 구매자 행을 선택해주세요.');
+                      return;
+                    }
+
+                    if (!window.confirm(`선택한 ${slotIds.length}개 행을 삭제하시겠습니까?\n\n⚠️ 해당 행의 구매자 정보가 삭제됩니다.`)) {
+                      return;
+                    }
+
+                    try {
+                      await itemSlotService.deleteSlotsBulk(slotIds);
+
+                      // 로컬 상태에서 삭제된 슬롯 제거
+                      setSlots(prevSlots => prevSlots.filter(s => !slotIds.includes(s.id)));
+
+                      // 캐시 무효화
+                      const formattedDate = format(searchDate, 'yyyy-MM-dd');
+                      const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
+                      slotsCache.delete(cacheKey);
+
+                      setSnackbar({ open: true, message: `${slotIds.length}개 행이 삭제되었습니다`, severity: 'success' });
+                    } catch (error) {
+                      console.error('Failed to delete rows:', error);
+                      setSnackbar({ open: true, message: '행 삭제 실패: ' + (error.response?.data?.message || error.message), severity: 'error' });
+                    }
+                  }
+                }
+              }
+            }}
             copyPaste={true}
             undo={true}
             outsideClickDeselects={false}
