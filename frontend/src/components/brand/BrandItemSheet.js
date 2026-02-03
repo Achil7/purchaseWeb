@@ -16,6 +16,28 @@ registerAllModules();
 // 슬롯 데이터 캐시 (캠페인 전환 최적화)
 const slotsCache = new Map();
 
+// URL 문자열을 " | " 로 분리하여 각각 하이퍼링크로 렌더링
+const renderUrlLinks = (urlString) => {
+  if (!urlString || urlString === '-') return '-';
+
+  const urls = urlString.split(' | ').map(u => u.trim()).filter(Boolean);
+  if (urls.length === 0) return '-';
+
+  return urls.map((url, index) => (
+    <React.Fragment key={index}>
+      {index > 0 && <span style={{ margin: '0 4px' }}>|</span>}
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: '#1976d2', textDecoration: 'underline' }}
+      >
+        {url}
+      </a>
+    </React.Fragment>
+  ));
+};
+
 // 행 타입 상수 정의
 const ROW_TYPES = {
   ITEM_SEPARATOR: 'item_separator',      // 품목 구분선 (보라색, 높이 8px)
@@ -95,12 +117,21 @@ const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
       td.style.fontWeight = 'bold';
       td.style.color = '#c2185b';
     } else if (prop === 'col11' && value) {
-      const url = value.startsWith('http') ? value : `https://${value}`;
+      // URL을 " | "로 분리하여 각각 하이퍼링크로 렌더링
+      const urls = value.split(' | ').map(u => u.trim()).filter(Boolean);
+      if (urls.length > 0) {
+        const links = urls.map(url => {
+          const href = url.startsWith('http') ? url : `https://${url}`;
+          return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${url}</a>`;
+        }).join(' <span style="color: #666;">|</span> ');
+        td.innerHTML = links;
+      } else {
+        td.textContent = value;
+      }
       td.style.whiteSpace = 'nowrap';
       td.style.overflow = 'hidden';
       td.style.textOverflow = 'ellipsis';
       td.title = value;
-      td.innerHTML = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${value}</a>`;
     } else {
       td.textContent = value ?? '';
     }
@@ -1311,15 +1342,9 @@ function BrandItemSheetInner({
                           {field.label}
                         </Typography>
                         {field.isLink && field.value !== '-' ? (
-                          <Typography
-                            component="a"
-                            href={field.value}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            sx={{ color: '#1976d2', textDecoration: 'underline', wordBreak: 'break-all' }}
-                          >
-                            {field.value}
-                          </Typography>
+                          <Box sx={{ wordBreak: 'break-all' }}>
+                            {renderUrlLinks(field.value)}
+                          </Box>
                         ) : field.multiline ? (
                           <Typography
                             sx={{

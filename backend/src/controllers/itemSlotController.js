@@ -69,7 +69,7 @@ exports.updateSlot = async (req, res) => {
     }
 
     // 업데이트 가능한 필드만 필터링 (ItemSlot 모델 기준)
-    const allowedFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group'];
+    const allowedFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'buyer_notes'];
     const filteredData = {};
     for (const field of allowedFields) {
       if (updateData[field] !== undefined) {
@@ -130,7 +130,7 @@ exports.updateSlotsBulk = async (req, res) => {
     }
 
     // 슬롯 필드 (ItemSlot 모델 기준) - day_group별 독립 제품 정보 필드 포함
-    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'product_url'];
+    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'product_url', 'buyer_notes'];
     // 구매자 필드 (Buyer 모델 기준)
     const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status', 'deposit_name', 'date'];
 
@@ -278,13 +278,14 @@ exports.getSlotsByCampaign = async (req, res) => {
         'keyword', 'product_price', 'notes', 'status', 'expected_buyer', 'buyer_id',
         'day_group', 'upload_link_token', 'review_cost',
         'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count',
-        'courier_service_yn', 'product_url',
+        'courier_service_yn', 'product_url', 'buyer_notes',
         'created_at', 'updated_at'
       ],
       include: [
         {
           model: Item,
           as: 'item',
+          required: true,  // INNER JOIN - soft delete된 Item의 슬롯 제외
           attributes: [
             'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
             'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
@@ -474,13 +475,14 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
         'keyword', 'product_price', 'notes', 'status', 'expected_buyer', 'buyer_id',
         'day_group', 'upload_link_token', 'review_cost',
         'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count',
-        'courier_service_yn', 'product_url',
+        'courier_service_yn', 'product_url', 'buyer_notes',
         'created_at', 'updated_at'
       ],
       include: [
         {
           model: Item,
           as: 'item',
+          required: true,  // INNER JOIN - soft delete된 Item의 슬롯 제외
           attributes: [
             'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
             'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
@@ -660,6 +662,7 @@ exports.getMyAssignedSlots = async (req, res) => {
         {
           model: Item,
           as: 'item',
+          required: true,  // INNER JOIN - soft delete된 Item의 슬롯 제외
           attributes: ['id', 'product_name', 'total_purchase_count', 'daily_purchase_count', 'campaign_id']
         },
         {
@@ -706,6 +709,7 @@ exports.getSlotByToken = async (req, res) => {
         {
           model: Item,
           as: 'item',
+          required: true,  // INNER JOIN - soft delete된 Item의 슬롯 제외
           attributes: ['id', 'product_name', 'campaign_id'],
           include: [
             {
@@ -809,6 +813,7 @@ exports.createSlot = async (req, res) => {
         {
           model: Item,
           as: 'item',
+          required: true,  // INNER JOIN - soft delete된 Item의 슬롯 제외
           attributes: ['id', 'product_name']
         },
         {

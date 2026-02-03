@@ -742,8 +742,14 @@ exports.getMyMonthlyBrands = async (req, res) => {
       // 구매자 통계는 미리 조회한 데이터 사용
       const stats = buyerStats[item.id] || { totalCount: 0, tempCount: 0, normalCount: 0, reviewCount: 0 };
 
-      // 날짜가 비어있는 슬롯 수 계산
-      const emptyDateSlotCount = (item.slots || []).filter(s => !s.date || s.date.trim() === '').length;
+      // 배정된 day_group의 슬롯만 필터링 (day_group이 null이면 전체 품목 배정)
+      const assignedDayGroup = assignment.day_group;
+      const assignedSlots = (item.slots || []).filter(s =>
+        assignedDayGroup === null || s.day_group === assignedDayGroup
+      );
+
+      // 날짜가 비어있는 슬롯 수 계산 (배정된 day_group 기준)
+      const emptyDateSlotCount = assignedSlots.filter(s => !s.date || s.date.trim() === '').length;
 
       mb.campaigns.get(campaign.id).items.push({
         id: item.id,
@@ -754,10 +760,10 @@ exports.getMyMonthlyBrands = async (req, res) => {
         normalBuyerCount: stats.normalCount,
         tempBuyerCount: stats.tempCount,
         reviewCompletedCount: stats.reviewCount,
-        totalPurchaseCount: parseInt(item.total_purchase_count, 10) || 0,
+        totalPurchaseCount: assignedSlots.length,
         courier_service_yn: item.courier_service_yn,
         assigned_at: assignment.assigned_at,
-        emptyDateSlotCount  // 날짜 비어있는 슬롯 수
+        emptyDateSlotCount  // 날짜 비어있는 슬롯 수 (배정된 day_group 기준)
       });
     }
 

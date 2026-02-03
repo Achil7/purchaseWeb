@@ -621,6 +621,25 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ## 개발 시 체크리스트
 
+### ⚠️ 로컬 환경에서 Bash 명령 실행 불가
+**사용자가 DB 체크, 서버 명령, 로컬 테스트 등을 요청하면 Bash 도구를 사용하지 말고 SQL/코드를 직접 제공할 것!**
+
+- 사용자의 로컬 환경에서는 Claude의 Bash 도구가 작동하지 않음
+- **DB 조회 요청 시**: 순수 SQL 쿼리만 제공 (JavaScript 래퍼 코드 불필요)
+- **기타 로컬 명령 요청 시**: 사용자가 직접 복사해서 실행할 수 있는 코드 제공
+
+**DB 체크 요청 시 응답 예시:**
+```sql
+SELECT id, product_name, campaign_id FROM items WHERE id = 2430;
+SELECT id, product_name FROM items WHERE campaign_id = 153;
+```
+
+**절대 하지 말 것:**
+- Bash 도구로 명령 실행 시도
+- JavaScript 래퍼 코드로 감싸서 제공 (사용자가 SQL만 원할 때)
+
+---
+
 ### ⚠️ Handsontable HotTable height 절대 변경 금지
 **절대로 HotTable의 height 속성을 `100%`로 변경하지 말 것!**
 

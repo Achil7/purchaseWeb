@@ -3,8 +3,11 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar, Paper,
   Badge, Menu, MenuItem, ListItemText, Divider,
-  List, ListItemButton, ListItemIcon, CircularProgress, Chip, Tooltip, Collapse
+  List, ListItemButton, ListItemIcon, CircularProgress, Chip, Tooltip, Collapse,
+  TextField, InputAdornment
 } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
+import ClearIcon from '@mui/icons-material/Clear';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import NotificationsIcon from '@mui/icons-material/Notifications';
@@ -61,6 +64,9 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 숨김 항목 표시 모드
   const [showHidden, setShowHidden] = useState(false);
+
+  // 캠페인 검색 쿼리
+  const [searchQuery, setSearchQuery] = useState('');
 
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -594,12 +600,61 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               </Typography>
             </Box>
 
+            {/* 캠페인 검색 입력 필드 */}
+            {!showHidden && (
+              <Box sx={{ px: 1.5, pb: 1 }}>
+                <TextField
+                  size="small"
+                  placeholder="캠페인 검색..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  fullWidth
+                  sx={{
+                    '& .MuiInputBase-root': { height: 28, fontSize: '0.75rem' },
+                    '& .MuiInputBase-input': { py: 0.5 }
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ fontSize: 16, color: '#999' }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: searchQuery && (
+                      <InputAdornment position="end">
+                        <IconButton size="small" onClick={() => setSearchQuery('')} sx={{ p: 0.2 }}>
+                          <ClearIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </InputAdornment>
+                    )
+                  }}
+                />
+              </Box>
+            )}
+
             {loading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                 <CircularProgress size={24} />
               </Box>
             ) : (() => {
-              const filteredMonthlyBrands = monthlyBrands.filter(mb => showHidden ? mb.is_hidden : !mb.is_hidden);
+              const searchLower = searchQuery.trim().toLowerCase();
+              const filteredMonthlyBrands = monthlyBrands.map(mb => {
+                const filteredCampaigns = (mb.campaigns || []).filter(c => {
+                  const hiddenFilter = showHidden ? mb.is_hidden : !mb.is_hidden;
+                  if (!hiddenFilter) return false;
+                  if (searchLower && !c.name.toLowerCase().includes(searchLower)) {
+                    return false;
+                  }
+                  return true;
+                });
+                return { ...mb, campaigns: filteredCampaigns };
+              }).filter(mb => {
+                // 숨김 필터
+                const hiddenMatch = showHidden ? mb.is_hidden : !mb.is_hidden;
+                if (!hiddenMatch) return false;
+                // 검색 중이면 캠페인이 있는 것만
+                if (searchLower && mb.campaigns.length === 0) return false;
+                return true;
+              });
 
               if (filteredMonthlyBrands.length === 0) {
                 return (
@@ -693,10 +748,10 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                           </Box>
                                         }
                                       />
-                                      {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+                                      {(expandedMonthlyBrands[monthlyBrand.id] || (searchQuery.trim() && monthlyBrand.campaigns.length > 0)) ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
                                     </ListItemButton>
 
-                                    <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
+                                    <Collapse in={expandedMonthlyBrands[monthlyBrand.id] || (searchQuery.trim() && monthlyBrand.campaigns.length > 0)} timeout={0}>
                                       <List component="div" disablePadding dense>
                                         {campaigns.length > 0 ? (
                                           campaigns.map((campaign) => {

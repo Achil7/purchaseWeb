@@ -147,19 +147,23 @@ const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers, statusLa
       td.textContent = value ?? '';
       td.style.textAlign = 'center';
       td.style.color = '#666';
-    } else if (prop === 'col4' || prop === 'col5') {
+    } else if (prop === 'col4' || prop === 'col5' || prop === 'col6') {
+      // col4: 제품명, col5: 옵션, col6: 비고
       td.textContent = value ?? '';
       td.style.color = '#555';
-    } else if (prop === 'col7') {
+    } else if (prop === 'col8') {
+      // col8: 주문번호 (col7 -> col8로 시프트)
       td.textContent = value ?? '';
       if (value && duplicateOrderNumbers.has(value)) {
         td.classList.add('duplicate-order');
         td.style.backgroundColor = '#ffcdd2';
       }
-    } else if (prop === 'col14' && value) {
+    } else if (prop === 'col15' && value) {
+      // col15: 금액 (col14 -> col15로 시프트)
       const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
       td.textContent = numValue ? numValue.toLocaleString() : value;
-    } else if (prop === 'col16') {
+    } else if (prop === 'col17') {
+      // col17: 리뷰샷 (col16 -> col17로 시프트)
       const images = rowData._reviewImages || [];
       const imageCount = images.length;
       if (imageCount > 0) {
@@ -174,7 +178,8 @@ const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers, statusLa
         td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
         td.style.textAlign = 'center';
       }
-    } else if (prop === 'col17') {
+    } else if (prop === 'col18') {
+      // col18: 상태 (col17 -> col18로 시프트)
       const status = rowData._calculatedStatus;
       const label = statusLabels[status] || status;
 
@@ -186,7 +191,8 @@ const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers, statusLa
         td.innerHTML = `<span style="background-color: #e3f2fd; color: #1976d2; padding: 2px 6px; border-radius: 10px; font-size: 10px;">${label}</span>`;
       }
       td.style.textAlign = 'center';
-    } else if (prop === 'col20') {
+    } else if (prop === 'col21') {
+      // col21: 입금여부 (col20 -> col21로 시프트)
       td.style.textAlign = 'center';
       if (value) {
         try {
@@ -212,8 +218,8 @@ const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers, statusLa
   };
 };
 
-// 기본 컬럼 너비 - 22개 컬럼 (col21 여백 컬럼 포함)
-const DEFAULT_COLUMN_WIDTHS = [30, 180, 70, 60, 120, 80, 50, 80, 60, 50, 50, 50, 80, 30, 80, 100, 80, 50, 60, 70, 70, 50];
+// 기본 컬럼 너비 - 23개 컬럼 (col22 여백 컬럼 포함, 비고 컬럼 추가)
+const DEFAULT_COLUMN_WIDTHS = [30, 180, 70, 60, 120, 80, 80, 50, 80, 60, 50, 50, 50, 80, 30, 80, 100, 80, 50, 60, 70, 70, 50];
 
 /**
  * 날짜별 작업 시트 컴포넌트
@@ -595,23 +601,23 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       if (groupIndex > 0) {
         data.push({
           _rowType: ROW_TYPES.ITEM_SEPARATOR,
-          col0: '', col1: '', col2: '', col3: '', col4: '', col5: '', col6: '',
-          col7: '', col8: '', col9: '', col10: '', col11: '', col12: '', col13: '',
-          col14: '', col15: '', col16: '', col17: '', col18: '', col19: '', col20: ''
+          col0: '', col1: '', col2: '', col3: '', col4: '', col5: '', col6: '', col7: '',
+          col8: '', col9: '', col10: '', col11: '', col12: '', col13: '', col14: '',
+          col15: '', col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
         });
         meta.push({ type: ROW_TYPES.ITEM_SEPARATOR });
       }
 
-      // 제품 정보 헤더 행
+      // 제품 정보 헤더 행 (22개 컬럼)
       data.push({
         _rowType: ROW_TYPES.PRODUCT_HEADER,
         col0: '', col1: '연월브랜드-캠페인', col2: '날짜', col3: '플랫폼', col4: '제품명', col5: '옵션', col6: '출고', col7: '키워드',
         col8: '가격', col9: '총건수', col10: '일건수', col11: '택배', col12: 'URL', col13: '특이사항', col14: '상세',
-        col15: '', col16: '', col17: '', col18: '', col19: '', col20: ''
+        col15: '', col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
       });
       meta.push({ type: ROW_TYPES.PRODUCT_HEADER, itemId: item.id, dayGroup });
 
-      // 제품 정보 데이터 행
+      // 제품 정보 데이터 행 (22개 컬럼)
       data.push({
         _rowType: ROW_TYPES.PRODUCT_DATA,
         _itemId: item.id,
@@ -635,29 +641,29 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         col12: productInfo.product_url,
         col13: productInfo.notes,
         col14: '📋',
-        col15: '', col16: '', col17: '', col18: '', col19: '', col20: ''
+        col15: '', col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
       });
       meta.push({ type: ROW_TYPES.PRODUCT_DATA, itemId: item.id, dayGroup, uploadLinkToken, groupKey });
 
       // 접힌 상태가 아니면 구매자 행 표시
       if (!isCollapsed) {
-        // 업로드 링크 바
+        // 업로드 링크 바 (22개 컬럼)
         data.push({
           _rowType: ROW_TYPES.UPLOAD_LINK_BAR,
           _uploadToken: uploadLinkToken,
           col0: '', col1: '📷 업로드 링크 복사',
           col2: '', col3: '', col4: '', col5: '', col6: '', col7: '', col8: '', col9: '',
-          col10: '', col11: '', col12: '', col13: '', col14: '', col15: '', col16: '', col17: '', col18: '', col19: '', col20: ''
+          col10: '', col11: '', col12: '', col13: '', col14: '', col15: '', col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
         });
         meta.push({ type: ROW_TYPES.UPLOAD_LINK_BAR, uploadLinkToken });
 
-        // 구매자 헤더 행
+        // 구매자 헤더 행 (23개 컬럼 - col6에 비고 추가)
         data.push({
           _rowType: ROW_TYPES.BUYER_HEADER,
-          col0: '', col1: '', col2: '날짜', col3: '순번', col4: '제품명', col5: '옵션', col6: '예상구매자',
-          col7: '주문번호', col8: '구매자', col9: '수취인', col10: '아이디', col11: '연락처', col12: '주소',
-          col13: '계좌', col14: '금액', col15: '송장번호', col16: '리뷰샷', col17: '상태', col18: '리뷰비',
-          col19: '입금명', col20: '입금여부'
+          col0: '', col1: '', col2: '날짜', col3: '순번', col4: '제품명', col5: '옵션', col6: '비고', col7: '예상구매자',
+          col8: '주문번호', col9: '구매자', col10: '수취인', col11: '아이디', col12: '연락처', col13: '주소',
+          col14: '계좌', col15: '금액', col16: '송장번호', col17: '리뷰샷', col18: '상태', col19: '리뷰비',
+          col20: '입금명', col21: '입금여부'
         });
         meta.push({ type: ROW_TYPES.BUYER_HEADER, itemId: item.id, dayGroup });
 
@@ -688,21 +694,22 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             col3: slotIndex + 1,
             col4: slot.product_name || item.product_name || '',
             col5: slot.purchase_option || '',
-            col6: slot.expected_buyer || '',
-            col7: buyer.order_number || '',
-            col8: buyer.buyer_name || '',
-            col9: buyer.recipient_name || '',
-            col10: buyer.user_id || '',
-            col11: buyer.contact || '',
-            col12: buyer.address || '',
-            col13: buyer.account_info || '',
-            col14: buyer.amount || '',
-            col15: buyer.tracking_number || '',
-            col16: reviewImage?.s3_url || '',
-            col17: calculatedStatus,
-            col18: slot.review_cost || '',
-            col19: buyer.deposit_name || '',
-            col20: buyer.payment_confirmed_at || ''
+            col6: slot.buyer_notes || '',  // 비고 (col6 추가)
+            col7: slot.expected_buyer || '',
+            col8: buyer.order_number || '',
+            col9: buyer.buyer_name || '',
+            col10: buyer.recipient_name || '',
+            col11: buyer.user_id || '',
+            col12: buyer.contact || '',
+            col13: buyer.address || '',
+            col14: buyer.account_info || '',
+            col15: buyer.amount || '',
+            col16: buyer.tracking_number || '',
+            col17: reviewImage?.s3_url || '',
+            col18: calculatedStatus,
+            col19: slot.review_cost || '',
+            col20: buyer.deposit_name || '',
+            col21: buyer.payment_confirmed_at || ''
           });
           meta.push({
             type: ROW_TYPES.BUYER_DATA,
@@ -842,7 +849,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
         cellProperties.className = dayClass;
 
-        if (col === 16) {
+        // col17: 리뷰샷 (col16 -> col17로 시프트)
+        if (col === 17) {
           cellProperties.readOnly = true;
         } else {
           cellProperties.readOnly = false;
@@ -930,22 +938,23 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         }
       }
 
-      // 구매자 데이터 행 수정
+      // 구매자 데이터 행 수정 (col6에 비고 추가, 이후 컬럼 +1 시프트)
       if (type === ROW_TYPES.BUYER_DATA && slotId) {
         const BUYER_FIELD_MAP = {
           col2: 'date',
-          col6: 'expected_buyer',
-          col7: 'order_number',
-          col8: 'buyer_name',
-          col9: 'recipient_name',
-          col10: 'user_id',
-          col11: 'contact',
-          col12: 'address',
-          col13: 'account_info',
-          col14: 'amount',
-          col15: 'tracking_number',
-          col18: 'review_cost',
-          col19: 'deposit_name'
+          col6: 'buyer_notes',     // 비고 (신규 추가)
+          col7: 'expected_buyer',  // col6 -> col7로 시프트
+          col8: 'order_number',    // col7 -> col8로 시프트
+          col9: 'buyer_name',      // col8 -> col9로 시프트
+          col10: 'recipient_name', // col9 -> col10으로 시프트
+          col11: 'user_id',        // col10 -> col11로 시프트
+          col12: 'contact',        // col11 -> col12로 시프트
+          col13: 'address',        // col12 -> col13으로 시프트
+          col14: 'account_info',   // col13 -> col14로 시프트
+          col15: 'amount',         // col14 -> col15로 시프트
+          col16: 'tracking_number',// col15 -> col16으로 시프트
+          col19: 'review_cost',    // col18 -> col19로 시프트
+          col20: 'deposit_name'    // col19 -> col20으로 시프트
         };
 
         const apiField = BUYER_FIELD_MAP[prop];
@@ -962,27 +971,35 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     setChangedItems(itemUpdates);
   }, [rowMeta, tableData]);  // 성능 최적화: changedSlots, changedItems 제거 (ref로 대체), tableData 추가
 
-  // 저장 핸들러
+  // 저장 핸들러 - 캠페인 시트와 동일하게 스크롤 위치 유지, 새로고침 없음
   const handleSave = useCallback(async () => {
-    const hasSlotChanges = Object.keys(changedSlots).length > 0;
-    const hasItemChanges = Object.keys(changedItems).length > 0;
+    // ref에서 변경사항 읽기 (성능 최적화)
+    const currentChangedSlots = changedSlotsRef.current;
+    const currentChangedItems = changedItemsRef.current;
+    const hasSlotChanges = Object.keys(currentChangedSlots).length > 0;
+    const hasItemChanges = Object.keys(currentChangedItems).length > 0;
 
     if (!hasSlotChanges && !hasItemChanges) {
       setSnackbar({ open: true, message: '변경된 내용이 없습니다.', severity: 'info' });
       return;
     }
 
+    // 스크롤 위치 저장
+    const hot = hotRef.current?.hotInstance;
+    const scrollPosition = hot?.rootElement?.querySelector('.wtHolder')?.scrollTop || 0;
+    const scrollLeft = hot?.rootElement?.querySelector('.wtHolder')?.scrollLeft || 0;
+
     setSaving(true);
     try {
       // 슬롯 변경사항 저장
       if (hasSlotChanges) {
-        const slotsToUpdate = Object.values(changedSlots);
+        const slotsToUpdate = Object.values(currentChangedSlots);
         await itemSlotService.updateSlotsBulk(slotsToUpdate);
       }
 
       // 품목 변경사항 저장 (day_group별 슬롯 업데이트)
       if (hasItemChanges) {
-        const dayGroupUpdates = Object.values(changedItems);
+        const dayGroupUpdates = Object.values(currentChangedItems);
         for (const update of dayGroupUpdates) {
           const { itemId, dayGroup, ...productData } = update;
           const dayGroupSlots = slots
@@ -1002,6 +1019,55 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         }
       }
 
+      // 로컬 slots 상태 업데이트 (DB 재조회 대신 직접 업데이트) - 캠페인 시트와 동일한 방식
+      const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'tracking_number', 'deposit_name', 'payment_confirmed'];
+
+      setSlots(prevSlots => {
+        return prevSlots.map(slot => {
+          let updatedSlot = slot;
+
+          // 슬롯(구매자) 변경사항 적용
+          const slotChangesData = currentChangedSlots[slot.id];
+          if (slotChangesData) {
+            // slot 필드와 buyer 필드 분리
+            const slotFieldChanges = {};
+            const buyerChanges = {};
+
+            Object.entries(slotChangesData).forEach(([key, value]) => {
+              if (key === 'id') return; // id는 제외
+              if (buyerFields.includes(key)) {
+                buyerChanges[key] = value;
+              } else {
+                slotFieldChanges[key] = value;
+              }
+            });
+
+            // buyer 객체 업데이트
+            const updatedBuyer = slot.buyer
+              ? { ...slot.buyer, ...buyerChanges }
+              : Object.keys(buyerChanges).length > 0 ? buyerChanges : null;
+
+            updatedSlot = { ...updatedSlot, ...slotFieldChanges, buyer: updatedBuyer };
+          }
+
+          // day_group별 제품 정보 변경사항 적용 (슬롯에 직접 저장)
+          const dayGroupKey = `${slot.item_id}_${slot.day_group}`;
+          const productChangesData = currentChangedItems[dayGroupKey];
+          if (productChangesData) {
+            const { itemId, dayGroup, ...productFieldChanges } = productChangesData;
+            updatedSlot = {
+              ...updatedSlot,
+              ...productFieldChanges
+            };
+          }
+
+          return updatedSlot;
+        });
+      });
+
+      // ref 및 state 초기화
+      changedSlotsRef.current = {};
+      changedItemsRef.current = {};
       setChangedSlots({});
       setChangedItems({});
 
@@ -1011,14 +1077,27 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       slotsCache.delete(cacheKey);
 
       setSnackbar({ open: true, message: '저장되었습니다.', severity: 'success' });
-      loadSlots(true); // forceRefresh로 최신 데이터 가져오기
+
+      // 스크롤 위치 복원 (다음 렌더링 후)
+      setTimeout(() => {
+        const wtHolder = hot?.rootElement?.querySelector('.wtHolder');
+        if (wtHolder) {
+          wtHolder.scrollTop = scrollPosition;
+          wtHolder.scrollLeft = scrollLeft;
+        }
+      }, 0);
+
     } catch (error) {
       console.error('Save error:', error);
-      setSnackbar({ open: true, message: '저장 중 오류가 발생했습니다.', severity: 'error' });
+      // 저장 실패 시 변경사항 ref 초기화 (다음 저장에 영향 주지 않도록)
+      changedSlotsRef.current = {};
+      changedItemsRef.current = {};
+      const serverMessage = error.response?.data?.message || error.response?.data?.error || error.message;
+      setSnackbar({ open: true, message: `저장 실패: ${serverMessage}`, severity: 'error' });
     } finally {
       setSaving(false);
     }
-  }, [changedSlots, changedItems, slots, loadSlots, searchDate, viewAsUserId]);
+  }, [slots, searchDate, viewAsUserId]);
 
   // 리뷰샷 삭제 핸들러
   const handleDeleteReviewConfirm = useCallback(async () => {
@@ -1050,15 +1129,15 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     }
   }, [deleteReviewPopup, searchDate, viewAsUserId, loadSlots]);
 
-  // 컬럼 설정
+  // 컬럼 설정 (23개 컬럼 - col6에 비고 추가)
   const columns = useMemo(() => {
-    const cols = Array(21).fill(null).map((_, index) => ({
+    const cols = Array(22).fill(null).map((_, index) => ({
       data: `col${index}`,
       width: columnWidths[index] || 100
     }));
     // 맨 오른쪽에 여백 컬럼 추가 (컬럼 너비 조절 용이하게)
     cols.push({
-      data: 'col21',
+      data: 'col22',
       width: 50,
       readOnly: true
     });
@@ -1310,7 +1389,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             ref={hotRef}
             data={tableData}
             columns={columns}
-            colHeaders={Array(22).fill('')}
+            colHeaders={Array(23).fill('')}
             colWidths={columnWidths.length > 0 ? columnWidths : undefined}
             rowHeaders={false}
             width="100%"
@@ -1400,9 +1479,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
               saveColumnWidths(widths);
             }}
             beforePaste={(data, coords) => {
-              // DailyWorkSheet에서 주문번호 컬럼은 col7 (인덱스 7)
+              // DailyWorkSheet에서 주문번호 컬럼은 col8 (col7 -> col8로 시프트됨)
               const startCol = coords[0].startCol;
-              if (startCol !== 7) return; // 다른 컬럼이면 기본 동작
+              if (startCol !== 8) return; // 다른 컬럼이면 기본 동작
 
               // 붙여넣기 대상 행이 구매자 데이터 행인지 확인
               const startRow = coords[0].startRow;
@@ -1427,18 +1506,18 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
                   if (!line.includes('/')) continue;
 
                   const parts = line.split('/');
-                  // DailyWorkSheet 컬럼 매핑: col7~col14
-                  // col7: 주문번호, col8: 구매자, col9: 수취인, col10: 아이디,
-                  // col11: 연락처, col12: 주소, col13: 계좌, col14: 금액
+                  // DailyWorkSheet 컬럼 매핑: col8~col15 (col6에 비고 추가로 +1 시프트)
+                  // col8: 주문번호, col9: 구매자, col10: 수취인, col11: 아이디,
+                  // col12: 연락처, col13: 주소, col14: 계좌, col15: 금액
                   newData.push([
-                    parts[0]?.trim() || '',  // col7: 주문번호
-                    parts[1]?.trim() || '',  // col8: 구매자
-                    parts[2]?.trim() || '',  // col9: 수취인
-                    parts[3]?.trim() || '',  // col10: 아이디
-                    parts[4]?.trim() || '',  // col11: 연락처
-                    parts[5]?.trim() || '',  // col12: 주소
-                    parts[6]?.trim() || '',  // col13: 계좌
-                    parts[7]?.trim() || ''   // col14: 금액
+                    parts[0]?.trim() || '',  // col8: 주문번호
+                    parts[1]?.trim() || '',  // col9: 구매자
+                    parts[2]?.trim() || '',  // col10: 수취인
+                    parts[3]?.trim() || '',  // col11: 아이디
+                    parts[4]?.trim() || '',  // col12: 연락처
+                    parts[5]?.trim() || '',  // col13: 주소
+                    parts[6]?.trim() || '',  // col14: 계좌
+                    parts[7]?.trim() || ''   // col15: 금액
                   ]);
                 }
               }

@@ -105,6 +105,11 @@ module.exports = (sequelize, DataTypes) => {
     review_cost: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    // 구매자 테이블의 비고 컬럼 (제품 테이블의 notes와 별개)
+    buyer_notes: {
+      type: DataTypes.TEXT,
+      allowNull: true
     }
   }, {
     tableName: 'item_slots',

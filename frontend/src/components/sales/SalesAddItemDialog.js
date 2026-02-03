@@ -42,6 +42,28 @@ const sumDailyPurchaseCounts = (dailyCountStr) => {
   return counts.reduce((sum, n) => sum + n, 0);
 };
 
+// URL 문자열을 " | " 로 분리하여 각각 하이퍼링크로 렌더링
+const renderUrlLinks = (urlString) => {
+  if (!urlString || urlString === '-') return '-';
+
+  const urls = urlString.split(' | ').map(u => u.trim()).filter(Boolean);
+  if (urls.length === 0) return '-';
+
+  return urls.map((url, index) => (
+    <React.Fragment key={index}>
+      {index > 0 && <span style={{ margin: '0 4px' }}>|</span>}
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: '#1976d2', textDecoration: 'underline' }}
+      >
+        {url}
+      </a>
+    </React.Fragment>
+  ));
+};
+
 // 필드 키워드 매칭 함수 - 라인이 특정 필드의 시작인지 확인
 const isFieldLine = (line) => {
   const colonIndex = line.indexOf(':');
@@ -1142,7 +1164,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
                           </TableRow>
                           <TableRow>
                             <TableCell sx={{ fontWeight: 'bold' }}>URL</TableCell>
-                            <TableCell sx={{ wordBreak: 'break-all' }}>{parsedItems[0].product_url || '-'}</TableCell>
+                            <TableCell sx={{ wordBreak: 'break-all' }}>{renderUrlLinks(parsedItems[0].product_url)}</TableCell>
                           </TableRow>
                         </TableBody>
                       </Table>
