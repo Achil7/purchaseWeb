@@ -218,7 +218,7 @@ function OperatorSidebar({
   const [selectedForBulkDelete, setSelectedForBulkDelete] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  // 캠페인 검색 상태
+  // 연월브랜드 검색 상태
   const [searchQuery, setSearchQuery] = useState('');
 
   // 디바운스용 ref
@@ -275,11 +275,6 @@ function OperatorSidebar({
       const filteredCampaigns = (mb.campaigns || []).filter(c => {
         const isHidden = hiddenCampaignIdsSet.has(c.id);
         const hiddenFilter = showHidden ? isHidden : !isHidden;
-
-        // 검색어가 있으면 캠페인 이름으로 필터링
-        if (searchLower && !c.name.toLowerCase().includes(searchLower)) {
-          return false;
-        }
         return hiddenFilter;
       });
       return { ...mb, campaigns: filteredCampaigns };
@@ -288,7 +283,11 @@ function OperatorSidebar({
       if (showHidden) {
         return isMbHidden || mb.campaigns.length > 0;
       }
-      return !isMbHidden && mb.campaigns.length > 0;
+      // 연월브랜드 이름으로 검색
+      if (searchLower && !mb.name.toLowerCase().includes(searchLower)) {
+        return false;
+      }
+      return !isMbHidden;
     });
   }, [monthlyBrands, hiddenCampaignIdsSet, hiddenMonthlyBrandIdsSet, showHidden, searchQuery]);
 
@@ -537,11 +536,11 @@ function OperatorSidebar({
               </Box>
             </Box>
 
-            {/* 캠페인 검색 */}
+            {/* 연월브랜드 검색 */}
             {!showHidden && (
               <TextField
                 size="small"
-                placeholder="캠페인 검색..."
+                placeholder="연월브랜드 검색..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 fullWidth
@@ -579,7 +578,7 @@ function OperatorSidebar({
                 {showHidden
                   ? '숨긴 항목이 없습니다'
                   : searchQuery
-                    ? `"${searchQuery}" 검색 결과 없음`
+                    ? `"${searchQuery}" 연월브랜드 검색 결과 없음`
                     : '배정된 연월브랜드가 없습니다'}
               </Typography>
             </Box>
@@ -667,10 +666,10 @@ function OperatorSidebar({
                                     ) : null}
                                     <Chip label={monthlyBrand.campaigns.length} size="small" sx={{ height: 18, minWidth: 20, fontSize: '0.65rem' }} />
                                   </Box>
-                                  {(expandedMonthlyBrands[monthlyBrand.id] || (searchQuery.trim() && monthlyBrand.campaigns.length > 0)) ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+                                  {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
                                 </ListItemButton>
 
-                                <Collapse in={expandedMonthlyBrands[monthlyBrand.id] || (searchQuery.trim() && monthlyBrand.campaigns.length > 0)} timeout={0}>
+                                <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
                                   <List component="div" disablePadding dense>
                                     {monthlyBrand.campaigns.length > 0 ? (
                                       monthlyBrand.campaigns.map((campaign) => (

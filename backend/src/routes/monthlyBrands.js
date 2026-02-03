@@ -122,7 +122,12 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
             {
               model: Item,
               as: 'items',
-              attributes: ['id', 'product_name', 'status', 'daily_purchase_count']
+              attributes: ['id', 'product_name', 'status', 'daily_purchase_count'],
+              include: [{
+                model: ItemSlot,
+                as: 'slots',
+                attributes: ['id', 'day_group']
+              }]
             }
           ]
         }
@@ -152,19 +157,23 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
                 };
               }
 
-              // 각 품목별 day_group 수 계산 (daily_purchase_count 기반)
+              // 각 품목별 day_group 수 계산 (실제 ItemSlot 기준)
               let totalRequiredSlots = 0;
               const itemDayGroups = [];
 
               for (const item of campaign.items) {
-                const dailyCount = item.daily_purchase_count || '1';
-                const dayGroupCount = dailyCount.toString().split('/').length;
+                // ItemSlot에서 실제 존재하는 고유 day_group 목록 추출
+                const slots = item.slots || [];
+                const uniqueDayGroups = [...new Set(slots.map(s => s.day_group).filter(d => d != null))].sort((a, b) => a - b);
+
+                // 슬롯이 없으면 기본 1개로 계산 (신규 품목 호환)
+                const dayGroupCount = uniqueDayGroups.length || 1;
                 totalRequiredSlots += dayGroupCount;
 
                 // 각 day_group 저장
-                for (let dg = 1; dg <= dayGroupCount; dg++) {
+                (uniqueDayGroups.length > 0 ? uniqueDayGroups : [1]).forEach(dg => {
                   itemDayGroups.push({ itemId: item.id, dayGroup: dg });
-                }
+                });
               }
 
               // 해당 캠페인의 실제 배정된 slot 수 조회

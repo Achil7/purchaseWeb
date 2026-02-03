@@ -87,11 +87,29 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   // 숨김 항목 표시 모드
   const [showHidden, setShowHidden] = useState(false);
 
+  // 숨겨진 연월브랜드/캠페인 ID 목록 (localStorage 기반 - 각 사용자 독립)
+  const [hiddenMonthlyBrandIds, setHiddenMonthlyBrandIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sales_hidden_monthly_brands');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [hiddenCampaignIds, setHiddenCampaignIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sales_hidden_campaigns');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   // 일괄 삭제용 선택 상태
   const [selectedForBulkDelete, setSelectedForBulkDelete] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  // 캠페인 검색 상태
+  // 연월브랜드 검색 상태
   const [searchQuery, setSearchQuery] = useState('');
 
   // 시트 탭 상태 (0: 기본 시트, 1: 날짜별 작업)
@@ -477,60 +495,48 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     setCampaignDialogOpen(true);
   };
 
-  // 연월브랜드 숨기기
-  const handleHideMonthlyBrand = async (monthlyBrand, e) => {
+  // 연월브랜드 숨기기 (localStorage 기반)
+  const handleHideMonthlyBrand = useCallback((monthlyBrand, e) => {
     e.stopPropagation();
-    if (window.confirm(`"${monthlyBrand.name}" 연월브랜드를 숨기시겠습니까?`)) {
-      try {
-        await monthlyBrandService.hideMonthlyBrand(monthlyBrand.id);
-        loadMonthlyBrands();
-      } catch (err) {
-        console.error('Failed to hide monthly brand:', err);
-        alert('숨기기에 실패했습니다.');
-      }
-    }
-  };
+    setHiddenMonthlyBrandIds(prev => {
+      const newHidden = [...prev, monthlyBrand.id];
+      localStorage.setItem('sales_hidden_monthly_brands', JSON.stringify(newHidden));
+      return newHidden;
+    });
+  }, []);
 
-  // 연월브랜드 복구
-  const handleRestoreMonthlyBrand = async (monthlyBrand, e) => {
+  // 연월브랜드 복구 (localStorage 기반)
+  const handleRestoreMonthlyBrand = useCallback((monthlyBrand, e) => {
     e.stopPropagation();
-    try {
-      await monthlyBrandService.restoreMonthlyBrand(monthlyBrand.id);
-      loadMonthlyBrands();
-    } catch (err) {
-      console.error('Failed to restore monthly brand:', err);
-      alert('복구에 실패했습니다.');
-    }
-  };
+    setHiddenMonthlyBrandIds(prev => {
+      const newHidden = prev.filter(id => id !== monthlyBrand.id);
+      localStorage.setItem('sales_hidden_monthly_brands', JSON.stringify(newHidden));
+      return newHidden;
+    });
+  }, []);
 
-  // 캠페인 숨기기
-  const handleHideCampaign = async (campaign, e) => {
+  // 캠페인 숨기기 (localStorage 기반)
+  const handleHideCampaign = useCallback((campaign, e) => {
     e.stopPropagation();
-    if (window.confirm(`"${campaign.name}" 캠페인을 숨기시겠습니까?`)) {
-      try {
-        await campaignService.hideCampaign(campaign.id);
-        if (selectedCampaign?.id === campaign.id) {
-          setSelectedCampaign(null);
-        }
-        loadMonthlyBrands();
-      } catch (err) {
-        console.error('Failed to hide campaign:', err);
-        alert('숨기기에 실패했습니다.');
-      }
+    setHiddenCampaignIds(prev => {
+      const newHidden = [...prev, campaign.id];
+      localStorage.setItem('sales_hidden_campaigns', JSON.stringify(newHidden));
+      return newHidden;
+    });
+    if (selectedCampaign?.id === campaign.id) {
+      setSelectedCampaign(null);
     }
-  };
+  }, [selectedCampaign]);
 
-  // 캠페인 복구
-  const handleRestoreCampaign = async (campaign, e) => {
+  // 캠페인 복구 (localStorage 기반)
+  const handleRestoreCampaign = useCallback((campaign, e) => {
     e.stopPropagation();
-    try {
-      await campaignService.restoreCampaign(campaign.id);
-      loadMonthlyBrands();
-    } catch (err) {
-      console.error('Failed to restore campaign:', err);
-      alert('복구에 실패했습니다.');
-    }
-  };
+    setHiddenCampaignIds(prev => {
+      const newHidden = prev.filter(id => id !== campaign.id);
+      localStorage.setItem('sales_hidden_campaigns', JSON.stringify(newHidden));
+      return newHidden;
+    });
+  }, []);
 
   // 연월브랜드 삭제
   const handleDeleteMonthlyBrand = async (monthlyBrand, e) => {
@@ -845,11 +851,11 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 </Typography>
               )}
 
-              {/* 캠페인 검색 */}
+              {/* 연월브랜드 검색 */}
               {!showHidden && (
                 <TextField
                   size="small"
-                  placeholder="캠페인 검색..."
+                  placeholder="연월브랜드 검색..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   fullWidth
@@ -882,23 +888,26 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               </Box>
             ) : (() => {
               const searchLower = searchQuery.trim().toLowerCase();
+              const hiddenMbSet = new Set(hiddenMonthlyBrandIds);
+              const hiddenCampaignSet = new Set(hiddenCampaignIds);
 
               const filteredMonthlyBrands = monthlyBrands.map(mb => {
-                // 캠페인 필터링 (숨김 + 검색어)
-                const filteredCampaigns = (mb.campaigns || []).filter(c => {
-                  const hiddenFilter = showHidden ? c.is_hidden : !c.is_hidden;
-                  // 검색어가 있으면 캠페인 이름으로 필터링
-                  if (searchLower && !c.name.toLowerCase().includes(searchLower)) {
-                    return false;
-                  }
-                  return hiddenFilter;
-                });
-                return { ...mb, campaigns: filteredCampaigns };
+                const isMbHidden = hiddenMbSet.has(mb.id);
+                // 캠페인 필터링 (localStorage 기반 숨김)
+                const filteredCampaigns = (mb.campaigns || []).map(c => ({
+                  ...c,
+                  _isHidden: hiddenCampaignSet.has(c.id)
+                })).filter(c => showHidden ? c._isHidden : !c._isHidden);
+                return { ...mb, campaigns: filteredCampaigns, _isHidden: isMbHidden };
               }).filter(mb => {
                 if (showHidden) {
-                  return mb.is_hidden || mb.campaigns.length > 0;
+                  return mb._isHidden || mb.campaigns.length > 0;
                 }
-                return !mb.is_hidden && mb.campaigns.length > 0;
+                // 연월브랜드 이름으로 검색
+                if (searchLower && !mb.name.toLowerCase().includes(searchLower)) {
+                  return false;
+                }
+                return !mb._isHidden;
               });
 
               if (filteredMonthlyBrands.length === 0) {
@@ -908,7 +917,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                       {showHidden
                         ? '숨긴 항목이 없습니다'
                         : searchQuery
-                          ? `"${searchQuery}" 검색 결과 없음`
+                          ? `"${searchQuery}" 연월브랜드 검색 결과 없음`
                           : '등록된 연월브랜드가 없습니다'}
                     </Typography>
                     {!showHidden && (
@@ -934,7 +943,6 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                         {filteredMonthlyBrands.map((monthlyBrand, index) => {
                           // 이미 필터링된 campaigns 사용
                           const filteredCampaigns = monthlyBrand.campaigns || [];
-                          if (!showHidden && monthlyBrand.is_hidden) return null;
 
                           return (
                             <Draggable
@@ -952,7 +960,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                     sx={{
                                       bgcolor: snapshot.isDragging
                                         ? '#c5cae9'
-                                        : monthlyBrand.is_hidden
+                                        : monthlyBrand._isHidden
                                           ? '#fff3e0'
                                           : expandedMonthlyBrands[monthlyBrand.id]
                                             ? '#e8eaf6'
@@ -980,15 +988,15 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                       </Box>
                                     )}
                                     <ListItemIcon sx={{ minWidth: 28 }}>
-                                      <CalendarMonthIcon fontSize="small" color={monthlyBrand.is_hidden ? 'warning' : 'primary'} />
+                                      <CalendarMonthIcon fontSize="small" color={monthlyBrand._isHidden ? 'warning' : 'primary'} />
                                     </ListItemIcon>
                                     <ListItemText
                                       primary={
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                          <Typography variant="body2" fontWeight="bold" noWrap sx={{ flex: 1, fontSize: '0.85rem', color: monthlyBrand.is_hidden ? 'text.secondary' : 'inherit' }}>
+                                          <Typography variant="body2" fontWeight="bold" noWrap sx={{ flex: 1, fontSize: '0.85rem', color: monthlyBrand._isHidden ? 'text.secondary' : 'inherit' }}>
                                             {monthlyBrand.name}
                                           </Typography>
-                                          {showHidden && monthlyBrand.is_hidden ? (
+                                          {showHidden && monthlyBrand._isHidden ? (
                                             <>
                                               <Tooltip title="선택">
                                                 <IconButton
@@ -1036,10 +1044,10 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                         </Box>
                                       }
                                     />
-                                    {(expandedMonthlyBrands[monthlyBrand.id] || (searchQuery.trim() && filteredCampaigns.length > 0)) ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+                                    {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
                                   </ListItemButton>
 
-                                  <Collapse in={expandedMonthlyBrands[monthlyBrand.id] || (searchQuery.trim() && filteredCampaigns.length > 0)} timeout={0}>
+                                  <Collapse in={expandedMonthlyBrands[monthlyBrand.id]} timeout={0}>
                           <List component="div" disablePadding dense>
                             {filteredCampaigns.length > 0 ? (
                               filteredCampaigns.map((campaign) => {
@@ -1058,21 +1066,21 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                     onClick={() => handleCampaignClick(campaign)}
                                     sx={{
                                       pl: 4, py: 0.3,
-                                      bgcolor: campaign.is_hidden ? '#fff8e1' : isSelected ? '#c5cae9' : 'inherit',
+                                      bgcolor: campaign._isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : 'inherit',
                                       borderLeft: isSelected ? '3px solid #2c387e' : '3px solid transparent',
-                                      '&:hover': { bgcolor: campaign.is_hidden ? '#fff8e1' : isSelected ? '#c5cae9' : '#f5f5f5' }
+                                      '&:hover': { bgcolor: campaign._isHidden ? '#fff8e1' : isSelected ? '#c5cae9' : '#f5f5f5' }
                                     }}
                                   >
                                     <ListItemIcon sx={{ minWidth: 24 }}>
-                                      <FolderIcon sx={{ fontSize: 16 }} color={campaign.is_hidden ? 'warning' : isSelected ? 'primary' : 'action'} />
+                                      <FolderIcon sx={{ fontSize: 16 }} color={campaign._isHidden ? 'warning' : isSelected ? 'primary' : 'action'} />
                                     </ListItemIcon>
                                     <ListItemText
                                       primary={
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                          <Typography variant="body2" fontWeight={isSelected ? 'bold' : 'normal'} noWrap sx={{ fontSize: '0.8rem', flex: 1, color: campaign.is_hidden ? 'text.secondary' : 'inherit' }}>
+                                          <Typography variant="body2" fontWeight={isSelected ? 'bold' : 'normal'} noWrap sx={{ fontSize: '0.8rem', flex: 1, color: campaign._isHidden ? 'text.secondary' : 'inherit' }}>
                                             {campaign.name}
                                           </Typography>
-                                          {showHidden && campaign.is_hidden ? (
+                                          {showHidden && campaign._isHidden ? (
                                             <>
                                               <Tooltip title="선택">
                                                 <IconButton

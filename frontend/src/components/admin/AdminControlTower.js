@@ -17,6 +17,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseIcon from '@mui/icons-material/Close';
+import ClearIcon from '@mui/icons-material/Clear';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import CampaignIcon from '@mui/icons-material/Campaign';
@@ -81,6 +82,9 @@ function AdminControlTower() {
   const [userDetail, setUserDetail] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // 진행자 배정 탭 - 영업사 검색 상태
+  const [salesSearchQuery, setSalesSearchQuery] = useState('');
 
   // 연월브랜드 펼치기/접기 토글
   const toggleMonthlyBrand = (monthlyBrandId) => {
@@ -504,8 +508,19 @@ function AdminControlTower() {
 
   // 진행자 배정 탭 렌더링 - 연월브랜드 > 캠페인 목록
   const renderAssignmentTab = () => {
-    // 숨겨지지 않은 연월브랜드만 표시
-    const filteredMonthlyBrands = monthlyBrands.filter(mb => !mb.is_hidden);
+    // 숨겨지지 않은 연월브랜드만 표시 + 영업사 검색 필터
+    const salesSearchLower = salesSearchQuery.trim().toLowerCase();
+    const filteredMonthlyBrands = monthlyBrands.filter(mb => {
+      if (mb.is_hidden) return false;
+      // 영업사 검색 필터
+      if (salesSearchLower) {
+        const creatorName = mb.creator?.name || '';
+        if (!creatorName.toLowerCase().includes(salesSearchLower)) {
+          return false;
+        }
+      }
+      return true;
+    });
 
     return (
       <Box>
@@ -550,7 +565,36 @@ function AdminControlTower() {
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa', width: '50px' }}></TableCell>
-                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa' }}>영업사</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa', minWidth: 180 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Typography variant="body2" fontWeight="bold">영업사</Typography>
+                        <TextField
+                          size="small"
+                          placeholder="검색..."
+                          value={salesSearchQuery}
+                          onChange={(e) => setSalesSearchQuery(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          sx={{
+                            width: 100,
+                            '& .MuiInputBase-root': { height: 28, fontSize: '0.75rem', bgcolor: '#fff' },
+                            '& .MuiInputBase-input': { py: 0.5, px: 1 }
+                          }}
+                          InputProps={{
+                            endAdornment: salesSearchQuery && (
+                              <InputAdornment position="end">
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => { e.stopPropagation(); setSalesSearchQuery(''); }}
+                                  sx={{ p: 0.2 }}
+                                >
+                                  <ClearIcon sx={{ fontSize: 16 }} />
+                                </IconButton>
+                              </InputAdornment>
+                            )
+                          }}
+                        />
+                      </Box>
+                    </TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa' }}>연월브랜드</TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e3f2fd' }}>캠페인</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#fff3e0', width: '100px' }}>날짜</TableCell>
@@ -1043,7 +1087,10 @@ function AdminControlTower() {
       <Paper sx={{ mb: 1 }}>
         <Tabs
           value={tabValue}
-          onChange={(e, newValue) => setTabValue(newValue)}
+          onChange={(e, newValue) => {
+            setError(null);  // 탭 전환 시 에러 상태 초기화
+            setTabValue(newValue);
+          }}
           variant="fullWidth"
           sx={{
             minHeight: 48,
