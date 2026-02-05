@@ -305,10 +305,10 @@ function AdminControlTower() {
       });
 
       // 연월브랜드 자체를 정렬: 미완료 연월브랜드가 위로
+      // (is_hidden은 백엔드에서 이미 필터링됨)
       data.sort((mbA, mbB) => {
-        // 숨겨진 캠페인 제외한 리스트로 완료 여부 계산
-        const campaignsA = (mbA.campaigns || []).filter(c => !c.is_hidden);
-        const campaignsB = (mbB.campaigns || []).filter(c => !c.is_hidden);
+        const campaignsA = mbA.campaigns || [];
+        const campaignsB = mbB.campaigns || [];
 
         // 연월브랜드의 모든 캠페인이 배정 완료되었는지 확인
         const isAComplete = campaignsA.length === 0 || campaignsA.every(c =>
@@ -487,18 +487,14 @@ function AdminControlTower() {
   // 진행자 배정 탭 렌더링 - 연월브랜드 > 캠페인 목록
   const renderAssignmentTab = () => {
     // 숨겨지지 않은 연월브랜드만 표시 + 영업사 검색 필터
+    // 영업사 검색 필터 (is_hidden은 백엔드에서 이미 필터링됨)
     const salesSearchLower = salesSearchQuery.trim().toLowerCase();
-    const filteredMonthlyBrands = monthlyBrands.filter(mb => {
-      if (mb.is_hidden) return false;
-      // 영업사 검색 필터
-      if (salesSearchLower) {
-        const creatorName = mb.creator?.name || '';
-        if (!creatorName.toLowerCase().includes(salesSearchLower)) {
-          return false;
-        }
-      }
-      return true;
-    });
+    const filteredMonthlyBrands = salesSearchLower
+      ? monthlyBrands.filter(mb => {
+          const creatorName = mb.creator?.name || '';
+          return creatorName.toLowerCase().includes(salesSearchLower);
+        })
+      : monthlyBrands;
 
     // 페이지네이션 계산
     const totalItems = filteredMonthlyBrands.length;
@@ -621,18 +617,16 @@ function AdminControlTower() {
                   {paginatedMonthlyBrands.length > 0 ? (
                     paginatedMonthlyBrands.map((mb) => {
                       const isExpanded = expandedMonthlyBrands[mb.id] || false;
+                      // is_hidden은 백엔드에서 이미 필터링됨
                       const campaigns = mb.campaigns || [];
-
-                      // 숨겨지지 않은 캠페인만 표시
-                      const filteredCampaigns = campaigns.filter(c => !c.is_hidden);
-                      const displayCampaignCount = filteredCampaigns.length;
+                      const displayCampaignCount = campaigns.length;
 
                       // 연월브랜드 전체 배정 완료 여부 계산
-                      const isMbFullyAssigned = displayCampaignCount === 0 || filteredCampaigns.every(c =>
+                      const isMbFullyAssigned = displayCampaignCount === 0 || campaigns.every(c =>
                         c.isFullyAssigned || c.assignmentStatus === 'no_items' || (c.items?.length || 0) === 0
                       );
                       // 품목이 있는 캠페인이 하나라도 있는지 (배정 상태 표시 여부)
-                      const hasAnyItemsInMb = filteredCampaigns.some(c => (c.items?.length || 0) > 0);
+                      const hasAnyItemsInMb = campaigns.some(c => (c.items?.length || 0) > 0);
 
                       return (
                         <React.Fragment key={mb.id}>
@@ -739,7 +733,7 @@ function AdminControlTower() {
                           </TableRow>
 
                           {/* 캠페인 행들 (펼쳐졌을 때만 표시) */}
-                          {isExpanded && filteredCampaigns.map((campaign) => {
+                          {isExpanded && campaigns.map((campaign) => {
                             const itemCount = campaign.items?.length || 0;
                             const isFullyAssigned = campaign.isFullyAssigned || campaign.assignmentStatus === 'no_items';
                             const isIncomplete = !isFullyAssigned && itemCount > 0;

@@ -231,6 +231,23 @@ function AdminCampaignAssignment() {
     isDayGroupSuspended(item, dayGroup)
   ).length;
 
+  // 총 건수 계산 (중단된 항목 제외)
+  const totalSlotCount = assignmentRows.reduce((sum, { item, dayGroup }) => {
+    const isSuspended = isDayGroupSuspended(item, dayGroup);
+    if (isSuspended) return sum;
+
+    const dailyCount = item.daily_purchase_count;
+    if (dailyCount && typeof dailyCount === 'string' && dailyCount.includes('/')) {
+      const counts = dailyCount.split('/');
+      const countForDay = parseInt(counts[dayGroup - 1], 10);
+      return sum + (isNaN(countForDay) ? 0 : countForDay);
+    } else if (dailyCount) {
+      const count = parseInt(dailyCount, 10);
+      return sum + (isNaN(count) ? 0 : count);
+    }
+    return sum;
+  }, 0);
+
   // 일괄 배정 핸들러
   const handleBulkAssign = () => {
     if (!bulkOperatorId) {
@@ -383,7 +400,14 @@ function AdminCampaignAssignment() {
               <TableRow>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa' }}>제품명</TableCell>
                 <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#e8f5e9', width: '100px' }}>날짜</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#e8f5e9', width: '70px' }}>건수</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#e8f5e9', width: '80px' }}>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: '#1565c0', fontWeight: 'bold' }}>
+                      총 {totalSlotCount}건
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>건수</Typography>
+                  </Box>
+                </TableCell>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e3f2fd', width: '220px' }}>
                   진행자 배정 (필수)
                 </TableCell>

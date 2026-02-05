@@ -79,8 +79,8 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
       const totalPurchaseCount = firstSlot.total_purchase_count || item.total_purchase_count || '';
       const dailyPurchaseCount = firstSlot.daily_purchase_count || item.daily_purchase_count || '';
       const purchaseOption = firstSlot.purchase_option || item.purchase_option || '';
-      const courierName = firstSlot.courier_name || '롯데택배';
       const courierServiceYn = firstSlot.courier_service_yn || item.courier_service_yn || '';
+      const courierName = firstSlot.courier_name || item.courier_name || (courierServiceYn.toUpperCase().trim() === 'Y' ? '롯데택배' : '');
       const productUrl = firstSlot.product_url || item.product_url || '';
       const notes = firstSlot.notes || item.notes || '';
       const productDate = item.date || '';
@@ -192,8 +192,8 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
       const totalPurchaseCount = firstSlot.total_purchase_count || item.total_purchase_count || '';
       const dailyPurchaseCount = firstSlot.daily_purchase_count || item.daily_purchase_count || '';
       const purchaseOption = firstSlot.purchase_option || item.purchase_option || '';
-      const courierName = firstSlot.courier_name || '롯데택배';
       const courierServiceYn = firstSlot.courier_service_yn || item.courier_service_yn || '';
+      const courierName = firstSlot.courier_name || item.courier_name || (courierServiceYn.toUpperCase().trim() === 'Y' ? '롯데택배' : '');
       const productUrl = firstSlot.product_url || item.product_url || '';
       const notes = firstSlot.notes || item.notes || '';
       const productDate = item.date || '';

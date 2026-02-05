@@ -787,8 +787,13 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
           total_purchase_count: localChanges.total_purchase_count ?? firstSlot.total_purchase_count ?? mergedItem.total_purchase_count ?? '',
           daily_purchase_count: localChanges.daily_purchase_count ?? firstSlot.daily_purchase_count ?? mergedItem.daily_purchase_count ?? '',
           purchase_option: localChanges.purchase_option ?? firstSlot.purchase_option ?? mergedItem.purchase_option ?? '',
-          courier_name: localChanges.courier_name ?? firstSlot.courier_name ?? mergedItem.courier_name ?? '롯데택배',
           courier_service_yn: localChanges.courier_service_yn ?? firstSlot.courier_service_yn ?? mergedItem.courier_service_yn ?? '',
+          courier_name: (() => {
+            const name = localChanges.courier_name ?? firstSlot.courier_name ?? mergedItem.courier_name;
+            if (name) return name;
+            const courierYn = localChanges.courier_service_yn ?? firstSlot.courier_service_yn ?? mergedItem.courier_service_yn ?? '';
+            return courierYn.toUpperCase().trim() === 'Y' ? '롯데택배' : '';
+          })(),
           product_url: localChanges.product_url ?? firstSlot.product_url ?? mergedItem.product_url ?? '',
           notes: localChanges.notes ?? firstSlot.notes ?? mergedItem.notes ?? ''
         };
@@ -830,7 +835,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
           col7: dayGroupProductInfo.product_price,
           col8: dayGroupProductInfo.total_purchase_count,
           col9: dayGroupProductInfo.daily_purchase_count,
-          col10: dayGroupProductInfo.courier_name || '롯데택배',
+          col10: dayGroupProductInfo.courier_name,
           col11: dayGroupProductInfo.courier_service_yn,
           col12: dayGroupProductInfo.product_url,
           col13: dayGroupProductInfo.notes,

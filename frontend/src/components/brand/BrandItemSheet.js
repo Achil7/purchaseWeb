@@ -762,6 +762,12 @@ function BrandItemSheetInner({
           daily_purchase_count: firstSlot.daily_purchase_count || mergedItem.daily_purchase_count || '',
           purchase_option: firstSlot.purchase_option || mergedItem.purchase_option || '',
           courier_service_yn: firstSlot.courier_service_yn || mergedItem.courier_service_yn || '',
+          courier_name: (() => {
+            const name = firstSlot.courier_name || mergedItem.courier_name;
+            if (name) return name;
+            const courierYn = firstSlot.courier_service_yn || mergedItem.courier_service_yn || '';
+            return courierYn.toUpperCase().trim() === 'Y' ? '롯데택배' : '';
+          })(),
           product_url: firstSlot.product_url || mergedItem.product_url || '',
           notes: firstSlot.notes || mergedItem.notes || ''
         };
@@ -802,7 +808,7 @@ function BrandItemSheetInner({
           col7: dayGroupProductInfo.product_price,
           col8: dayGroupProductInfo.total_purchase_count,
           col9: dayGroupProductInfo.daily_purchase_count,
-          col10: dayGroupProductInfo.courier_name || '롯데택배',
+          col10: dayGroupProductInfo.courier_name,
           col11: dayGroupProductInfo.courier_service_yn,
           col12: dayGroupProductInfo.product_url,
           col13: dayGroupProductInfo.notes,

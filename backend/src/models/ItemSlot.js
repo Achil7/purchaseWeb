@@ -66,11 +66,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
-    // 택배사명 (기본값: 롯데택배)
+    // 택배사명 (택배대행 Y일 때만 프론트에서 기본값 적용)
     courier_name: {
       type: DataTypes.TEXT,
-      allowNull: true,
-      defaultValue: '롯데택배'
+      allowNull: true
     },
     product_url: {
       type: DataTypes.TEXT,

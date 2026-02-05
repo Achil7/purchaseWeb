@@ -65,11 +65,10 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true,
       comment: '택배대행 Y/N (파이프 구분 가능, 예: "Y | N")'
     },
-    // 택배사명 (기본값: 롯데택배)
+    // 택배사명 (택배대행 Y일 때만 프론트에서 기본값 적용)
     courier_name: {
       type: DataTypes.TEXT,
-      allowNull: true,
-      defaultValue: '롯데택배'
+      allowNull: true
     },
     // 입금명 (카톡방명)
     deposit_name: {

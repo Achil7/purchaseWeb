@@ -1061,6 +1061,9 @@ exports.splitDayGroup = async (req, res) => {
     });
 
     // 제품 정보 결정: 슬롯에 값이 있으면 슬롯 값 사용, 없으면 Item 값 사용
+    const courierServiceYn = firstSlotOfCurrentGroup?.courier_service_yn || item.courier_service_yn;
+    // 택배대행이 Y일 때만 롯데택배 기본값 적용
+    const isCourierServiceY = courierServiceYn && courierServiceYn.toUpperCase().trim() === 'Y';
     const productInfo = {
       product_name: firstSlotOfCurrentGroup?.product_name || item.product_name,
       platform: firstSlotOfCurrentGroup?.platform || item.platform,
@@ -1070,8 +1073,8 @@ exports.splitDayGroup = async (req, res) => {
       total_purchase_count: firstSlotOfCurrentGroup?.total_purchase_count || item.total_purchase_count,
       daily_purchase_count: firstSlotOfCurrentGroup?.daily_purchase_count || item.daily_purchase_count,
       purchase_option: firstSlotOfCurrentGroup?.purchase_option || item.purchase_option,
-      courier_service_yn: firstSlotOfCurrentGroup?.courier_service_yn || item.courier_service_yn,
-      courier_name: firstSlotOfCurrentGroup?.courier_name || item.courier_name || '롯데택배',
+      courier_service_yn: courierServiceYn,
+      courier_name: firstSlotOfCurrentGroup?.courier_name || item.courier_name || (isCourierServiceY ? '롯데택배' : null),
       product_url: firstSlotOfCurrentGroup?.product_url || item.product_url,
       notes: firstSlotOfCurrentGroup?.notes || item.notes
     };

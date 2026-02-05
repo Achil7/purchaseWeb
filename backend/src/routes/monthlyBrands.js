@@ -96,37 +96,40 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
  */
 router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
   try {
-    // Admin용: 숨긴 항목도 모두 조회 (숨김 관리 기능 위해)
+    // Admin 진행자 배정용: 숨긴 연월브랜드/캠페인 제외 (성능 최적화)
     const monthlyBrands = await MonthlyBrand.findAll({
+      where: { is_hidden: false },
       include: [
         {
           model: User,
           as: 'brand',
-          attributes: ['id', 'name', 'username']
+          attributes: ['id', 'name']
         },
         {
           model: User,
           as: 'creator',
-          attributes: ['id', 'name', 'username']
+          attributes: ['id', 'name']
         },
         {
           model: Campaign,
           as: 'campaigns',
-          attributes: ['id', 'name', 'status', 'registered_at', 'created_at', 'is_hidden'],
+          where: { is_hidden: false },
+          required: false,
+          attributes: ['id', 'name', 'status', 'registered_at', 'created_at'],
           include: [
             {
               model: User,
               as: 'creator',
-              attributes: ['id', 'name', 'username']
+              attributes: ['id', 'name']
             },
             {
               model: Item,
               as: 'items',
-              attributes: ['id', 'product_name', 'status', 'daily_purchase_count'],
+              attributes: ['id', 'product_name', 'daily_purchase_count'],
               include: [{
                 model: ItemSlot,
                 as: 'slots',
-                attributes: ['id', 'day_group', 'is_suspended']
+                attributes: ['day_group', 'is_suspended']
               }]
             }
           ]
