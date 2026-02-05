@@ -36,7 +36,7 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
   const headers = [
     // 제품 정보 (day_group별)
     '일차', '제품날짜', '플랫폼', '제품명', '옵션', '출고유형', '키워드',
-    '가격', '총건수', '일건수', '택배대행', '상품URL', '특이사항',
+    '가격', '총건수', '일건수', '택배사', '택배대행', '상품URL', '특이사항',
     // 구매자 정보
     '순번', '구매자날짜', '예상구매자', '주문번호', '구매자', '수취인',
     '아이디', '연락처', '주소', '계좌', '금액', '송장번호', '리뷰샷URL',
@@ -79,6 +79,7 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
       const totalPurchaseCount = firstSlot.total_purchase_count || item.total_purchase_count || '';
       const dailyPurchaseCount = firstSlot.daily_purchase_count || item.daily_purchase_count || '';
       const purchaseOption = firstSlot.purchase_option || item.purchase_option || '';
+      const courierName = firstSlot.courier_name || '롯데택배';
       const courierServiceYn = firstSlot.courier_service_yn || item.courier_service_yn || '';
       const productUrl = firstSlot.product_url || item.product_url || '';
       const notes = firstSlot.notes || item.notes || '';
@@ -108,6 +109,7 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
           productPrice,                      // 가격
           totalPurchaseCount,                // 총건수
           dailyPurchaseCount,                // 일건수
+          courierName,                       // 택배사
           courierServiceYn,                  // 택배대행
           productUrl,                        // 상품URL
           notes,                             // 특이사항
@@ -150,7 +152,7 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
   const headers = [
     // 제품 정보
     '일차', '날짜', '플랫폼', '제품명', '옵션', '출고유형', '키워드',
-    '가격', '총건수', '일건수', '택배대행', '상품URL', '특이사항',
+    '가격', '총건수', '일건수', '택배사', '택배대행', '상품URL', '특이사항',
     // 구매자 정보 (브랜드사 허용 컬럼 - 연락처, 계좌 제외)
     '주문번호', '구매자', '수취인', '아이디', '주소', '금액', '송장번호', '리뷰샷URL'
   ];
@@ -190,6 +192,7 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
       const totalPurchaseCount = firstSlot.total_purchase_count || item.total_purchase_count || '';
       const dailyPurchaseCount = firstSlot.daily_purchase_count || item.daily_purchase_count || '';
       const purchaseOption = firstSlot.purchase_option || item.purchase_option || '';
+      const courierName = firstSlot.courier_name || '롯데택배';
       const courierServiceYn = firstSlot.courier_service_yn || item.courier_service_yn || '';
       const productUrl = firstSlot.product_url || item.product_url || '';
       const notes = firstSlot.notes || item.notes || '';
@@ -214,6 +217,7 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
           productPrice,                      // 가격
           totalPurchaseCount,                // 총건수
           dailyPurchaseCount,                // 일건수
+          courierName,                       // 택배사
           courierServiceYn,                  // 택배대행
           productUrl,                        // 상품URL
           notes,                             // 특이사항

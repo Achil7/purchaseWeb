@@ -795,3 +795,73 @@ exports.getPendingCount = async (req, res) => {
     });
   }
 };
+
+/**
+ * 이미지 프록시 (CORS 우회용)
+ * - S3 URL을 받아서 이미지 바이너리를 반환
+ * - ZIP 다운로드 기능에서 사용
+ */
+exports.proxyImage = async (req, res) => {
+  try {
+    const { url } = req.query;
+
+    if (!url) {
+      return res.status(400).json({
+        success: false,
+        message: 'URL이 필요합니다'
+      });
+    }
+
+    // S3 URL 검증 (보안)
+    const allowedDomains = [
+      'campmanager-review-images.s3.ap-northeast-2.amazonaws.com',
+      's3.ap-northeast-2.amazonaws.com'
+    ];
+
+    const urlObj = new URL(url);
+    const isAllowed = allowedDomains.some(domain => urlObj.hostname.includes(domain));
+
+    if (!isAllowed) {
+      return res.status(403).json({
+        success: false,
+        message: '허용되지 않은 URL입니다'
+      });
+    }
+
+    // S3에서 이미지 fetch
+    const https = require('https');
+    const http = require('http');
+    const protocol = url.startsWith('https') ? https : http;
+
+    protocol.get(url, (imageRes) => {
+      if (imageRes.statusCode !== 200) {
+        return res.status(imageRes.statusCode).json({
+          success: false,
+          message: '이미지를 가져올 수 없습니다'
+        });
+      }
+
+      // Content-Type 전달
+      const contentType = imageRes.headers['content-type'] || 'image/jpeg';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+
+      // 이미지 스트림 전달
+      imageRes.pipe(res);
+    }).on('error', (err) => {
+      console.error('Proxy image fetch error:', err);
+      res.status(500).json({
+        success: false,
+        message: '이미지 프록시 실패',
+        error: err.message
+      });
+    });
+  } catch (error) {
+    console.error('Proxy image error:', error);
+    res.status(500).json({
+      success: false,
+      message: '이미지 프록시 실패',
+      error: error.message
+    });
+  }
+};

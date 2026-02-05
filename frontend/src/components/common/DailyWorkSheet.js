@@ -15,7 +15,6 @@ import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
 import itemSlotService from '../../services/itemSlotService';
-import itemService from '../../services/itemService';
 import imageService from '../../services/imageService';
 
 // Handsontable 모든 모듈 등록
@@ -88,16 +87,16 @@ const createDailyProductDataRenderer = (tableData, collapsedItems) => {
       td.textContent = value ?? '';
       td.style.fontWeight = 'bold';
       td.style.color = '#1565c0';
-    } else if (prop === 'col12' && value) {
-      // URL 컬럼
+    } else if (prop === 'col13' && value) {
+      // URL 컬럼 (col13 = product_url)
       const url = value.startsWith('http') ? value : `https://${value}`;
       td.style.whiteSpace = 'nowrap';
       td.style.overflow = 'hidden';
       td.style.textOverflow = 'ellipsis';
       td.title = value;
       td.innerHTML = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${value}</a>`;
-    } else if (prop === 'col14') {
-      // 상세보기 버튼
+    } else if (prop === 'col15') {
+      // 상세보기 버튼 (col15)
       td.innerHTML = `<span class="detail-btn" style="cursor: pointer; font-size: 14px; color: #1976d2;">📋</span>`;
       td.style.textAlign = 'center';
       td.style.cursor = 'pointer';
@@ -455,6 +454,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     }
   };
 
+  // 컴포넌트 마운트 시 캐시 클리어 (다른 시트와 동기화 위해)
+  useEffect(() => {
+    slotsCache.clear();
+  }, []);
+
   // searchDate 변경 시 데이터 로드
   useEffect(() => {
     if (searchDate) {
@@ -580,21 +584,23 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       // 연월브랜드-캠페인 표시 문자열
       const mbCampaignLabel = `${monthlyBrand?.name || '연월브랜드'} - ${campaign?.name || '캠페인'}`;
 
-      // 슬롯/아이템에서 제품 정보 병합 (슬롯 우선)
+      // 슬롯/아이템에서 제품 정보 병합 (changedItems > 슬롯 > 아이템 우선순위)
       const firstSlot = groupData.slots[0] || {};
+      const localChanges = changedItems[groupKey] || {};
       const productInfo = {
-        product_name: firstSlot.product_name || item.product_name || '',
-        platform: firstSlot.platform || item.platform || '',
-        shipping_type: firstSlot.shipping_type || item.shipping_type || '',
-        keyword: firstSlot.keyword || item.keyword || '',
-        product_price: firstSlot.product_price || item.product_price || '',
-        total_purchase_count: firstSlot.total_purchase_count || item.total_purchase_count || '',
-        daily_purchase_count: firstSlot.daily_purchase_count || item.daily_purchase_count || '',
-        purchase_option: firstSlot.purchase_option || item.purchase_option || '',
-        courier_service_yn: firstSlot.courier_service_yn || item.courier_service_yn || '',
-        product_url: firstSlot.product_url || item.product_url || '',
-        notes: firstSlot.notes || item.notes || '',
-        date: firstSlot.date || item.date || ''
+        product_name: localChanges.product_name ?? firstSlot.product_name ?? item.product_name ?? '',
+        platform: localChanges.platform ?? firstSlot.platform ?? item.platform ?? '',
+        shipping_type: localChanges.shipping_type ?? firstSlot.shipping_type ?? item.shipping_type ?? '',
+        keyword: localChanges.keyword ?? firstSlot.keyword ?? item.keyword ?? '',
+        product_price: localChanges.product_price ?? firstSlot.product_price ?? item.product_price ?? '',
+        total_purchase_count: localChanges.total_purchase_count ?? firstSlot.total_purchase_count ?? item.total_purchase_count ?? '',
+        daily_purchase_count: localChanges.daily_purchase_count ?? firstSlot.daily_purchase_count ?? item.daily_purchase_count ?? '',
+        purchase_option: localChanges.purchase_option ?? firstSlot.purchase_option ?? item.purchase_option ?? '',
+        courier_name: localChanges.courier_name ?? firstSlot.courier_name ?? item.courier_name ?? '롯데택배',
+        courier_service_yn: localChanges.courier_service_yn ?? firstSlot.courier_service_yn ?? item.courier_service_yn ?? '',
+        product_url: localChanges.product_url ?? firstSlot.product_url ?? item.product_url ?? '',
+        notes: localChanges.notes ?? firstSlot.notes ?? item.notes ?? '',
+        date: localChanges.date ?? firstSlot.date ?? item.date ?? ''
       };
 
       // 품목 구분선 (첫 번째 그룹 제외)
@@ -612,8 +618,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       data.push({
         _rowType: ROW_TYPES.PRODUCT_HEADER,
         col0: '', col1: '연월브랜드-캠페인', col2: '날짜', col3: '플랫폼', col4: '제품명', col5: '옵션', col6: '출고', col7: '키워드',
-        col8: '가격', col9: '총건수', col10: '일건수', col11: '택배', col12: 'URL', col13: '특이사항', col14: '상세',
-        col15: '', col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
+        col8: '가격', col9: '총건수', col10: '일건수', col11: '택배사', col12: '택배', col13: 'URL', col14: '특이사항', col15: '상세',
+        col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
       });
       meta.push({ type: ROW_TYPES.PRODUCT_HEADER, itemId: item.id, dayGroup });
 
@@ -637,11 +643,12 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         col8: productInfo.product_price,
         col9: productInfo.total_purchase_count,
         col10: productInfo.daily_purchase_count,
-        col11: productInfo.courier_service_yn,
-        col12: productInfo.product_url,
-        col13: productInfo.notes,
-        col14: '📋',
-        col15: '', col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
+        col11: productInfo.courier_name || '롯데택배',
+        col12: productInfo.courier_service_yn,
+        col13: productInfo.product_url,
+        col14: productInfo.notes,
+        col15: '📋',
+        col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
       });
       meta.push({ type: ROW_TYPES.PRODUCT_DATA, itemId: item.id, dayGroup, uploadLinkToken, groupKey });
 
@@ -725,7 +732,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     });
 
     return { tableData: data, rowMeta: meta };
-  }, [groupedSlots, collapsedItems]);
+  }, [groupedSlots, collapsedItems, changedItems]); // changedItems 추가 - 로컬 수정사항 즉시 반영
 
   // 접기/펼치기 토글
   const toggleCollapse = useCallback((groupKey) => {
@@ -827,7 +834,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         break;
 
       case ROW_TYPES.PRODUCT_DATA:
-        cellProperties.readOnly = (col === 0 || col === 1 || col === 14);
+        cellProperties.readOnly = (col === 0 || col === 1 || col === 15);  // col0=토글, col1=연월브랜드-캠페인, col15=상세보기 버튼
         if (col === 1) {
           cellProperties.disableVisualSelection = true;
         }
@@ -893,8 +900,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           col8: 'product_price',
           col9: 'total_purchase_count',
           col10: 'daily_purchase_count',
-          col11: 'courier_service_yn',
-          col12: 'product_url',
+          col11: 'courier_name',
+          col12: 'courier_service_yn',
+          col13: 'product_url',
           col14: 'notes'
         };
 
@@ -1071,10 +1079,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       setChangedSlots({});
       setChangedItems({});
 
-      // 캐시 무효화 (다음 로드 시 최신 데이터 가져오도록)
-      const formattedDate = format(searchDate, 'yyyy-MM-dd');
-      const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
-      slotsCache.delete(cacheKey);
+      // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
+      slotsCache.clear();
 
       setSnackbar({ open: true, message: '저장되었습니다.', severity: 'success' });
 
@@ -1419,8 +1425,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
                 return;
               }
 
-              // 제품 데이터 행 col14 클릭 - 상세보기 팝업
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
+              // 제품 데이터 행 col15 클릭 - 상세보기 팝업
+              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 15) {
                 setProductDetailPopup({
                   open: true,
                   item: rowData._item,

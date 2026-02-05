@@ -69,7 +69,7 @@ exports.updateSlot = async (req, res) => {
     }
 
     // 업데이트 가능한 필드만 필터링 (ItemSlot 모델 기준)
-    const allowedFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'buyer_notes'];
+    const allowedFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'buyer_notes', 'courier_name'];
     const filteredData = {};
     for (const field of allowedFields) {
       if (updateData[field] !== undefined) {
@@ -130,7 +130,7 @@ exports.updateSlotsBulk = async (req, res) => {
     }
 
     // 슬롯 필드 (ItemSlot 모델 기준) - day_group별 독립 제품 정보 필드 포함
-    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'product_url', 'buyer_notes'];
+    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes'];
     // 구매자 필드 (Buyer 모델 기준)
     const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status', 'deposit_name', 'date'];
 
@@ -278,7 +278,7 @@ exports.getSlotsByCampaign = async (req, res) => {
         'keyword', 'product_price', 'notes', 'status', 'expected_buyer', 'buyer_id',
         'day_group', 'upload_link_token', 'review_cost',
         'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count',
-        'courier_service_yn', 'product_url', 'buyer_notes',
+        'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes', 'is_suspended',
         'created_at', 'updated_at'
       ],
       include: [
@@ -288,7 +288,7 @@ exports.getSlotsByCampaign = async (req, res) => {
           required: true,  // INNER JOIN - soft delete된 Item의 슬롯 제외
           attributes: [
             'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
-            'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
+            'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
             'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
             'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
             'date', 'display_order'
@@ -475,7 +475,7 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
         'keyword', 'product_price', 'notes', 'status', 'expected_buyer', 'buyer_id',
         'day_group', 'upload_link_token', 'review_cost',
         'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count',
-        'courier_service_yn', 'product_url', 'buyer_notes',
+        'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes',
         'created_at', 'updated_at'
       ],
       include: [
@@ -485,7 +485,7 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
           required: true,  // INNER JOIN - soft delete된 Item의 슬롯 제외
           attributes: [
             'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
-            'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
+            'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
             'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
             'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
             'date', 'display_order'
@@ -1041,7 +1041,7 @@ exports.splitDayGroup = async (req, res) => {
       attributes: [
         'id', 'campaign_id', 'product_name', 'platform', 'shipping_type',
         'keyword', 'product_price', 'total_purchase_count', 'daily_purchase_count',
-        'purchase_option', 'courier_service_yn', 'product_url', 'notes'
+        'purchase_option', 'courier_service_yn', 'courier_name', 'product_url', 'notes'
       ]
     });
     if (!item) {
@@ -1071,6 +1071,7 @@ exports.splitDayGroup = async (req, res) => {
       daily_purchase_count: firstSlotOfCurrentGroup?.daily_purchase_count || item.daily_purchase_count,
       purchase_option: firstSlotOfCurrentGroup?.purchase_option || item.purchase_option,
       courier_service_yn: firstSlotOfCurrentGroup?.courier_service_yn || item.courier_service_yn,
+      courier_name: firstSlotOfCurrentGroup?.courier_name || item.courier_name || '롯데택배',
       product_url: firstSlotOfCurrentGroup?.product_url || item.product_url,
       notes: firstSlotOfCurrentGroup?.notes || item.notes
     };
@@ -1118,6 +1119,7 @@ exports.splitDayGroup = async (req, res) => {
         daily_purchase_count: productInfo.daily_purchase_count,
         purchase_option: productInfo.purchase_option,
         courier_service_yn: productInfo.courier_service_yn,
+        courier_name: productInfo.courier_name,
         product_url: productInfo.product_url,
         notes: productInfo.notes
       },
@@ -1265,7 +1267,7 @@ exports.getSlotsByDate = async (req, res) => {
       required: true,  // INNER JOIN - Item이 있어야 함
       attributes: [
         'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
-        'shipping_type', 'courier_service_yn', 'product_url', 'purchase_option',
+        'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
         'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
       ],
       include: [
@@ -1427,6 +1429,119 @@ exports.getSlotsByDate = async (req, res) => {
     res.status(500).json({
       success: false,
       message: '날짜별 슬롯 조회 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * day_group 중단 처리 (Admin 전용)
+ * 해당 item_id + day_group의 모든 슬롯을 중단 상태로 변경하고,
+ * 배정된 진행자의 배정을 해제함
+ */
+exports.suspendDayGroup = async (req, res) => {
+  try {
+    const { itemId, dayGroup } = req.body;
+
+    if (!itemId || dayGroup === undefined || dayGroup === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'itemId와 dayGroup이 필요합니다'
+      });
+    }
+
+    // 해당 item 조회하여 campaign_id 확인
+    const item = await Item.findByPk(itemId);
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: '품목을 찾을 수 없습니다'
+      });
+    }
+
+    // 트랜잭션 시작
+    const result = await sequelize.transaction(async (t) => {
+      // 1. 해당 item_id + day_group의 모든 슬롯의 is_suspended = true
+      const [updatedCount] = await ItemSlot.update(
+        { is_suspended: true },
+        {
+          where: {
+            item_id: itemId,
+            day_group: dayGroup
+          },
+          transaction: t
+        }
+      );
+
+      // 2. CampaignOperator에서 해당 배정 삭제 (진행자 배정 해제)
+      const deletedAssignments = await CampaignOperator.destroy({
+        where: {
+          campaign_id: item.campaign_id,
+          item_id: itemId,
+          day_group: dayGroup
+        },
+        transaction: t
+      });
+
+      return { updatedCount, deletedAssignments };
+    });
+
+    res.json({
+      success: true,
+      message: `day_group ${dayGroup}이(가) 중단되었습니다`,
+      data: {
+        updatedSlots: result.updatedCount,
+        deletedAssignments: result.deletedAssignments
+      }
+    });
+  } catch (error) {
+    console.error('Suspend day group error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'day_group 중단 처리 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * day_group 재개 처리 (Admin 전용)
+ * 해당 item_id + day_group의 모든 슬롯을 활성 상태로 변경
+ */
+exports.resumeDayGroup = async (req, res) => {
+  try {
+    const { itemId, dayGroup } = req.body;
+
+    if (!itemId || dayGroup === undefined || dayGroup === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'itemId와 dayGroup이 필요합니다'
+      });
+    }
+
+    // 해당 item_id + day_group의 모든 슬롯의 is_suspended = false
+    const [updatedCount] = await ItemSlot.update(
+      { is_suspended: false },
+      {
+        where: {
+          item_id: itemId,
+          day_group: dayGroup
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      message: `day_group ${dayGroup}이(가) 재개되었습니다`,
+      data: {
+        updatedSlots: updatedCount
+      }
+    });
+  } catch (error) {
+    console.error('Resume day group error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'day_group 재개 처리 실패',
       error: error.message
     });
   }

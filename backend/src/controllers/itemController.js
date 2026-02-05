@@ -1053,7 +1053,7 @@ exports.getItemsByCampaign = async (req, res) => {
         {
           model: ItemSlot,
           as: 'slots',
-          attributes: ['id', 'day_group', 'date', 'slot_number'],
+          attributes: ['id', 'day_group', 'date', 'slot_number', 'is_suspended'],
           separate: true,
           order: [['slot_number', 'ASC']]
         }
@@ -1096,11 +1096,13 @@ exports.getItemsByCampaign = async (req, res) => {
       const dayGroups = [...new Set(slots.map(s => s.day_group).filter(d => d != null))].sort((a, b) => a - b);
 
       const dayGroupDates = {};
+      const dayGroupSuspended = {};
       dayGroups.forEach(dayGroup => {
-        const firstSlot = slots
-          .filter(s => s.day_group === dayGroup)
-          .sort((a, b) => a.slot_number - b.slot_number)[0];
+        const dayGroupSlots = slots.filter(s => s.day_group === dayGroup);
+        const firstSlot = dayGroupSlots.sort((a, b) => a.slot_number - b.slot_number)[0];
         dayGroupDates[dayGroup] = firstSlot?.date || null;
+        // 해당 day_group의 슬롯 중 하나라도 is_suspended가 true이면 중단 상태
+        dayGroupSuspended[dayGroup] = dayGroupSlots.some(s => s.is_suspended);
       });
 
       delete itemData.slots;
@@ -1108,6 +1110,7 @@ exports.getItemsByCampaign = async (req, res) => {
         ...itemData,
         dayGroups,
         dayGroupDates,
+        dayGroupSuspended,
         buyers: [], // 빈 배열 (기존 호환성 유지)
         buyerCount: stats.totalCount,
         normalBuyerCount: stats.normalCount,

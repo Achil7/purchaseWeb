@@ -59,4 +59,11 @@ router.post('/:id/approve', authenticate, authorize(['admin']), imageController.
  */
 router.post('/:id/reject', authenticate, authorize(['admin']), imageController.rejectImage);
 
+/**
+ * @route   GET /api/images/proxy
+ * @desc    이미지 프록시 (CORS 우회, ZIP 다운로드용)
+ * @access  Private
+ */
+router.get('/proxy', authenticate, imageController.proxyImage);
+
 module.exports = router;

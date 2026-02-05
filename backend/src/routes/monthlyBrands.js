@@ -126,7 +126,7 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
               include: [{
                 model: ItemSlot,
                 as: 'slots',
-                attributes: ['id', 'day_group']
+                attributes: ['id', 'day_group', 'is_suspended']
               }]
             }
           ]
@@ -157,33 +157,45 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
                 };
               }
 
-              // 각 품목별 day_group 수 계산 (실제 ItemSlot 기준)
+              // 각 품목별 day_group 수 계산 (실제 ItemSlot 기준, 중단된 슬롯 제외)
               let totalRequiredSlots = 0;
               const itemDayGroups = [];
 
               for (const item of campaign.items) {
                 // ItemSlot에서 실제 존재하는 고유 day_group 목록 추출
                 const slots = item.slots || [];
-                const uniqueDayGroups = [...new Set(slots.map(s => s.day_group).filter(d => d != null))].sort((a, b) => a - b);
 
-                // 슬롯이 없으면 기본 1개로 계산 (신규 품목 호환)
-                const dayGroupCount = uniqueDayGroups.length || 1;
+                // 활성 슬롯만 필터링 (중단된 슬롯 제외)
+                const activeSlots = slots.filter(s => !s.is_suspended);
+                const uniqueActiveDayGroups = [...new Set(activeSlots.map(s => s.day_group).filter(d => d != null))].sort((a, b) => a - b);
+
+                // 활성 day_group만 카운트 (활성 슬롯이 없으면 0으로 처리 - 배정 필요 없음)
+                const dayGroupCount = uniqueActiveDayGroups.length;
                 totalRequiredSlots += dayGroupCount;
 
-                // 각 day_group 저장
-                (uniqueDayGroups.length > 0 ? uniqueDayGroups : [1]).forEach(dg => {
+                // 활성 day_group만 저장 (중단된 day_group은 배정 대상에서 완전 제외)
+                uniqueActiveDayGroups.forEach(dg => {
                   itemDayGroups.push({ itemId: item.id, dayGroup: dg });
                 });
               }
 
-              // 해당 캠페인의 실제 배정된 slot 수 조회
-              const assignedCount = await CampaignOperator.count({
-                where: {
-                  campaign_id: campaign.id
+              // 각 item + day_group 조합별로 실제 배정 여부 확인
+              let assignedCount = 0;
+              for (const { itemId, dayGroup } of itemDayGroups) {
+                const isAssigned = await CampaignOperator.count({
+                  where: {
+                    campaign_id: campaign.id,
+                    item_id: itemId,
+                    day_group: dayGroup
+                  }
+                });
+                if (isAssigned > 0) {
+                  assignedCount++;
                 }
-              });
+              }
 
-              const isFullyAssigned = assignedCount >= totalRequiredSlots && totalRequiredSlots > 0;
+              // 배정 완료 = 모든 활성 슬롯이 배정됨 (활성 슬롯이 0개면 배정할 것이 없으므로 완료)
+              const isFullyAssigned = assignedCount >= totalRequiredSlots;
 
               return {
                 ...campaign,

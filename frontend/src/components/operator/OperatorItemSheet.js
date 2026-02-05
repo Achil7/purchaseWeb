@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert, IconButton, Tooltip, Typography, Divider, Grid, Chip } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert, IconButton, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -115,8 +115,8 @@ const createProductDataRenderer = (tableData, collapsedItemsRef, toggleItemColla
       td.textContent = value ?? '';
       td.style.fontWeight = 'bold';
       td.style.color = '#1565c0';
-    } else if (prop === 'col11' && value) {
-      // URL을 " | "로 분리하여 각각 하이퍼링크로 렌더링
+    } else if (prop === 'col12' && value) {
+      // URL을 " | "로 분리하여 각각 하이퍼링크로 렌더링 (col12 = product_url)
       const urls = value.split(' | ').map(u => u.trim()).filter(Boolean);
       if (urls.length > 0) {
         const links = urls.map(url => {
@@ -270,9 +270,6 @@ const createBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNumbers,
   };
 };
 
-// 제품 정보 컬럼 헤더 (9개)
-const PRODUCT_HEADERS = ['제품명', '출고', '옵션', '키워드', '가격', '총건수', '일건수', 'URL', '택배'];
-
 // 기본 컬럼 너비 - 21개 컬럼 (비고 컬럼 추가)
 const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 80, 60, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 80, 80];
 
@@ -281,7 +278,6 @@ const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 80, 60, 100, 100, 100, 100,
 // col6: 주문번호, col7: 구매자, col8: 수취인, col9: 아이디, col10: 연락처, col11: 주소, col12: 계좌, col13: 금액,
 // col14: 송장번호, col15: 리뷰샷, col16: 상태, col17: 리뷰비, col18: 입금명, col19: 입금여부
 // 제품 테이블에서 col2는 '플랫폼' (Item.platform)
-const BUYER_HEADERS = ['', '날짜', '순번', '제품명', '옵션', '비고', '예상구매자', '주문번호', '구매자', '수취인', '아이디', '연락처', '주소', '계좌', '금액', '송장번호', '리뷰샷', '상태', '리뷰비', '입금명', '입금여부'];
 
 /**
  * 진행자용 품목별 시트 컴포넌트 (Handsontable - 엑셀)
@@ -307,9 +303,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
   // 컬럼 너비 상태
   const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
-
-  // 접기 상태 초기화 완료 플래그 (캠페인ID 추적용)
-  const lastCampaignId = useRef(null);
 
   // 변경된 슬롯들 추적
   const [changedSlots, setChangedSlots] = useState({});
@@ -365,9 +358,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // 필터링된 행 인덱스 (null이면 전체, 배열이면 필터링된 행만)
   const [filteredRows, setFilteredRows] = useState(null);
 
-  // 필터링된 컬럼 인덱스 추적
-  const [filteredColumns, setFilteredColumns] = useState(new Set());
-
   // 필터 조건 저장 (데이터 리로드 시 복원용)
   const filterConditionsRef = useRef(null);
 
@@ -403,26 +393,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
   // 컬럼별 정렬 상태 (left, center, right)
   const [columnAlignments, setColumnAlignments] = useState({});
-
-  // localStorage에서 컬럼 크기 로드
-  const getSavedColumnWidths = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(COLUMN_WIDTHS_KEY);
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  }, [COLUMN_WIDTHS_KEY]);
-
-  // localStorage에서 접기 상태 로드
-  const getSavedCollapsedItems = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(COLLAPSED_ITEMS_KEY);
-      return saved ? new Set(JSON.parse(saved)) : null;
-    } catch {
-      return null;
-    }
-  }, [COLLAPSED_ITEMS_KEY]);
 
   // 접기 상태 저장
   const saveCollapsedItems = useCallback((items) => {
@@ -638,6 +608,11 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   //   }
   // }, [campaignId, viewAsUserId]);
 
+  // 컴포넌트 마운트 시 캐시 클리어 (다른 시트와 동기화 위해)
+  useEffect(() => {
+    slotsCache.clear();
+  }, []);
+
   // 캠페인 변경 시 슬롯 리로드
   // 성능 최적화: loadSlots를 의존성에서 제거하여 불필요한 재실행 방지
   // 행 추가/삭제 후 loadSlots 참조 변경으로 인한 불필요한 재실행 방지
@@ -754,21 +729,24 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         ).length;
         const isAllCompleted = totalSlots > 0 && totalSlots === completedSlots;
 
-        // day_group별 독립 제품 정보: 슬롯 값 > Item 값 (우선순위)
+        // day_group별 독립 제품 정보: changedItems > 슬롯 값 > Item 값 (우선순위)
         const firstSlot = groupData.slots[0] || {};
+        const dayGroupKey = `${itemId}_${dayGroup}`;
+        const localChanges = changedItems[dayGroupKey] || {};
         const dayGroupProductInfo = {
-          date: firstSlot.date || '',
-          product_name: firstSlot.product_name || mergedItem.product_name || '',
-          platform: firstSlot.platform || mergedItem.platform || '-',
-          shipping_type: firstSlot.shipping_type || mergedItem.shipping_type || '',
-          keyword: firstSlot.keyword || mergedItem.keyword || '',
-          product_price: firstSlot.product_price || mergedItem.product_price || '',
-          total_purchase_count: firstSlot.total_purchase_count || mergedItem.total_purchase_count || '',
-          daily_purchase_count: firstSlot.daily_purchase_count || mergedItem.daily_purchase_count || '',
-          purchase_option: firstSlot.purchase_option || mergedItem.purchase_option || '',
-          courier_service_yn: firstSlot.courier_service_yn || mergedItem.courier_service_yn || '',
-          product_url: firstSlot.product_url || mergedItem.product_url || '',
-          notes: firstSlot.notes || mergedItem.notes || ''
+          date: localChanges.date ?? firstSlot.date ?? '',
+          product_name: localChanges.product_name ?? firstSlot.product_name ?? mergedItem.product_name ?? '',
+          platform: localChanges.platform ?? firstSlot.platform ?? mergedItem.platform ?? '-',
+          shipping_type: localChanges.shipping_type ?? firstSlot.shipping_type ?? mergedItem.shipping_type ?? '',
+          keyword: localChanges.keyword ?? firstSlot.keyword ?? mergedItem.keyword ?? '',
+          product_price: localChanges.product_price ?? firstSlot.product_price ?? mergedItem.product_price ?? '',
+          total_purchase_count: localChanges.total_purchase_count ?? firstSlot.total_purchase_count ?? mergedItem.total_purchase_count ?? '',
+          daily_purchase_count: localChanges.daily_purchase_count ?? firstSlot.daily_purchase_count ?? mergedItem.daily_purchase_count ?? '',
+          purchase_option: localChanges.purchase_option ?? firstSlot.purchase_option ?? mergedItem.purchase_option ?? '',
+          courier_name: localChanges.courier_name ?? firstSlot.courier_name ?? mergedItem.courier_name ?? '롯데택배',
+          courier_service_yn: localChanges.courier_service_yn ?? firstSlot.courier_service_yn ?? mergedItem.courier_service_yn ?? '',
+          product_url: localChanges.product_url ?? firstSlot.product_url ?? mergedItem.product_url ?? '',
+          notes: localChanges.notes ?? firstSlot.notes ?? mergedItem.notes ?? ''
         };
 
         // 첫 번째 품목의 첫 번째 일차가 아닌 경우 품목 구분선 추가
@@ -787,8 +765,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
           _itemId: parseInt(itemId),
           _dayGroup: parseInt(dayGroup),
           col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
-          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배대행', col11: 'URL', col12: '특이사항', col13: '상세',
-          col14: '', col15: '', col16: '', col17: '', col18: ''
+          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배사', col11: '택배대행', col12: 'URL', col13: '특이사항', col14: '상세',
+          col15: '', col16: '', col17: '', col18: ''
         });
 
         // 제품 데이터 행 (19개 컬럼)
@@ -808,11 +786,12 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
           col7: dayGroupProductInfo.product_price,
           col8: dayGroupProductInfo.total_purchase_count,
           col9: dayGroupProductInfo.daily_purchase_count,
-          col10: dayGroupProductInfo.courier_service_yn,
-          col11: dayGroupProductInfo.product_url,
-          col12: dayGroupProductInfo.notes,
-          col13: '📋',
-          col14: '', col15: '', col16: '', col17: '', col18: ''
+          col10: dayGroupProductInfo.courier_name || '롯데택배',
+          col11: dayGroupProductInfo.courier_service_yn,
+          col12: dayGroupProductInfo.product_url,
+          col13: dayGroupProductInfo.notes,
+          col14: '📋',
+          col15: '', col16: '', col17: '', col18: ''
         });
 
         // 업로드 링크 바 (항상 포함)
@@ -906,7 +885,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     });
 
     return { baseTableData: data, baseSlotIndexMap: indexMap, baseRowMetaMap: metaMap };
-  }, [slots]); // collapsedItems 제거 - 캠페인 변경 시 재계산 방지
+  }, [slots, changedItems]); // changedItems 추가 - 로컬 수정사항 즉시 반영
 
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
   // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
@@ -1180,8 +1159,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     // col16: 리뷰샷 (readOnly)
   };
 
-  // 제품 정보 컬럼 필드 매핑 (col1~col13 → API 필드명) - col0은 토글
-  // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, 특이사항, 상세
+  // 제품 정보 컬럼 필드 매핑 (col1~col14 → API 필드명) - col0은 토글
+  // 순서: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배사, 택배대행, URL, 특이사항, 상세
   const itemFieldMap = {
     // col0: 토글 (readOnly)
     col1: 'date',  // 제품 날짜 (Item 테이블)
@@ -1193,10 +1172,11 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     col7: 'product_price',
     col8: 'total_purchase_count',
     col9: 'daily_purchase_count',
-    col10: 'courier_service_yn',
-    col11: 'product_url',
-    col12: 'notes'
-    // col13: 상세보기 버튼 (readOnly)
+    col10: 'courier_name',
+    col11: 'courier_service_yn',
+    col12: 'product_url',
+    col13: 'notes'
+    // col14: 상세보기 버튼 (readOnly)
   };
 
   // buyer 필드 목록 (slot이 아닌 buyer 객체에 속하는 필드들)
@@ -1432,9 +1412,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       setChangedSlots({});
       setChangedItems({});
 
-      // 캐시 무효화 (다음 로드 시 최신 데이터 가져오도록)
-      const cacheKey = `operator_${campaignId}_${viewAsUserId || ''}`;
-      slotsCache.delete(cacheKey);
+      // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
+      slotsCache.clear();
 
       setSnackbar({ open: true, message: '저장되었습니다' });
 
@@ -1505,7 +1484,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
       // 필터 상태 초기화 (삭제 후 필터가 유효하지 않을 수 있음)
       setFilteredRows(null);
-      setFilteredColumns(new Set());
       filterConditionsRef.current = null;
 
       // 삭제된 품목/그룹의 접기 상태 제거 (collapsedItems 정리)
@@ -1681,7 +1659,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         break;
 
       case ROW_TYPES.PRODUCT_DATA:
-        cellProperties.readOnly = (col === 0);
+        cellProperties.readOnly = (col === 0 || col === 14);  // col0=토글, col14=상세보기 버튼
         cellProperties.renderer = productDataRenderer;
         break;
 
@@ -2367,8 +2345,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
                 return;
               }
 
-              // 제품 데이터 행의 col13(상세보기) 클릭 시 팝업
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 13) {
+              // 제품 데이터 행의 col14(상세보기) 클릭 시 팝업
+              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
                 const itemId = rowData._itemId;
                 const dayGroup = rowData._dayGroup;
                 // slots에서 해당 아이템의 정보 찾기
@@ -2476,17 +2454,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
               // 필터 조건 저장
               filterConditionsRef.current = conditionsStack && conditionsStack.length > 0 ? [...conditionsStack] : null;
-
-              // 필터링된 컬럼 추적
-              const filteredCols = new Set();
-              if (conditionsStack && conditionsStack.length > 0) {
-                conditionsStack.forEach(condition => {
-                  if (condition.column !== undefined) {
-                    filteredCols.add(condition.column);
-                  }
-                });
-              }
-              setFilteredColumns(filteredCols);
 
               // hiddenRows 플러그인 가져오기
               const hiddenRowsPlugin = hot.getPlugin('hiddenRows');

@@ -101,4 +101,18 @@ router.delete('/:id', authenticate, authorize(['sales', 'admin', 'operator']), i
  */
 router.post('/:slotId/split-day-group', authenticate, authorize(['sales', 'admin', 'operator']), itemSlotController.splitDayGroup);
 
+/**
+ * @route   POST /api/item-slots/suspend
+ * @desc    day_group 중단 처리 (배정 해제 + 중단 상태로 변경)
+ * @access  Private (Admin)
+ */
+router.post('/suspend', authenticate, authorize(['admin']), itemSlotController.suspendDayGroup);
+
+/**
+ * @route   POST /api/item-slots/resume
+ * @desc    day_group 재개 처리 (중단 상태 해제)
+ * @access  Private (Admin)
+ */
+router.post('/resume', authenticate, authorize(['admin']), itemSlotController.resumeDayGroup);
+
 module.exports = router;

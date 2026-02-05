@@ -66,6 +66,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    // 택배사명 (기본값: 롯데택배)
+    courier_name: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: '롯데택배'
+    },
     product_url: {
       type: DataTypes.TEXT,
       allowNull: true
@@ -110,6 +116,12 @@ module.exports = (sequelize, DataTypes) => {
     buyer_notes: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    // 중단 상태 (Admin이 중단 처리한 day_group)
+    is_suspended: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
     }
   }, {
     tableName: 'item_slots',
@@ -125,6 +137,7 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['day_group'] },
       { fields: ['upload_link_token'] },
       { fields: ['deleted_at'] },
+      { fields: ['is_suspended'] },
       { unique: true, fields: ['item_id', 'day_group', 'slot_number'] }
     ]
   });

@@ -105,8 +105,8 @@ const createSalesProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
       td.style.textAlign = 'center';
       td.style.cursor = 'pointer';
       // 토글 클릭은 afterOnCellMouseUp에서 처리 (beforeOnCellMouseDown에서 스크롤 방지)
-    } else if (prop === 'col11' && value) {
-      // URL을 " | "로 분리하여 각각 하이퍼링크로 렌더링
+    } else if (prop === 'col12' && value) {
+      // URL을 " | "로 분리하여 각각 하이퍼링크로 렌더링 (col12 = product_url)
       const urls = value.split(' | ').map(u => u.trim()).filter(Boolean);
       if (urls.length > 0) {
         const links = urls.map(url => {
@@ -565,6 +565,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     loadSlots: (forceRefresh = true) => loadSlots(campaignId, forceRefresh)
   }), [loadSlots, campaignId]);
 
+  // 컴포넌트 마운트 시 캐시 클리어 (다른 시트와 동기화 위해)
+  useEffect(() => {
+    slotsCache.clear();
+  }, []);
+
   // 캠페인 변경 또는 items 변경 시 슬롯 리로드 (중복 useEffect 통합)
   // 성능 최적화: loadSlots를 의존성에서 제거하여 불필요한 재실행 방지
   // 행 추가/삭제 후 loadSlots 참조 변경으로 인한 불필요한 재실행 방지
@@ -608,9 +613,25 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     setSaving(true);
 
     try {
-      // 품목 저장 (DB 업데이트)
-      for (const [itemId, itemData] of Object.entries(currentChangedItems)) {
-        await itemService.updateItem(parseInt(itemId), itemData);
+      // 품목(제품 정보) 저장 - day_group별 슬롯에 저장 (DailyWorkSheet/OperatorItemSheet와 동일한 방식)
+      if (Object.keys(currentChangedItems).length > 0) {
+        const dayGroupUpdates = Object.values(currentChangedItems);
+        for (const update of dayGroupUpdates) {
+          const { itemId, dayGroup, ...productData } = update;
+          // 해당 day_group의 모든 슬롯 ID 수집
+          const dayGroupSlotIds = slots
+            .filter(s => s.item_id === itemId && s.day_group === dayGroup)
+            .map(s => s.id);
+
+          // 해당 슬롯들에 제품 정보 업데이트
+          if (dayGroupSlotIds.length > 0) {
+            const slotsToUpdateProduct = dayGroupSlotIds.map(id => ({
+              id,
+              ...productData
+            }));
+            await itemSlotService.updateSlotsBulk(slotsToUpdateProduct);
+          }
+        }
       }
 
       // 슬롯(구매자) 저장 (DB 업데이트) - updateSlotsBulk 사용
@@ -656,13 +677,16 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             updatedSlot = { ...updatedSlot, ...slotFieldChanges, buyer: updatedBuyer };
           }
 
-          // 아이템(제품) 변경사항 적용
-          const itemChangesData = currentChangedItems[slot.item_id];
-          if (itemChangesData && updatedSlot.item) {
-            const { id, ...itemFieldChanges } = itemChangesData;
+          // day_group별 제품 정보 변경사항 적용 (슬롯에 직접 저장) - DailyWorkSheet/OperatorItemSheet와 동일
+          const dayGroupKey = `${slot.item_id}_${slot.day_group}`;
+          const productChangesData = currentChangedItems[dayGroupKey];
+          if (productChangesData) {
+            const { itemId, dayGroup, ...productFieldChanges } = productChangesData;
+            // 슬롯에 제품 정보 직접 저장 + item 객체도 업데이트 (하위 호환성)
             updatedSlot = {
               ...updatedSlot,
-              item: { ...updatedSlot.item, ...itemFieldChanges }
+              ...productFieldChanges,
+              item: updatedSlot.item ? { ...updatedSlot.item, ...productFieldChanges } : updatedSlot.item
             };
           }
 
@@ -678,9 +702,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       setChangedSlots({});
       setChangedItems({});
 
-      // 캐시 무효화 (다음 로드 시 최신 데이터 가져오도록)
-      const cacheKey = `sales_${campaignId}`;
-      slotsCache.delete(cacheKey);
+      // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
+      slotsCache.clear();
 
       setSnackbar({ open: true, message: '저장되었습니다' });
 
@@ -702,7 +725,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     } finally {
       setSaving(false);
     }
-  }, [loadSlots, campaignId]);  // changedSlots, changedItems 의존성 제거
+  }, [loadSlots, campaignId, slots]);  // slots 의존성 추가 (day_group별 슬롯 필터링용)
 
   // Ctrl+S 키보드 단축키로 저장
   useEffect(() => {
@@ -794,44 +817,73 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       }
       isFirstItem = false;
 
-      // 제품 헤더 행 (20개 컬럼)
-      data.push({
-        _rowType: ROW_TYPES.PRODUCT_HEADER,
-        _itemId: parseInt(itemId),
-        col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
-        col7: '가격', col8: '총건수', col9: '일건수', col10: '택배대행', col11: 'URL', col12: '특이사항', col13: '상세',
-        col14: '', col15: '', col16: '', col17: '', col18: '', col19: ''
-      });
-
-      // 제품 데이터 행 (20개 컬럼)
-      data.push({
-        _rowType: ROW_TYPES.PRODUCT_DATA,
-        _itemId: parseInt(itemId),
-        _item: item,
-        _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
-        col0: '',
-        col1: item.date || '',
-        col2: item.platform || '-',
-        col3: item.product_name || '',
-        col4: item.purchase_option || '',
-        col5: item.shipping_type || '',
-        col6: item.keyword || '',
-        col7: item.product_price || '',
-        col8: item.total_purchase_count || '',
-        col9: item.daily_purchase_count || '',
-        col10: item.courier_service_yn || '',
-        col11: item.product_url || '',
-        col12: item.notes || '',
-        col13: '📋',
-        col14: '', col15: '', col16: '', col17: '', col18: '', col19: ''
-      });
-
-      // 일차별 구매자 정보 (항상 포함)
+      // day_group별 제품 데이터 행 생성 (OperatorItemSheet와 동일한 구조)
       const dayGroupKeys = Object.keys(itemGroup.dayGroups).sort((a, b) => parseInt(a) - parseInt(b));
+      let isFirstDayGroup = true;
 
       dayGroupKeys.forEach((dayGroup) => {
         const groupData = itemGroup.dayGroups[dayGroup];
         const uploadToken = groupData.uploadToken;
+
+        // day_group별 독립 제품 정보: 슬롯 값 > changedItems 값 > Item 값 (우선순위)
+        const firstSlot = groupData.slots[0] || {};
+        const dayGroupKey = `${itemId}_${dayGroup}`;
+        const localChanges = changedItems[dayGroupKey] || {};
+
+        const dayGroupProductInfo = {
+          date: localChanges.date ?? firstSlot.date ?? item.date ?? '',
+          product_name: localChanges.product_name ?? firstSlot.product_name ?? item.product_name ?? '',
+          platform: localChanges.platform ?? firstSlot.platform ?? item.platform ?? '-',
+          shipping_type: localChanges.shipping_type ?? firstSlot.shipping_type ?? item.shipping_type ?? '',
+          keyword: localChanges.keyword ?? firstSlot.keyword ?? item.keyword ?? '',
+          product_price: localChanges.product_price ?? firstSlot.product_price ?? item.product_price ?? '',
+          total_purchase_count: localChanges.total_purchase_count ?? firstSlot.total_purchase_count ?? item.total_purchase_count ?? '',
+          daily_purchase_count: localChanges.daily_purchase_count ?? firstSlot.daily_purchase_count ?? item.daily_purchase_count ?? '',
+          purchase_option: localChanges.purchase_option ?? firstSlot.purchase_option ?? item.purchase_option ?? '',
+          courier_name: localChanges.courier_name ?? firstSlot.courier_name ?? item.courier_name ?? '롯데택배',
+          courier_service_yn: localChanges.courier_service_yn ?? firstSlot.courier_service_yn ?? item.courier_service_yn ?? '',
+          product_url: localChanges.product_url ?? firstSlot.product_url ?? item.product_url ?? '',
+          notes: localChanges.notes ?? firstSlot.notes ?? item.notes ?? ''
+        };
+
+        // 첫 번째 day_group에만 제품 헤더/데이터 행 추가
+        if (isFirstDayGroup) {
+          // 제품 헤더 행 (20개 컬럼) - col10에 택배사 추가
+          data.push({
+            _rowType: ROW_TYPES.PRODUCT_HEADER,
+            _itemId: parseInt(itemId),
+            _dayGroup: parseInt(dayGroup),
+            col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
+            col7: '가격', col8: '총건수', col9: '일건수', col10: '택배사', col11: '택배대행', col12: 'URL', col13: '특이사항', col14: '상세',
+            col15: '', col16: '', col17: '', col18: '', col19: ''
+          });
+
+          // 제품 데이터 행 (20개 컬럼) - col10에 택배사 추가, changedItems 반영
+          data.push({
+            _rowType: ROW_TYPES.PRODUCT_DATA,
+            _itemId: parseInt(itemId),
+            _dayGroup: parseInt(dayGroup),
+            _item: item,
+            _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
+            col0: '',
+            col1: dayGroupProductInfo.date,
+            col2: dayGroupProductInfo.platform,
+            col3: dayGroupProductInfo.product_name,
+            col4: dayGroupProductInfo.purchase_option,
+            col5: dayGroupProductInfo.shipping_type,
+            col6: dayGroupProductInfo.keyword,
+            col7: dayGroupProductInfo.product_price,
+            col8: dayGroupProductInfo.total_purchase_count,
+            col9: dayGroupProductInfo.daily_purchase_count,
+            col10: dayGroupProductInfo.courier_name,
+            col11: dayGroupProductInfo.courier_service_yn,
+            col12: dayGroupProductInfo.product_url,
+            col13: dayGroupProductInfo.notes,
+            col14: '📋',
+            col15: '', col16: '', col17: '', col18: '', col19: ''
+          });
+          isFirstDayGroup = false;
+        }
 
         // 업로드 링크 바 (항상 포함)
         data.push({
@@ -903,11 +955,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             col19: buyer.payment_confirmed_at || ''
           });
         });
-      });
-    });
+      }); // dayGroupKeys.forEach 끝
+    }); // Object.entries(itemGroups).forEach 끝
 
     return { baseTableData: data };
-  }, [slots, items]); // collapsedItems 제거 - 캠페인 변경 시 재계산 방지
+  }, [slots, items, changedItems]); // changedItems 추가 - 로컬 수정사항 즉시 반영
 
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
   // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
@@ -1140,10 +1192,10 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         const itemId = rowData._itemId;
         if (!itemId) return;
 
-        // 컬럼 매핑: col0=토글, col1=날짜, col2=플랫폼, col3=제품명, col4=옵션, col5=출고, col6=키워드, col7=가격, col8=총건수, col9=일건수, col10=택배대행, col11=URL, col12=특이사항, col13=상세
+        // 컬럼 매핑: col0=토글, col1=날짜, col2=플랫폼, col3=제품명, col4=옵션, col5=출고, col6=키워드, col7=가격, col8=총건수, col9=일건수, col10=택배사, col11=택배대행, col12=URL, col13=특이사항, col14=상세
         const fieldMap = {
-          col1: 'date',  // 제품 날짜
-          col2: 'platform',  // 플랫폼 (순번 대신)
+          col1: 'date',
+          col2: 'platform',
           col3: 'product_name',
           col4: 'purchase_option',
           col5: 'shipping_type',
@@ -1151,19 +1203,20 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           col7: 'product_price',
           col8: 'total_purchase_count',
           col9: 'daily_purchase_count',
-          col10: 'courier_service_yn',
-          col11: 'product_url',
-          col12: 'notes'
-          // col13: 상세보기 버튼 (readOnly)
+          col10: 'courier_name',
+          col11: 'courier_service_yn',
+          col12: 'product_url',
+          col13: 'notes'
+          // col14: 상세보기 버튼 (readOnly)
         };
 
         const fieldName = fieldMap[prop];
         if (!fieldName) return;
 
-        const dayGroup = rowData._dayGroup;
+        const dayGroup = rowData._dayGroup || 1;  // 기본값 1
 
-        // ref에 저장
-        const dayGroupKey = dayGroup ? `${itemId}_${dayGroup}` : String(itemId);
+        // ref에 저장 (day_group별 키 형식 통일)
+        const dayGroupKey = `${itemId}_${dayGroup}`;
         const newItemUpdates = {
           ...changedItemsRef.current,
           [dayGroupKey]: { ...(changedItemsRef.current[dayGroupKey] || {}), itemId, dayGroup, [fieldName]: newValue ?? '' }
@@ -1454,7 +1507,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         break;
 
       case ROW_TYPES.PRODUCT_DATA:
-        cellProperties.readOnly = (col === 0);
+        cellProperties.readOnly = (col === 0 || col === 14);  // col0=토글, col14=상세보기
         cellProperties.renderer = productDataRenderer;
         break;
 
@@ -2178,8 +2231,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                 return;
               }
 
-              // 제품 데이터 행의 col13(상세보기) 클릭 시 팝업
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 13) {
+              // 제품 데이터 행의 col14(상세보기) 클릭 시 팝업
+              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
                 const item = rowData._item;
                 if (item) {
                   setProductDetailPopup({

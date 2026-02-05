@@ -119,6 +119,28 @@ export const getSlotsByDate = async (date, viewAsUserId = null) => {
   return response.data;
 };
 
+/**
+ * day_group 중단 처리
+ * 배정 해제 + 중단 상태로 변경
+ * @param itemId - 품목 ID
+ * @param dayGroup - 중단할 day_group 번호
+ */
+export const suspendDayGroup = async (itemId, dayGroup) => {
+  const response = await api.post('/item-slots/suspend', { itemId, dayGroup });
+  return response.data;
+};
+
+/**
+ * day_group 재개 처리
+ * 중단 상태 해제 (배정은 다시 수동으로 해야 함)
+ * @param itemId - 품목 ID
+ * @param dayGroup - 재개할 day_group 번호
+ */
+export const resumeDayGroup = async (itemId, dayGroup) => {
+  const response = await api.post('/item-slots/resume', { itemId, dayGroup });
+  return response.data;
+};
+
 const itemSlotService = {
   getSlotsByItem,
   getSlotsByCampaign,
@@ -132,7 +154,9 @@ const itemSlotService = {
   deleteSlotsByGroup,
   deleteSlotsByItem,
   splitDayGroup,
-  getSlotsByDate
+  getSlotsByDate,
+  suspendDayGroup,
+  resumeDayGroup
 };
 
 export default itemSlotService;

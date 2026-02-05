@@ -326,10 +326,8 @@ function UnifiedItemSheetInner({
    * 2. 업로드 링크 구분선 (_isUploadLinkBar: true) - 검정색
    * 3. 구매자 데이터행들 - 흰색/연회색 교대
    */
-  const { tableData, slotIndexMap, rowTypeMap } = useMemo(() => {
+  const { tableData } = useMemo(() => {
     const data = [];
-    const indexMap = {}; // tableRow -> slotId
-    const typeMap = new Map(); // rowIndex -> { type, token, itemId, dayGroup }
 
     let currentItemId = null;
     let currentDayGroup = null;
@@ -348,7 +346,6 @@ function UnifiedItemSheetInner({
       if (slot.item_id !== currentItemId) {
         if (!isFirstItem && data.length > 0) {
           // 품목 구분선 (파란색 두꺼운 선)
-          typeMap.set(data.length, { type: 'itemSeparator' });
           data.push({ _isItemSeparator: true });
         }
         isFirstItem = false;
@@ -361,11 +358,6 @@ function UnifiedItemSheetInner({
         currentDayGroup = slot.day_group || 1;
 
         // 1. 제품정보 헤더행 (노란색)
-        typeMap.set(data.length, {
-          type: 'productHeader',
-          itemId: slot.item_id,
-          dayGroup: currentDayGroup
-        });
         data.push({
           _isProductHeader: true,
           _itemId: slot.item_id,
@@ -387,12 +379,6 @@ function UnifiedItemSheetInner({
         });
 
         // 2. 업로드 링크 바 (검정색)
-        typeMap.set(data.length, {
-          type: 'uploadLinkBar',
-          token: slot.upload_link_token || '',
-          itemId: slot.item_id,
-          dayGroup: currentDayGroup
-        });
         data.push({
           _isUploadLinkBar: true,
           _uploadToken: slot.upload_link_token || '',
@@ -405,15 +391,6 @@ function UnifiedItemSheetInner({
       const buyer = slot.buyer || {};
       const reviewImages = buyer.images || [];
       const reviewImage = reviewImages.length > 0 ? reviewImages[0] : null;
-
-      indexMap[data.length] = slot.id;
-      typeMap.set(data.length, {
-        type: 'buyerRow',
-        slotId: slot.id,
-        itemId: slot.item_id,
-        dayGroup: currentDayGroup,
-        buyerId: buyer.id
-      });
 
       data.push({
         _isBuyerRow: true,
@@ -443,7 +420,7 @@ function UnifiedItemSheetInner({
       });
     });
 
-    return { tableData: data, slotIndexMap: indexMap, rowTypeMap: typeMap };
+    return { tableData: data };
   }, [slots, items]);
 
   // 상태 옵션

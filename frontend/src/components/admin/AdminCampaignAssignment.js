@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
-  CircularProgress, Alert, Button, IconButton, Tooltip, Grid, Divider,
+  CircularProgress, Alert, Button, IconButton, Grid,
   FormControl, InputLabel, Select, MenuItem, Chip, TableContainer, Link, Breadcrumbs,
   Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
@@ -12,9 +12,12 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import GroupAddIcon from '@mui/icons-material/GroupAdd';
 import InfoIcon from '@mui/icons-material/Info';
 import CloseIcon from '@mui/icons-material/Close';
+import PauseCircleIcon from '@mui/icons-material/PauseCircle';
+import PlayCircleIcon from '@mui/icons-material/PlayCircle';
+import WarningIcon from '@mui/icons-material/Warning';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getUsers } from '../../services/userService';
-import { itemService, campaignService } from '../../services';
+import { itemService, campaignService, itemSlotService } from '../../services';
 
 function AdminCampaignAssignment() {
   const navigate = useNavigate();
@@ -102,6 +105,62 @@ function AdminCampaignAssignment() {
     return null;
   };
 
+  // 특정 day_group이 중단 상태인지 확인
+  const isDayGroupSuspended = (item, dayGroup) => {
+    if (item.dayGroupSuspended && item.dayGroupSuspended[dayGroup] !== undefined) {
+      return item.dayGroupSuspended[dayGroup];
+    }
+    return false;
+  };
+
+  // day_group 중단 핸들러
+  const handleSuspendDayGroup = async (itemId, dayGroup, itemName) => {
+    const confirmed = window.confirm(
+      `⚠️ day_group 중단 경고\n\n` +
+      `제품명: ${itemName}\n` +
+      `일자 그룹: ${dayGroup}일차\n\n` +
+      `중단하면:\n` +
+      `- 배정된 진행자가 해제됩니다\n` +
+      `- 배정 미완료 카운트에서 제외됩니다\n` +
+      `- 진행자에게 더 이상 표시되지 않습니다\n\n` +
+      `정말 중단하시겠습니까?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await itemSlotService.suspendDayGroup(itemId, dayGroup);
+      alert(`${itemName}의 ${dayGroup}일차가 중단되었습니다.`);
+      await loadData();
+    } catch (err) {
+      console.error('Failed to suspend day group:', err);
+      alert('중단 처리에 실패했습니다: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
+  // day_group 재개 핸들러
+  const handleResumeDayGroup = async (itemId, dayGroup, itemName) => {
+    const confirmed = window.confirm(
+      `day_group 재개\n\n` +
+      `제품명: ${itemName}\n` +
+      `일자 그룹: ${dayGroup}일차\n\n` +
+      `재개하면 다시 배정 대상이 됩니다.\n` +
+      `(진행자는 수동으로 다시 배정해야 합니다)\n\n` +
+      `재개하시겠습니까?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await itemSlotService.resumeDayGroup(itemId, dayGroup);
+      alert(`${itemName}의 ${dayGroup}일차가 재개되었습니다. 진행자를 다시 배정해주세요.`);
+      await loadData();
+    } catch (err) {
+      console.error('Failed to resume day group:', err);
+      alert('재개 처리에 실패했습니다: ' + (err.response?.data?.message || err.message));
+    }
+  };
+
 
   // 저장 핸들러
   const handleSaveAssignments = async () => {
@@ -113,7 +172,7 @@ function AdminCampaignAssignment() {
     try {
       setSaving(true);
 
-      for (const [key, data] of Object.entries(pendingAssignments)) {
+      for (const [, data] of Object.entries(pendingAssignments)) {
         const { operatorId, isReassign, itemId, dayGroup } = data;
 
         if (operatorId) {
@@ -153,17 +212,24 @@ function AdminCampaignAssignment() {
 
   const assignmentRows = getAssignmentRows();
 
-  // 미배정 항목 목록 가져오기
+  // 미배정 항목 목록 가져오기 (중단된 항목 제외)
   const getUnassignedRows = () => {
     return assignmentRows.filter(({ item, dayGroup }) => {
       const key = getAssignmentKey(item.id, dayGroup);
       const assignedOperator = getAssignedOperatorForDayGroup(item, dayGroup);
       const hasPendingChange = pendingAssignments[key] !== undefined;
-      return !assignedOperator && !hasPendingChange;
+      const isSuspended = isDayGroupSuspended(item, dayGroup);
+      // 중단된 항목은 미배정으로 카운트하지 않음
+      return !assignedOperator && !hasPendingChange && !isSuspended;
     });
   };
 
   const unassignedCount = getUnassignedRows().length;
+
+  // 중단된 항목 수
+  const suspendedCount = assignmentRows.filter(({ item, dayGroup }) =>
+    isDayGroupSuspended(item, dayGroup)
+  ).length;
 
   // 일괄 배정 핸들러
   const handleBulkAssign = () => {
@@ -258,7 +324,15 @@ function AdminCampaignAssignment() {
           </Box>
           <Typography variant="body2" color="text.secondary">
             영업사: {campaign?.creator?.name || '-'} |
-            제품 {items.length}개 |
+            제품 {items.length}개
+            {suspendedCount > 0 && (
+              <Chip
+                label={`${suspendedCount}건 중단됨`}
+                color="error"
+                size="small"
+                sx={{ ml: 1 }}
+              />
+            )}
             {Object.keys(pendingAssignments).length > 0 && (
               <Chip
                 label={`${Object.keys(pendingAssignments).length}건 변경 중`}
@@ -314,6 +388,7 @@ function AdminCampaignAssignment() {
                   진행자 배정 (필수)
                 </TableCell>
                 <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa', width: '100px' }}>상태</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#fff3e0', width: '80px' }}>중단</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -325,6 +400,7 @@ function AdminCampaignAssignment() {
                   const isAssigned = !!assignedOperator;
                   const hasPendingChange = pendingData !== undefined;
                   const isInReassignMode = reassignMode[key];
+                  const isSuspended = isDayGroupSuspended(item, dayGroup);
 
                   // 같은 품목의 첫 번째 행인지 확인
                   const isFirstRowOfItem = index === 0 || assignmentRows[index - 1].item.id !== item.id;
@@ -335,7 +411,9 @@ function AdminCampaignAssignment() {
                       hover
                       key={`${item.id}_${dayGroup}`}
                       sx={{
-                        borderTop: isFirstRowOfItem && index > 0 ? '2px solid #333' : 'none'
+                        borderTop: isFirstRowOfItem && index > 0 ? '2px solid #333' : 'none',
+                        bgcolor: isSuspended ? '#ffebee' : 'inherit',
+                        opacity: isSuspended ? 0.8 : 1
                       }}
                     >
                       {isFirstRowOfItem && (
@@ -438,7 +516,14 @@ function AdminCampaignAssignment() {
                         )}
                       </TableCell>
                       <TableCell align="center">
-                        {hasPendingChange ? (
+                        {isSuspended ? (
+                          <Chip
+                            label="중단됨"
+                            color="error"
+                            size="small"
+                            icon={<WarningIcon sx={{ fontSize: '1rem' }} />}
+                          />
+                        ) : hasPendingChange ? (
                           <Chip label="배정 중" color="warning" size="small" />
                         ) : isAssigned ? (
                           <Chip label="배정 완료" color="success" size="small" />
@@ -446,12 +531,33 @@ function AdminCampaignAssignment() {
                           <Chip label="미배정" color="default" size="small" variant="outlined" />
                         )}
                       </TableCell>
+                      <TableCell align="center">
+                        {isSuspended ? (
+                          <IconButton
+                            size="small"
+                            color="success"
+                            onClick={() => handleResumeDayGroup(item.id, dayGroup, item.product_name)}
+                            title="재개"
+                          >
+                            <PlayCircleIcon />
+                          </IconButton>
+                        ) : (
+                          <IconButton
+                            size="small"
+                            color="warning"
+                            onClick={() => handleSuspendDayGroup(item.id, dayGroup, item.product_name)}
+                            title="중단"
+                          >
+                            <PauseCircleIcon />
+                          </IconButton>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ py: 5, color: '#999' }}>
+                  <TableCell colSpan={6} align="center" sx={{ py: 5, color: '#999' }}>
                     등록된 제품이 없습니다. 영업사가 캠페인에서 제품을 등록하면 여기에 표시됩니다.
                   </TableCell>
                 </TableRow>

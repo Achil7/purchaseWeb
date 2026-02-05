@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography, Button, Snackbar, Alert, Tooltip } from '@mui/material';
+import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography, Button, Snackbar, Alert } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
+import FolderZipIcon from '@mui/icons-material/FolderZip';
 import InfoIcon from '@mui/icons-material/Info';
 import ImageSwipeViewer from '../common/ImageSwipeViewer';
 import { HotTable } from '@handsontable/react';
@@ -9,6 +10,9 @@ import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
 import { itemSlotService } from '../../services';
 import { downloadExcel, convertBrandSlotsToExcelData } from '../../utils/excelExport';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
+import api from '../../services/api';
 
 // Handsontable 모든 모듈 등록
 registerAllModules();
@@ -67,23 +71,42 @@ const brandProductHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-const brandBuyerHeaderRenderer = (instance, td, r, c, prop, value) => {
-  td.className = 'buyer-header-row';
-  td.style.backgroundColor = '#f5f5f5';
-  td.style.fontWeight = 'bold';
-  td.style.textAlign = 'center';
-  td.style.fontSize = '11px';
-  td.textContent = value ?? '';
-  return td;
+// tableData를 받아서 중단된 경우 빨간 배경 적용
+const createBrandBuyerHeaderRenderer = (tableData) => {
+  return (instance, td, r, c, prop, value) => {
+    const rowData = tableData[r];
+    const isSuspended = rowData?._isSuspended;
+
+    td.className = 'buyer-header-row';
+    td.style.fontWeight = 'bold';
+    td.style.textAlign = 'center';
+    td.style.fontSize = '11px';
+    td.textContent = value ?? '';
+
+    // 중단된 경우 빨간 배경
+    if (isSuspended) {
+      td.style.backgroundColor = '#ef9a9a';
+      td.style.color = '#b71c1c';
+    } else {
+      td.style.backgroundColor = '#f5f5f5';
+      td.style.color = '';
+    }
+    return td;
+  };
 };
 
 // collapsedItemsRef를 사용하여 최신 접기 상태 참조 (렌더러 재생성 방지)
 const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
+    const isSuspended = rowData._isSuspended;
     td.className = 'product-data-row';
-    td.style.backgroundColor = '#fff8e1';
+    // 중단된 경우 빨간 배경, 아닌 경우 기본 노란 배경
+    td.style.backgroundColor = isSuspended ? '#ffcdd2' : '#fff8e1';
     td.style.fontSize = '11px';
+    if (isSuspended) {
+      td.style.color = '#b71c1c';
+    }
 
     if (prop === 'col0') {
       const itemId = rowData._itemId;
@@ -100,29 +123,31 @@ const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
         completionBadge = `<span style="color: #f57c00; font-size: 10px; margin-left: 4px;">${status.completed}/${status.total}</span>`;
       }
 
-      td.innerHTML = `<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: #666;">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
+      // 중단된 경우 경고 아이콘 추가
+      const suspendedIcon = isSuspended ? '<span style="color: #d32f2f; font-size: 12px; margin-right: 4px;">⚠️</span>' : '';
+      td.innerHTML = `${suspendedIcon}<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: ${isSuspended ? '#b71c1c' : '#666'};">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
       td.style.textAlign = 'center';
       td.style.cursor = 'pointer';
       // 토글 클릭은 afterOnCellMouseUp에서 처리 (beforeOnCellMouseDown에서 스크롤 방지)
     } else if (prop === 'col2') {
       td.textContent = value ?? '';
       td.style.fontWeight = 'bold';
-      td.style.color = '#1565c0';
+      if (!isSuspended) td.style.color = '#1565c0';
     } else if (prop === 'col3') {
       td.textContent = value ?? '';
       td.style.fontWeight = 'bold';
-      td.style.color = '#1b5e20';
+      if (!isSuspended) td.style.color = '#1b5e20';
     } else if (prop === 'col7' && value) {
       td.textContent = value;
       td.style.fontWeight = 'bold';
-      td.style.color = '#c2185b';
-    } else if (prop === 'col11' && value) {
-      // URL을 " | "로 분리하여 각각 하이퍼링크로 렌더링
+      if (!isSuspended) td.style.color = '#c2185b';
+    } else if (prop === 'col12' && value) {
+      // URL을 " | "로 분리하여 각각 하이퍼링크로 렌더링 (col12 = product_url)
       const urls = value.split(' | ').map(u => u.trim()).filter(Boolean);
       if (urls.length > 0) {
         const links = urls.map(url => {
           const href = url.startsWith('http') ? url : `https://${url}`;
-          return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${url}</a>`;
+          return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: ${isSuspended ? '#b71c1c' : '#1976d2'}; text-decoration: underline;">${url}</a>`;
         }).join(' <span style="color: #666;">|</span> ');
         td.innerHTML = links;
       } else {
@@ -145,36 +170,72 @@ const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
 };
 
 const createBrandBuyerDataRenderer = (tableData, columnAlignments) => {
+  // 컬럼 구조 (14개):
+  // col0: 빈칸, col1: 날짜, col2: 순번, col3: 제품명, col4: 옵션,
+  // col5: 주문번호, col6: 구매자, col7: 수취인, col8: 아이디,
+  // col9: 주소, col10: 금액, col11: 송장번호, col12: 리뷰샷, col13: 빈칸
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
     const hasReviewImage = rowData._reviewImageUrl;
+    const isSuspended = rowData._isSuspended;
     td.className = hasReviewImage ? 'has-review' : 'no-review';
     td.style.fontSize = '11px';
 
-    if (prop === 'col0') {
+    // 중단된 행은 맨 마지막에 스타일 강제 적용
+    const applySuspendedStyle = () => {
+      if (isSuspended) {
+        td.style.setProperty('background-color', '#ffcdd2', 'important');
+        td.style.setProperty('color', '#b71c1c', 'important');
+      }
+    };
+
+    if (prop === 'col0' || prop === 'col13') {
+      // 빈칸 컬럼
       td.textContent = '';
+    } else if (prop === 'col1') {
+      // 날짜
+      td.textContent = value ?? '';
+      if (!isSuspended) td.style.color = '#666';
     } else if (prop === 'col2') {
+      // 순번
+      td.textContent = value ?? '';
+      td.style.textAlign = 'center';
+    } else if (prop === 'col3') {
+      // 제품명
       td.textContent = value ?? '';
       td.style.fontWeight = 'bold';
-    } else if (prop === 'col5') {
+      if (!isSuspended) td.style.color = '#1565c0';
+    } else if (prop === 'col4') {
+      // 옵션
       td.textContent = value ?? '';
-      td.style.color = '#666';
-    } else if (prop === 'col6' && value) {
+      if (!isSuspended) td.style.color = '#1b5e20';
+    } else if (prop === 'col6') {
+      // 구매자 (굵게)
+      td.textContent = value ?? '';
+      td.style.fontWeight = 'bold';
+    } else if (prop === 'col9') {
+      // 주소
+      td.textContent = value ?? '';
+      if (!isSuspended) td.style.color = '#666';
+    } else if (prop === 'col10' && value) {
+      // 금액 (포맷팅)
       const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
       td.textContent = numValue ? numValue.toLocaleString() + '원' : value;
       td.style.fontWeight = 'bold';
-      td.style.color = '#c2185b';
-    } else if (prop === 'col7') {
+      if (!isSuspended) td.style.color = '#c2185b';
+    } else if (prop === 'col11') {
+      // 송장번호
       td.textContent = value ?? '';
-      if (value) {
+      if (value && !isSuspended) {
         td.style.color = '#1565c0';
       }
-    } else if (prop === 'col8') {
+    } else if (prop === 'col12') {
+      // 리뷰샷
       const images = rowData._reviewImages || [];
       const imageCount = images.length;
       if (imageCount > 0) {
         const displayText = imageCount > 1 ? `리뷰 보기 (${imageCount})` : '리뷰 보기';
-        td.innerHTML = `<a href="#" class="review-link" data-row="${r}" style="color: #2e7d32; text-decoration: underline; cursor: pointer; font-size: 11px; font-weight: bold;">${displayText}</a>`;
+        td.innerHTML = `<a href="#" class="review-link" data-row="${r}" style="color: ${isSuspended ? '#b71c1c' : '#2e7d32'}; text-decoration: underline; cursor: pointer; font-size: 11px; font-weight: bold;">${displayText}</a>`;
         td.style.textAlign = 'center';
       } else {
         td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
@@ -187,6 +248,9 @@ const createBrandBuyerDataRenderer = (tableData, columnAlignments) => {
     if (columnAlignments[c] && !td.style.textAlign) {
       td.style.textAlign = columnAlignments[c];
     }
+
+    // 중단된 행은 맨 마지막에 스타일 강제 적용
+    applySuspendedStyle();
 
     return td;
   };
@@ -203,7 +267,7 @@ const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 60, 120, 80, 60, 60, 60, 15
  * - 영업사/진행자와 유사한 제품 테이블 구조 + 접기/펼치기
  *
  * 제품 테이블 (14개 컬럼): 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
- * 구매자 테이블 (14개 컬럼): 빈칸, 주문번호, 구매자, 수취인, 아이디, 금액, 송장번호, 리뷰샷, ...(나머지 빈칸)
+ * 구매자 테이블 (14개 컬럼): 빈칸, 날짜, 순번, 제품명, 옵션, 주문번호, 구매자, 수취인, 아이디, 주소, 금액, 송장번호, 리뷰샷, (빈칸)
  */
 function BrandItemSheetInner({
   campaignId,
@@ -218,9 +282,6 @@ function BrandItemSheetInner({
 
   // 컬럼 너비 상태
   const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
-
-  // 접기 상태 초기화 완료 플래그 (캠페인ID 추적용)
-  const lastCampaignId = useRef(null);
 
   // 이미지 갤러리 팝업 상태
   const [imagePopup, setImagePopup] = useState({
@@ -265,26 +326,6 @@ function BrandItemSheetInner({
 
   // 컬럼별 정렬 상태 (left, center, right)
   const [columnAlignments, setColumnAlignments] = useState({});
-
-  // localStorage에서 컬럼 크기 로드
-  const getSavedColumnWidths = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(COLUMN_WIDTHS_KEY);
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  }, [COLUMN_WIDTHS_KEY]);
-
-  // localStorage에서 접기 상태 로드
-  const getSavedCollapsedItems = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(COLLAPSED_ITEMS_KEY);
-      return saved ? new Set(JSON.parse(saved)) : null;
-    } catch {
-      return null;
-    }
-  }, [COLLAPSED_ITEMS_KEY]);
 
   // 접기 상태 저장
   const saveCollapsedItems = useCallback((items) => {
@@ -366,6 +407,134 @@ function BrandItemSheetInner({
     const fileName = campaignName || 'campaign';
     downloadExcel(excelData, `${fileName}_brand`, '브랜드시트');
     setSnackbar({ open: true, message: '엑셀 파일이 다운로드되었습니다' });
+  }, [slots, campaignName]);
+
+  // 이미지 ZIP 다운로드 핸들러
+  const [zipDownloading, setZipDownloading] = useState(false);
+  const handleDownloadImages = useCallback(async () => {
+    // 리뷰 이미지가 있는 구매자들 수집 (품목+day_group별 순번)
+    const buyersWithImages = [];
+
+    // 슬롯을 item_id, day_group, slot_number 순서로 정렬
+    const sortedSlots = [...slots].sort((a, b) => {
+      if (a.item_id !== b.item_id) return a.item_id - b.item_id;
+      if ((a.day_group || 1) !== (b.day_group || 1)) return (a.day_group || 1) - (b.day_group || 1);
+      return (a.slot_number || 0) - (b.slot_number || 0);
+    });
+
+    // 품목+day_group별로 그룹화하여 순번 계산
+    let currentItemId = null;
+    let currentDayGroup = null;
+    let rowNumberInGroup = 0;
+
+    sortedSlots.forEach(slot => {
+      const itemId = slot.item_id;
+      const dayGroup = slot.day_group || 1;
+
+      // 새로운 품목/day_group이면 순번 리셋
+      if (itemId !== currentItemId || dayGroup !== currentDayGroup) {
+        currentItemId = itemId;
+        currentDayGroup = dayGroup;
+        rowNumberInGroup = 0;
+      }
+
+      // BrandItemSheet는 slot.buyer (단수) 구조 사용
+      const buyer = slot.buyer;
+
+      // is_temporary=false인 구매자만 (브랜드사 기준)
+      if (!buyer || buyer.is_temporary) {
+        return;
+      }
+
+      rowNumberInGroup++;
+
+      // 제품명 가져오기 (슬롯 > 아이템)
+      const productName = slot.product_name || slot.item?.product_name || `품목${itemId}`;
+      // 파일명에 사용할 수 없는 문자 제거
+      const safeProductName = productName.replace(/[\\/:*?"<>|]/g, '_').substring(0, 30);
+
+      if (buyer.images && buyer.images.length > 0) {
+        buyersWithImages.push({
+          rowNumber: rowNumberInGroup,
+          productName: safeProductName,
+          dayGroup,
+          buyer,
+          images: buyer.images
+        });
+      }
+    });
+
+    if (buyersWithImages.length === 0) {
+      setSnackbar({ open: true, message: '다운로드할 리뷰샷이 없습니다', severity: 'warning' });
+      return;
+    }
+
+    setZipDownloading(true);
+    setSnackbar({ open: true, message: `리뷰샷 ${buyersWithImages.reduce((sum, b) => sum + b.images.length, 0)}개 다운로드 중...` });
+
+    try {
+      const zip = new JSZip();
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const { rowNumber, productName, dayGroup, images } of buyersWithImages) {
+        for (let imgIndex = 0; imgIndex < images.length; imgIndex++) {
+          const image = images[imgIndex];
+          const imageUrl = image.s3_url;
+
+          if (!imageUrl) continue;
+
+          try {
+            // 프록시 API를 통해 이미지 가져오기
+            const response = await api.get('/images/proxy', {
+              params: { url: imageUrl },
+              responseType: 'blob'
+            });
+
+            // 파일 확장자 추출
+            const contentType = response.headers['content-type'] || 'image/jpeg';
+            let ext = 'jpg';
+            if (contentType.includes('png')) ext = 'png';
+            else if (contentType.includes('gif')) ext = 'gif';
+            else if (contentType.includes('webp')) ext = 'webp';
+
+            // 파일명 생성: 제품명_일차_순번(-이미지번호).확장자
+            // 예: 상품A_1일차_3.jpg 또는 상품A_1일차_3-2.jpg
+            const dayLabel = `${dayGroup}일차`;
+            const fileName = images.length > 1
+              ? `${productName}_${dayLabel}_${rowNumber}-${imgIndex + 1}.${ext}`
+              : `${productName}_${dayLabel}_${rowNumber}.${ext}`;
+
+            zip.file(fileName, response.data);
+            successCount++;
+          } catch (err) {
+            console.error(`이미지 다운로드 실패: ${imageUrl}`, err);
+            failCount++;
+          }
+        }
+      }
+
+      if (successCount === 0) {
+        setSnackbar({ open: true, message: '이미지 다운로드에 실패했습니다', severity: 'error' });
+        setZipDownloading(false);
+        return;
+      }
+
+      // ZIP 파일 생성 및 다운로드
+      const content = await zip.generateAsync({ type: 'blob' });
+      const zipFileName = `${campaignName || 'campaign'}_리뷰샷.zip`;
+      saveAs(content, zipFileName);
+
+      const message = failCount > 0
+        ? `리뷰샷 ${successCount}개 다운로드 완료 (${failCount}개 실패)`
+        : `리뷰샷 ${successCount}개 다운로드 완료`;
+      setSnackbar({ open: true, message, severity: failCount > 0 ? 'warning' : 'success' });
+    } catch (error) {
+      console.error('ZIP 다운로드 실패:', error);
+      setSnackbar({ open: true, message: 'ZIP 파일 생성에 실패했습니다', severity: 'error' });
+    } finally {
+      setZipDownloading(false);
+    }
   }, [slots, campaignName]);
 
   // 캠페인별 슬롯 데이터 로드 (Brand 전용)
@@ -525,9 +694,8 @@ function BrandItemSheetInner({
   // 성능 최적화: 2단계로 분리하여 캠페인 변경 시 불필요한 재계산 방지
   // 1단계: 기본 데이터 구조 생성 (slots, reviewFilter만 의존)
   // day_group별로 분리하여 영업사/진행자와 동일한 구조로 표시
-  const { baseTableData, baseSlotIndexMap } = useMemo(() => {
+  const { baseTableData } = useMemo(() => {
     const data = [];
-    const indexMap = {}; // tableRow -> slotId
 
     // 슬롯을 품목별 + day_group별로 그룹화
     const itemGroups = {};
@@ -560,6 +728,8 @@ function BrandItemSheetInner({
 
       dayGroupKeys.forEach((dayGroup, dayGroupIndex) => {
         const groupData = itemGroup.dayGroups[dayGroup];
+        // 해당 day_group이 중단 상태인지 확인 (슬롯 중 하나라도 is_suspended가 true면 중단)
+        const isSuspended = groupData.slots.some(slot => slot.is_suspended);
 
         // 리뷰샷 필터 적용
         let filteredSlots = groupData.slots;
@@ -611,16 +781,18 @@ function BrandItemSheetInner({
           _rowType: ROW_TYPES.PRODUCT_HEADER,
           _itemId: parseInt(itemId),
           _dayGroup: parseInt(dayGroup),
-          col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
-          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배대행', col11: 'URL', col12: '특이사항', col13: '상세'
+          _isSuspended: isSuspended,
+          col0: '', col1: isSuspended ? '날짜 ⚠️' : '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
+          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배사', col11: '택배대행', col12: 'URL', col13: '특이사항', col14: '상세'
         });
 
-        // 제품 데이터 행 (14개 컬럼)
+        // 제품 데이터 행 (15개 컬럼)
         data.push({
           _rowType: ROW_TYPES.PRODUCT_DATA,
           _itemId: parseInt(itemId),
           _dayGroup: parseInt(dayGroup),
           _item: item,
+          _isSuspended: isSuspended,
           _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
           col0: '',
           col1: dayGroupProductInfo.date,
@@ -632,27 +804,34 @@ function BrandItemSheetInner({
           col7: dayGroupProductInfo.product_price,
           col8: dayGroupProductInfo.total_purchase_count,
           col9: dayGroupProductInfo.daily_purchase_count,
-          col10: dayGroupProductInfo.courier_service_yn,
-          col11: dayGroupProductInfo.product_url,
-          col12: dayGroupProductInfo.notes,
-          col13: '📋'
+          col10: dayGroupProductInfo.courier_name || '롯데택배',
+          col11: dayGroupProductInfo.courier_service_yn,
+          col12: dayGroupProductInfo.product_url,
+          col13: dayGroupProductInfo.notes,
+          col14: '📋'
         });
 
         // 구매자 헤더 행 (14개 컬럼) - 항상 포함
+        // 날짜, 순번, 제품명, 옵션을 주문번호 앞에 추가 (영업사/진행자와 동일한 구조)
         data.push({
           _rowType: ROW_TYPES.BUYER_HEADER,
           _itemId: parseInt(itemId),
           _dayGroup: parseInt(dayGroup),
-          col0: '', col1: '주문번호', col2: '구매자', col3: '수취인', col4: '아이디', col5: '주소', col6: '금액', col7: '송장번호', col8: '리뷰샷',
-          col9: '', col10: '', col11: '', col12: '', col13: ''
+          _isSuspended: isSuspended,
+          col0: '', col1: '날짜', col2: '순번', col3: '제품명', col4: '옵션', col5: '주문번호', col6: '구매자', col7: '수취인', col8: '아이디',
+          col9: '주소', col10: '금액', col11: '송장번호', col12: '리뷰샷', col13: ''
         });
 
         // 구매자 데이터 행 - 항상 포함
-        filteredSlots.forEach((slot) => {
+        // 날짜, 순번, 제품명, 옵션을 주문번호 앞에 추가 (영업사/진행자와 동일한 구조)
+        filteredSlots.forEach((slot, slotIndex) => {
           const buyer = slot.buyer || {};
           const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
 
-          indexMap[data.length] = slot.id;
+          // 슬롯에서 제품 정보 가져오기 (슬롯 값 > dayGroupProductInfo)
+          const slotProductName = slot.product_name || dayGroupProductInfo.product_name || '';
+          const slotPurchaseOption = slot.purchase_option || dayGroupProductInfo.purchase_option || '';
+          const slotDate = slot.date || dayGroupProductInfo.date || '';
 
           data.push({
             _rowType: ROW_TYPES.BUYER_DATA,
@@ -661,31 +840,35 @@ function BrandItemSheetInner({
             _dayGroup: parseInt(dayGroup),
             _buyerId: buyer.id || null,
             _buyer: buyer,
+            _isSuspended: isSuspended,
             _reviewImages: buyer.images || [],
             _reviewImageUrl: reviewImage?.s3_url || '',
             _reviewImageName: reviewImage?.file_name || '',
             col0: '',
-            col1: buyer.order_number || '',
-            col2: buyer.buyer_name || '',
-            col3: buyer.recipient_name || '',
-            col4: buyer.user_id || '',
-            col5: buyer.address || '',
-            col6: buyer.amount || '',
-            col7: buyer.tracking_number || '',
-            col8: reviewImage?.s3_url || '',
-            col9: '', col10: '', col11: '', col12: '', col13: ''
+            col1: slotDate,                        // 날짜
+            col2: slotIndex + 1,                   // 순번 (품목/day_group별 1부터 시작)
+            col3: slotProductName,                 // 제품명
+            col4: slotPurchaseOption,              // 옵션
+            col5: buyer.order_number || '',        // 주문번호
+            col6: buyer.buyer_name || '',          // 구매자
+            col7: buyer.recipient_name || '',      // 수취인
+            col8: buyer.user_id || '',             // 아이디
+            col9: buyer.address || '',             // 주소
+            col10: buyer.amount || '',             // 금액
+            col11: buyer.tracking_number || '',    // 송장번호
+            col12: reviewImage?.s3_url || '',      // 리뷰샷
+            col13: ''
           });
         });
       });
     });
 
-    return { baseTableData: data, baseSlotIndexMap: indexMap };
+    return { baseTableData: data };
   }, [slots, reviewFilter]); // collapsedItems 제거 - 캠페인 변경 시 재계산 방지
 
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
   // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
   const tableData = baseTableData;
-  const slotIndexMap = baseSlotIndexMap;
 
   // hiddenRows 플러그인용 숨길 행 인덱스 계산
   const hiddenRowIndices = useMemo(() => {
@@ -819,6 +1002,11 @@ function BrandItemSheetInner({
     [tableData, columnAlignments]
   );
 
+  const buyerHeaderRenderer = useMemo(() =>
+    createBrandBuyerHeaderRenderer(tableData),
+    [tableData]
+  );
+
   // 셀 렌더러 - 행 타입별 분기 (최적화: 외부 정의 렌더러 사용)
   const cellsRenderer = useCallback((row, col, prop) => {
     const cellProperties = {};
@@ -840,22 +1028,36 @@ function BrandItemSheetInner({
       case ROW_TYPES.PRODUCT_HEADER:
         cellProperties.readOnly = true;
         cellProperties.renderer = brandProductHeaderRenderer;
+        // 중단된 day_group은 빨간 배경
+        if (rowData._isSuspended) {
+          cellProperties.className = 'suspended-row';
+        }
         break;
 
       case ROW_TYPES.PRODUCT_DATA:
         cellProperties.readOnly = true;
         cellProperties.renderer = productDataRenderer;
+        // 중단된 day_group은 빨간 배경
+        if (rowData._isSuspended) {
+          cellProperties.className = 'suspended-row';
+        }
         break;
 
       case ROW_TYPES.BUYER_HEADER:
         cellProperties.readOnly = true;
-        cellProperties.renderer = brandBuyerHeaderRenderer;
+        cellProperties.renderer = buyerHeaderRenderer;
+        // 중단된 day_group은 빨간 배경
+        if (rowData._isSuspended) {
+          cellProperties.className = 'suspended-row';
+        }
         break;
 
       case ROW_TYPES.BUYER_DATA:
         cellProperties.readOnly = true;
         const hasReviewImage = rowData._reviewImageUrl;
-        cellProperties.className = hasReviewImage ? 'has-review' : 'no-review';
+        // 중단된 경우 suspended-row 클래스 추가
+        const baseClass = hasReviewImage ? 'has-review' : 'no-review';
+        cellProperties.className = rowData._isSuspended ? `${baseClass} suspended-row` : baseClass;
         cellProperties.renderer = buyerDataRenderer;
         break;
 
@@ -864,7 +1066,7 @@ function BrandItemSheetInner({
     }
 
     return cellProperties;
-  }, [tableData, productDataRenderer, buyerDataRenderer]);
+  }, [tableData, productDataRenderer, buyerDataRenderer, buyerHeaderRenderer]);
 
   // 전체 데이터 건수 (원본 slots 기준)
   const totalDataCount = useMemo(() => {
@@ -1016,24 +1218,43 @@ function BrandItemSheetInner({
             </Button>
           </Box>
 
-          {/* 엑셀 다운로드 버튼 */}
-          <Button
-            size="small"
-            onClick={handleDownloadExcel}
-            disabled={slots.length === 0}
-            startIcon={<DownloadIcon />}
-            sx={{
-              color: 'white',
-              bgcolor: 'rgba(255,255,255,0.15)',
-              fontSize: '0.75rem',
-              px: 1.5,
-              py: 0.5,
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
-              '&:disabled': { color: 'rgba(255,255,255,0.5)' }
-            }}
-          >
-            엑셀 다운로드
-          </Button>
+          {/* 다운로드 버튼들 */}
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              size="small"
+              onClick={handleDownloadExcel}
+              disabled={slots.length === 0}
+              startIcon={<DownloadIcon />}
+              sx={{
+                color: 'white',
+                bgcolor: 'rgba(255,255,255,0.15)',
+                fontSize: '0.75rem',
+                px: 1.5,
+                py: 0.5,
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+                '&:disabled': { color: 'rgba(255,255,255,0.5)' }
+              }}
+            >
+              엑셀 다운로드
+            </Button>
+            <Button
+              size="small"
+              onClick={handleDownloadImages}
+              disabled={slots.length === 0 || zipDownloading}
+              startIcon={zipDownloading ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <FolderZipIcon />}
+              sx={{
+                color: 'white',
+                bgcolor: 'rgba(76,175,80,0.6)',
+                fontSize: '0.75rem',
+                px: 1.5,
+                py: 0.5,
+                '&:hover': { bgcolor: 'rgba(76,175,80,0.8)' },
+                '&:disabled': { color: 'rgba(255,255,255,0.5)', bgcolor: 'rgba(76,175,80,0.3)' }
+              }}
+            >
+              {zipDownloading ? '다운로드 중...' : '리뷰샷 다운로드'}
+            </Button>
+          </Box>
         </Box>
       </Box>
 
@@ -1071,6 +1292,11 @@ function BrandItemSheetInner({
         // 리뷰 없는 행 배경
         '& .no-review': {
           backgroundColor: '#fff !important'
+        },
+        // 중단된 day_group 배경 (연한 빨강)
+        '& .suspended-row': {
+          backgroundColor: '#ffcdd2 !important',
+          color: '#c62828 !important'
         },
         // 모든 셀에 텍스트 오버플로우 처리 (... 표시)
         '& .handsontable td': {
@@ -1194,8 +1420,8 @@ function BrandItemSheetInner({
                 return;
               }
 
-              // 제품 데이터 행의 col13(상세보기) 클릭 시 팝업
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 13) {
+              // 제품 데이터 행의 col14(상세보기) 클릭 시 팝업
+              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
                 const item = rowData._item;
                 if (item) {
                   setProductDetailPopup({
@@ -1250,11 +1476,11 @@ function BrandItemSheetInner({
       {/* 스낵바 알림 */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={3000}
+        autoHideDuration={snackbar.severity === 'error' ? 5000 : 3000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert severity="success" onClose={() => setSnackbar({ ...snackbar, open: false })}>
+        <Alert severity={snackbar.severity || 'success'} onClose={() => setSnackbar({ ...snackbar, open: false })}>
           {snackbar.message}
         </Alert>
       </Snackbar>

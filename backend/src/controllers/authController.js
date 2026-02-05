@@ -324,8 +324,17 @@ const mobileLogin = async (req, res) => {
       });
     }
 
-    // 마지막 로그인 시간 업데이트
-    await user.update({ last_login: new Date() });
+    // 마지막 로그인 시간 및 활동 시간 업데이트
+    const now = new Date();
+    await user.update({ last_login: now, last_activity: now });
+
+    // 로그인 활동 기록 (접속횟수 카운트용)
+    await UserActivity.create({
+      user_id: user.id,
+      activity_type: 'login',
+      ip_address: req.ip || req.connection?.remoteAddress,
+      user_agent: req.get('User-Agent')?.substring(0, 500)
+    });
 
     // Access Token (15분) 생성
     const accessToken = generateAccessToken(user);

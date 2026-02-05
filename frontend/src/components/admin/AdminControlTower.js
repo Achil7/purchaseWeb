@@ -11,12 +11,10 @@ import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import CircleIcon from '@mui/icons-material/Circle';
 import SearchIcon from '@mui/icons-material/Search';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import InfoIcon from '@mui/icons-material/Info';
 import SaveIcon from '@mui/icons-material/Save';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import CloseIcon from '@mui/icons-material/Close';
 import ClearIcon from '@mui/icons-material/Clear';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -1415,7 +1413,7 @@ function AdminControlTower() {
 
                   try {
                     // 먼저 연관 데이터 체크 (force 없이 호출)
-                    const response = await deleteUser(userDetail.id);
+                    await deleteUser(userDetail.id);
                     // 성공하면 (연관 데이터 없음) 바로 삭제됨
                     alert('사용자가 영구 삭제되었습니다.');
                     setDetailDialogOpen(false);
