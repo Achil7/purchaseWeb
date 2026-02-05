@@ -3,7 +3,7 @@ import {
   Box, Typography, Paper, Tabs, Tab, Table, TableHead, TableRow, TableCell, TableBody,
   CircularProgress, Alert, Button, IconButton, Tooltip, TextField, InputAdornment,
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
-  FormControl, InputLabel, Select, MenuItem, Chip, TableContainer, Divider
+  FormControl, InputLabel, Select, MenuItem, Chip, TableContainer, Divider, Pagination
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -84,6 +84,10 @@ function AdminControlTower() {
   // 진행자 배정 탭 - 영업사 검색 상태
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
 
+  // 진행자 배정 탭 - 페이지네이션 상태
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
   // 연월브랜드 펼치기/접기 토글
   const toggleMonthlyBrand = (monthlyBrandId) => {
     setExpandedMonthlyBrands(prev => {
@@ -100,30 +104,6 @@ function AdminControlTower() {
       return newState;
     });
   };
-
-  // 모든 연월브랜드 펼치기
-  const expandAllMonthlyBrands = useCallback(() => {
-    const newState = {};
-    monthlyBrands.forEach(mb => {
-      newState[mb.id] = true;
-    });
-    setExpandedMonthlyBrands(newState);
-    try {
-      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
-    } catch (e) {
-      console.error('Failed to save expanded state:', e);
-    }
-  }, [monthlyBrands]);
-
-  // 모든 연월브랜드 접기
-  const collapseAllMonthlyBrands = useCallback(() => {
-    setExpandedMonthlyBrands({});
-    try {
-      localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify({}));
-    } catch (e) {
-      console.error('Failed to save expanded state:', e);
-    }
-  }, []);
 
   // 영업사 변경 다이얼로그 상태
   const [salesChangeDialogOpen, setSalesChangeDialogOpen] = useState(false);
@@ -520,6 +500,13 @@ function AdminControlTower() {
       return true;
     });
 
+    // 페이지네이션 계산
+    const totalItems = filteredMonthlyBrands.length;
+    const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    const paginatedMonthlyBrands = filteredMonthlyBrands.slice(startIndex, endIndex);
+
     return (
       <Box>
         {/* 타이틀 영역 */}
@@ -530,24 +517,53 @@ function AdminControlTower() {
             </Typography>
             <Typography variant="body2" color="text.secondary">
               연월브랜드를 선택하고 캠페인을 클릭하여 진행자를 배정하세요.
+              {totalItems > 0 && (
+                <Box component="span" sx={{ ml: 1, color: 'primary.main', fontWeight: 'bold' }}>
+                  (전체 {totalItems}개 중 {startIndex + 1}-{Math.min(endIndex, totalItems)} 표시)
+                </Box>
+              )}
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
               size="small"
               variant="outlined"
-              onClick={expandAllMonthlyBrands}
+              onClick={() => {
+                // 현재 페이지 항목만 펼치기
+                const newState = { ...expandedMonthlyBrands };
+                paginatedMonthlyBrands.forEach(mb => {
+                  newState[mb.id] = true;
+                });
+                setExpandedMonthlyBrands(newState);
+                try {
+                  localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+                } catch (e) {
+                  console.error('Failed to save expanded state:', e);
+                }
+              }}
               sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
             >
-              모두 펼치기
+              현재 페이지 펼치기
             </Button>
             <Button
               size="small"
               variant="outlined"
-              onClick={collapseAllMonthlyBrands}
+              onClick={() => {
+                // 현재 페이지 항목만 접기
+                const newState = { ...expandedMonthlyBrands };
+                paginatedMonthlyBrands.forEach(mb => {
+                  delete newState[mb.id];
+                });
+                setExpandedMonthlyBrands(newState);
+                try {
+                  localStorage.setItem(EXPANDED_MB_KEY, JSON.stringify(newState));
+                } catch (e) {
+                  console.error('Failed to save expanded state:', e);
+                }
+              }}
               sx={{ fontSize: '0.75rem', py: 0.5, px: 1.5 }}
             >
-              모두 접기
+              현재 페이지 접기
             </Button>
           </Box>
         </Box>
@@ -570,7 +586,7 @@ function AdminControlTower() {
                           size="small"
                           placeholder="검색..."
                           value={salesSearchQuery}
-                          onChange={(e) => setSalesSearchQuery(e.target.value)}
+                          onChange={(e) => { setSalesSearchQuery(e.target.value); setCurrentPage(1); }}
                           onClick={(e) => e.stopPropagation()}
                           sx={{
                             width: 100,
@@ -582,7 +598,7 @@ function AdminControlTower() {
                               <InputAdornment position="end">
                                 <IconButton
                                   size="small"
-                                  onClick={(e) => { e.stopPropagation(); setSalesSearchQuery(''); }}
+                                  onClick={(e) => { e.stopPropagation(); setSalesSearchQuery(''); setCurrentPage(1); }}
                                   sx={{ p: 0.2 }}
                                 >
                                   <ClearIcon sx={{ fontSize: 16 }} />
@@ -602,8 +618,8 @@ function AdminControlTower() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredMonthlyBrands.length > 0 ? (
-                    filteredMonthlyBrands.map((mb) => {
+                  {paginatedMonthlyBrands.length > 0 ? (
+                    paginatedMonthlyBrands.map((mb) => {
                       const isExpanded = expandedMonthlyBrands[mb.id] || false;
                       const campaigns = mb.campaigns || [];
 
@@ -850,6 +866,21 @@ function AdminControlTower() {
               </Table>
             </TableContainer>
           </Paper>
+        )}
+
+        {/* 페이지네이션 */}
+        {!assignmentLoading && totalPages > 1 && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+            <Pagination
+              count={totalPages}
+              page={currentPage}
+              onChange={(e, page) => setCurrentPage(page)}
+              color="primary"
+              showFirstButton
+              showLastButton
+              size="medium"
+            />
+          </Box>
         )}
       </Box>
     );
