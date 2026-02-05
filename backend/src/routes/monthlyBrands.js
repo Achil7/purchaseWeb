@@ -139,78 +139,81 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
       ]
     });
 
-    // 각 캠페인별 배정 상태 계산
-    const monthlyBrandsWithAssignment = await Promise.all(
-      monthlyBrands.map(async (mb) => {
-        const mbData = mb.toJSON();
+    // Step 1: 모든 캠페인 ID 수집
+    const allCampaignIds = monthlyBrands
+      .flatMap(mb => (mb.campaigns || []).map(c => c.id))
+      .filter(Boolean);
 
-        // 각 캠페인별 배정 상태 계산
-        if (mbData.campaigns && mbData.campaigns.length > 0) {
-          mbData.campaigns = await Promise.all(
-            mbData.campaigns.map(async (campaign) => {
-              // 품목이 없으면 배정 완료로 간주 (배정할 것이 없음)
-              if (!campaign.items || campaign.items.length === 0) {
-                return {
-                  ...campaign,
-                  isFullyAssigned: true,
-                  assignmentStatus: 'no_items'
-                };
+    // Step 2: 배정 상태를 단일 쿼리로 한 번에 조회 (N+1 쿼리 문제 해결)
+    let assignmentMap = new Map();
+    if (allCampaignIds.length > 0) {
+      const assignmentCounts = await CampaignOperator.findAll({
+        attributes: ['campaign_id', 'item_id', 'day_group'],
+        where: {
+          campaign_id: { [Op.in]: allCampaignIds }
+        },
+        group: ['campaign_id', 'item_id', 'day_group'],
+        raw: true
+      });
+
+      // Map으로 변환하여 O(1) 조회
+      assignmentCounts.forEach(row => {
+        const key = `${row.campaign_id}_${row.item_id}_${row.day_group}`;
+        assignmentMap.set(key, true);
+      });
+    }
+
+    // Step 3: 배정 상태 계산 (DB 조회 없이 메모리에서 처리)
+    const monthlyBrandsWithAssignment = monthlyBrands.map(mb => {
+      const mbData = mb.toJSON();
+
+      if (mbData.campaigns && mbData.campaigns.length > 0) {
+        mbData.campaigns = mbData.campaigns.map(campaign => {
+          // 품목이 없으면 배정 완료로 간주 (배정할 것이 없음)
+          if (!campaign.items || campaign.items.length === 0) {
+            return {
+              ...campaign,
+              isFullyAssigned: true,
+              assignmentStatus: 'no_items'
+            };
+          }
+
+          // 각 품목별 day_group 수 계산 (실제 ItemSlot 기준, 중단된 슬롯 제외)
+          let totalRequiredSlots = 0;
+          let assignedCount = 0;
+
+          for (const item of campaign.items) {
+            const slots = item.slots || [];
+            const activeSlots = slots.filter(s => !s.is_suspended);
+            const uniqueActiveDayGroups = [...new Set(
+              activeSlots.map(s => s.day_group).filter(d => d != null)
+            )];
+
+            totalRequiredSlots += uniqueActiveDayGroups.length;
+
+            // 메모리에서 배정 여부 확인 (DB 조회 없음)
+            for (const dayGroup of uniqueActiveDayGroups) {
+              const key = `${campaign.id}_${item.id}_${dayGroup}`;
+              if (assignmentMap.has(key)) {
+                assignedCount++;
               }
+            }
+          }
 
-              // 각 품목별 day_group 수 계산 (실제 ItemSlot 기준, 중단된 슬롯 제외)
-              let totalRequiredSlots = 0;
-              const itemDayGroups = [];
+          const isFullyAssigned = assignedCount >= totalRequiredSlots;
 
-              for (const item of campaign.items) {
-                // ItemSlot에서 실제 존재하는 고유 day_group 목록 추출
-                const slots = item.slots || [];
+          return {
+            ...campaign,
+            isFullyAssigned,
+            assignmentStatus: isFullyAssigned ? 'complete' : 'incomplete',
+            totalRequiredSlots,
+            assignedCount
+          };
+        });
+      }
 
-                // 활성 슬롯만 필터링 (중단된 슬롯 제외)
-                const activeSlots = slots.filter(s => !s.is_suspended);
-                const uniqueActiveDayGroups = [...new Set(activeSlots.map(s => s.day_group).filter(d => d != null))].sort((a, b) => a - b);
-
-                // 활성 day_group만 카운트 (활성 슬롯이 없으면 0으로 처리 - 배정 필요 없음)
-                const dayGroupCount = uniqueActiveDayGroups.length;
-                totalRequiredSlots += dayGroupCount;
-
-                // 활성 day_group만 저장 (중단된 day_group은 배정 대상에서 완전 제외)
-                uniqueActiveDayGroups.forEach(dg => {
-                  itemDayGroups.push({ itemId: item.id, dayGroup: dg });
-                });
-              }
-
-              // 각 item + day_group 조합별로 실제 배정 여부 확인
-              let assignedCount = 0;
-              for (const { itemId, dayGroup } of itemDayGroups) {
-                const isAssigned = await CampaignOperator.count({
-                  where: {
-                    campaign_id: campaign.id,
-                    item_id: itemId,
-                    day_group: dayGroup
-                  }
-                });
-                if (isAssigned > 0) {
-                  assignedCount++;
-                }
-              }
-
-              // 배정 완료 = 모든 활성 슬롯이 배정됨 (활성 슬롯이 0개면 배정할 것이 없으므로 완료)
-              const isFullyAssigned = assignedCount >= totalRequiredSlots;
-
-              return {
-                ...campaign,
-                isFullyAssigned,
-                assignmentStatus: isFullyAssigned ? 'complete' : 'incomplete',
-                totalRequiredSlots,
-                assignedCount
-              };
-            })
-          );
-        }
-
-        return mbData;
-      })
-    );
+      return mbData;
+    });
 
     res.json({
       success: true,

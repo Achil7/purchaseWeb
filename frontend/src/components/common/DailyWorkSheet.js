@@ -584,6 +584,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       // 연월브랜드-캠페인 표시 문자열
       const mbCampaignLabel = `${monthlyBrand?.name || '연월브랜드'} - ${campaign?.name || '캠페인'}`;
 
+      // day_group 중단 상태 확인 (슬롯 중 하나라도 is_suspended가 true면 중단됨)
+      const isDayGroupSuspended = groupData.slots.some(s => s.is_suspended);
+
       // 슬롯/아이템에서 제품 정보 병합 (changedItems > 슬롯 > 아이템 우선순위)
       const firstSlot = groupData.slots[0] || {};
       const localChanges = changedItems[groupKey] || {};
@@ -658,6 +661,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         data.push({
           _rowType: ROW_TYPES.UPLOAD_LINK_BAR,
           _uploadToken: uploadLinkToken,
+          _isSuspended: isDayGroupSuspended,
           col0: '', col1: '📷 업로드 링크 복사',
           col2: '', col3: '', col4: '', col5: '', col6: '', col7: '', col8: '', col9: '',
           col10: '', col11: '', col12: '', col13: '', col14: '', col15: '', col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
@@ -667,6 +671,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         // 구매자 헤더 행 (23개 컬럼 - col6에 비고 추가)
         data.push({
           _rowType: ROW_TYPES.BUYER_HEADER,
+          _isSuspended: isDayGroupSuspended,
           col0: '', col1: '', col2: '날짜', col3: '순번', col4: '제품명', col5: '옵션', col6: '비고', col7: '예상구매자',
           col8: '주문번호', col9: '구매자', col10: '수취인', col11: '아이디', col12: '연락처', col13: '주소',
           col14: '계좌', col15: '금액', col16: '송장번호', col17: '리뷰샷', col18: '상태', col19: '리뷰비',
@@ -678,9 +683,38 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         groupData.slots.forEach((slot, slotIndex) => {
           const buyer = slot.buyer || {};
           const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
-          const hasBuyerData = buyer.order_number || buyer.buyer_name || buyer.recipient_name ||
-                               buyer.user_id || buyer.contact || buyer.address ||
-                               buyer.account_info || buyer.amount;
+
+          // changedSlots에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
+          const slotChanges = changedSlots[slot.id] || {};
+
+          // buyer 필드 (changedSlots > buyer 우선순위)
+          const mergedBuyer = {
+            order_number: slotChanges.order_number ?? buyer.order_number ?? '',
+            buyer_name: slotChanges.buyer_name ?? buyer.buyer_name ?? '',
+            recipient_name: slotChanges.recipient_name ?? buyer.recipient_name ?? '',
+            user_id: slotChanges.user_id ?? buyer.user_id ?? '',
+            contact: slotChanges.contact ?? buyer.contact ?? '',
+            address: slotChanges.address ?? buyer.address ?? '',
+            account_info: slotChanges.account_info ?? buyer.account_info ?? '',
+            amount: slotChanges.amount ?? buyer.amount ?? '',
+            tracking_number: slotChanges.tracking_number ?? buyer.tracking_number ?? '',
+            deposit_name: slotChanges.deposit_name ?? buyer.deposit_name ?? '',
+            date: slotChanges.date ?? buyer.date ?? ''
+          };
+
+          // slot 필드 (changedSlots > slot 우선순위)
+          const mergedSlot = {
+            product_name: slotChanges.product_name ?? slot.product_name ?? item.product_name ?? '',
+            purchase_option: slotChanges.purchase_option ?? slot.purchase_option ?? '',
+            buyer_notes: slotChanges.buyer_notes ?? slot.buyer_notes ?? '',
+            expected_buyer: slotChanges.expected_buyer ?? slot.expected_buyer ?? '',
+            review_cost: slotChanges.review_cost ?? slot.review_cost ?? '',
+            date: slotChanges.date ?? slot.date ?? ''
+          };
+
+          const hasBuyerData = mergedBuyer.order_number || mergedBuyer.buyer_name || mergedBuyer.recipient_name ||
+                               mergedBuyer.user_id || mergedBuyer.contact || mergedBuyer.address ||
+                               mergedBuyer.account_info || mergedBuyer.amount;
           const hasReviewImage = reviewImage?.s3_url;
           const calculatedStatus = hasReviewImage ? 'completed' : (hasBuyerData ? 'active' : '-');
 
@@ -691,31 +725,32 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             _dayGroup: dayGroup,
             _buyerId: buyer.id || null,
             _buyer: buyer,
+            _isSuspended: isDayGroupSuspended,
             _reviewImages: buyer.images || [],
             _reviewImageUrl: reviewImage?.s3_url || '',
             _hasBuyerData: !!hasBuyerData,
             _calculatedStatus: calculatedStatus,
             col0: '',
             col1: '',
-            col2: buyer.date || slot.date || '',  // Buyer.date 우선, 없으면 slot.date
+            col2: mergedBuyer.date || mergedSlot.date || '',  // Buyer.date 우선, 없으면 slot.date
             col3: slotIndex + 1,
-            col4: slot.product_name || item.product_name || '',
-            col5: slot.purchase_option || '',
-            col6: slot.buyer_notes || '',  // 비고 (col6 추가)
-            col7: slot.expected_buyer || '',
-            col8: buyer.order_number || '',
-            col9: buyer.buyer_name || '',
-            col10: buyer.recipient_name || '',
-            col11: buyer.user_id || '',
-            col12: buyer.contact || '',
-            col13: buyer.address || '',
-            col14: buyer.account_info || '',
-            col15: buyer.amount || '',
-            col16: buyer.tracking_number || '',
+            col4: mergedSlot.product_name,
+            col5: mergedSlot.purchase_option,
+            col6: mergedSlot.buyer_notes,
+            col7: mergedSlot.expected_buyer,
+            col8: mergedBuyer.order_number,
+            col9: mergedBuyer.buyer_name,
+            col10: mergedBuyer.recipient_name,
+            col11: mergedBuyer.user_id,
+            col12: mergedBuyer.contact,
+            col13: mergedBuyer.address,
+            col14: mergedBuyer.account_info,
+            col15: mergedBuyer.amount,
+            col16: mergedBuyer.tracking_number,
             col17: reviewImage?.s3_url || '',
             col18: calculatedStatus,
-            col19: slot.review_cost || '',
-            col20: buyer.deposit_name || '',
+            col19: mergedSlot.review_cost,
+            col20: mergedBuyer.deposit_name,
             col21: buyer.payment_confirmed_at || ''
           });
           meta.push({
@@ -732,7 +767,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     });
 
     return { tableData: data, rowMeta: meta };
-  }, [groupedSlots, collapsedItems, changedItems]); // changedItems 추가 - 로컬 수정사항 즉시 반영
+  }, [groupedSlots, collapsedItems, changedItems, changedSlots]); // changedItems, changedSlots 추가 - 로컬 수정사항 즉시 반영
 
   // 접기/펼치기 토글
   const toggleCollapse = useCallback((groupKey) => {
@@ -844,17 +879,26 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       case ROW_TYPES.UPLOAD_LINK_BAR:
         cellProperties.readOnly = true;
         cellProperties.renderer = uploadLinkBarRenderer;
+        // 중단 상태면 suspended 클래스 추가
+        if (rowData._isSuspended) {
+          cellProperties.className = 'suspended-row';
+        }
         break;
 
       case ROW_TYPES.BUYER_HEADER:
         cellProperties.readOnly = true;
         cellProperties.renderer = dailyBuyerHeaderRenderer;
+        // 중단 상태면 suspended 클래스 추가
+        if (rowData._isSuspended) {
+          cellProperties.className = 'suspended-row';
+        }
         break;
 
       case ROW_TYPES.BUYER_DATA:
         const dayGroup = rowData._dayGroup || 1;
         const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
-        cellProperties.className = dayClass;
+        // 중단 상태면 suspended 클래스 추가
+        cellProperties.className = rowData._isSuspended ? `${dayClass} suspended-row` : dayClass;
 
         // col17: 리뷰샷 (col16 -> col17로 시프트)
         if (col === 17) {
@@ -1363,6 +1407,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         },
         '& .day-odd': {
           backgroundColor: '#fff !important'
+        },
+        // 중단된 day_group 배경 (빨간색)
+        '& .suspended-row': {
+          backgroundColor: '#ffcdd2 !important'
         },
         '& .duplicate-order': {
           backgroundColor: '#ffcdd2 !important'

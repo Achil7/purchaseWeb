@@ -50,7 +50,11 @@
       "Bash(git stash:*)",
       "Bash(npm test:*)",
       "Bash(git checkout:*)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(while read hash msg)",
+      "Bash(do echo \"=== $hash ===\")",
+      "Bash(break)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

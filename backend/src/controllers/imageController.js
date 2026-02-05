@@ -24,8 +24,39 @@ const upload = multer({
   }
 });
 
-// multer 미들웨어 export - 다중 파일 지원 (최대 10개)
-exports.uploadMiddleware = upload.array('images', 10);
+// multer 미들웨어 export - 다중 파일 지원 (최대 50개)
+// 에러 핸들링 래퍼 추가
+const uploadArray = upload.array('images', 50);
+exports.uploadMiddleware = (req, res, next) => {
+  uploadArray(req, res, (err) => {
+    if (err) {
+      console.error('Multer error:', err);
+      if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        return res.status(400).json({
+          success: false,
+          message: `예상하지 못한 필드입니다: ${err.field}. 'images' 필드로 파일을 전송해주세요.`
+        });
+      }
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({
+          success: false,
+          message: '파일 크기가 10MB를 초과했습니다.'
+        });
+      }
+      if (err.code === 'LIMIT_FILE_COUNT') {
+        return res.status(400).json({
+          success: false,
+          message: '최대 50개까지 업로드 가능합니다.'
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        message: err.message || '파일 업로드 중 오류가 발생했습니다.'
+      });
+    }
+    next();
+  });
+};
 
 /**
  * 이름으로 구매자 검색 (업로드 페이지용)

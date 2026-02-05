@@ -70,23 +70,42 @@ const productHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-const buyerHeaderRenderer = (instance, td, r, c, prop, value) => {
-  td.className = 'buyer-header-row';
-  td.style.backgroundColor = '#f5f5f5';
-  td.style.fontWeight = 'bold';
-  td.style.textAlign = 'center';
-  td.style.fontSize = '11px';
-  td.textContent = value ?? '';
-  return td;
+// tableData를 받아서 중단된 경우 빨간 배경 적용
+const createBuyerHeaderRenderer = (tableData) => {
+  return (instance, td, r, c, prop, value) => {
+    const rowData = tableData[r];
+    const isSuspended = rowData?._isSuspended;
+
+    td.className = 'buyer-header-row';
+    td.style.fontWeight = 'bold';
+    td.style.textAlign = 'center';
+    td.style.fontSize = '11px';
+    td.textContent = value ?? '';
+
+    // 중단된 경우 빨간 배경
+    if (isSuspended) {
+      td.style.backgroundColor = '#ef9a9a';
+      td.style.color = '#b71c1c';
+    } else {
+      td.style.backgroundColor = '#f5f5f5';
+      td.style.color = '';
+    }
+    return td;
+  };
 };
 
 // collapsedItemsRef를 사용하여 최신 접기 상태 참조 (렌더러 재생성 방지)
 const createSalesProductDataRenderer = (tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
+    const isSuspended = rowData._isSuspended;
     td.className = 'product-data-row';
-    td.style.backgroundColor = '#fff8e1';
+    // 중단된 경우 빨간 배경, 아닌 경우 기본 노란 배경
+    td.style.backgroundColor = isSuspended ? '#ffcdd2' : '#fff8e1';
     td.style.fontSize = '11px';
+    if (isSuspended) {
+      td.style.color = '#b71c1c';
+    }
 
     if (prop === 'col0') {
       const itemId = rowData._itemId;
@@ -101,17 +120,32 @@ const createSalesProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
         completionBadge = `<span style="color: #f57c00; font-size: 10px; margin-left: 4px;">${status.completed}/${status.total}</span>`;
       }
 
-      td.innerHTML = `<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: #666;">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
+      td.innerHTML = `<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: ${isSuspended ? '#b71c1c' : '#666'};">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
       td.style.textAlign = 'center';
       td.style.cursor = 'pointer';
       // 토글 클릭은 afterOnCellMouseUp에서 처리 (beforeOnCellMouseDown에서 스크롤 방지)
+    } else if (prop === 'col2') {
+      // 플랫폼
+      td.textContent = value ?? '';
+      td.style.fontWeight = 'bold';
+      if (!isSuspended) td.style.color = '#1565c0';
+    } else if (prop === 'col3') {
+      // 제품명
+      td.textContent = value ?? '';
+      td.style.fontWeight = 'bold';
+      if (!isSuspended) td.style.color = '#1b5e20';
+    } else if (prop === 'col7' && value) {
+      // 가격
+      td.textContent = value;
+      td.style.fontWeight = 'bold';
+      if (!isSuspended) td.style.color = '#c2185b';
     } else if (prop === 'col12' && value) {
       // URL을 " | "로 분리하여 각각 하이퍼링크로 렌더링 (col12 = product_url)
       const urls = value.split(' | ').map(u => u.trim()).filter(Boolean);
       if (urls.length > 0) {
         const links = urls.map(url => {
           const href = url.startsWith('http') ? url : `https://${url}`;
-          return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${url}</a>`;
+          return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: ${isSuspended ? '#b71c1c' : '#1976d2'}; text-decoration: underline;">${url}</a>`;
         }).join(' <span style="color: #666;">|</span> ');
         td.innerHTML = links;
       } else {
@@ -136,15 +170,17 @@ const createSalesProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
 const createSalesUploadLinkBarRenderer = (tableData) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
+    const isSuspended = rowData._isSuspended;
     td.className = 'upload-link-bar';
-    td.style.backgroundColor = '#424242';
+    // 중단된 경우 빨간 배경
+    td.style.backgroundColor = isSuspended ? '#d32f2f' : '#424242';
     td.style.color = 'white';
     td.style.cursor = 'pointer';
     td.style.fontSize = '11px';
     td.setAttribute('data-token', rowData._uploadToken || '');
 
     if (c === 1) {
-      td.textContent = value || '';
+      td.textContent = isSuspended ? `${value || ''} (중단됨)` : (value || '');
       td.style.paddingLeft = '8px';
     } else {
       td.textContent = '';
@@ -156,10 +192,17 @@ const createSalesUploadLinkBarRenderer = (tableData) => {
 const createSalesBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNumbers, columnAlignments) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
+    const isSuspended = rowData._isSuspended;
     const dayGroup = rowData._dayGroup || 1;
     const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
     td.className = dayClass;
     td.style.fontSize = '11px';
+
+    // 중단된 경우 빨간 배경 강제 적용
+    if (isSuspended) {
+      td.style.setProperty('background-color', '#ffcdd2', 'important');
+      td.style.setProperty('color', '#b71c1c', 'important');
+    }
 
     if (prop === 'col0') {
       td.textContent = '';
@@ -170,17 +213,17 @@ const createSalesBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNum
     } else if (prop === 'col2') {
       td.textContent = value ?? '';
       td.style.fontWeight = 'bold';
-      td.style.color = '#1565c0';
+      if (!isSuspended) td.style.color = '#1565c0';
     } else if (prop === 'col3') {
       td.textContent = value ?? '';
-      td.style.color = '#555';
+      if (!isSuspended) td.style.color = '#555';
     } else if (prop === 'col4') {
       td.textContent = value ?? '';
-      td.style.color = '#555';
+      if (!isSuspended) td.style.color = '#555';
     } else if (prop === 'col5') {
       // col5: 비고
       td.textContent = value ?? '';
-      td.style.color = '#555';
+      if (!isSuspended) td.style.color = '#555';
     } else if (prop === 'col14' && value) {
       // col14: 금액 (col13 -> col14로 시프트)
       const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
@@ -191,7 +234,8 @@ const createSalesBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNum
       const imageCount = images.length;
       if (imageCount > 0) {
         const label = imageCount > 1 ? `리뷰 보기 (${imageCount})` : '리뷰 보기';
-        td.innerHTML = `<a href="#" class="review-link" style="color: #1976d2; text-decoration: underline; cursor: pointer; font-size: 11px;">${label}</a>`;
+        const linkColor = isSuspended ? '#b71c1c' : '#2e7d32';
+        td.innerHTML = `<a href="#" class="review-link" style="color: ${linkColor}; text-decoration: underline; cursor: pointer; font-size: 11px;">${label}</a>`;
         td.style.textAlign = 'center';
       } else {
         td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
@@ -223,7 +267,9 @@ const createSalesBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNum
           const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
           const dd = String(kstDate.getUTCDate()).padStart(2, '0');
           td.textContent = `${yy}${mm}${dd}`;
-          td.style.color = '#388e3c';
+          if (!isSuspended) {
+            td.style.color = '#388e3c';
+          }
           td.style.fontWeight = 'bold';
         } catch (e) {
           td.textContent = value;
@@ -825,6 +871,9 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         const groupData = itemGroup.dayGroups[dayGroup];
         const uploadToken = groupData.uploadToken;
 
+        // day_group 중단 상태 확인 (슬롯 중 하나라도 is_suspended가 true면 중단됨)
+        const isDayGroupSuspended = groupData.slots.some(s => s.is_suspended);
+
         // day_group별 독립 제품 정보: 슬롯 값 > changedItems 값 > Item 값 (우선순위)
         const firstSlot = groupData.slots[0] || {};
         const dayGroupKey = `${itemId}_${dayGroup}`;
@@ -864,6 +913,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             _itemId: parseInt(itemId),
             _dayGroup: parseInt(dayGroup),
             _item: item,
+            _isSuspended: isDayGroupSuspended,
             _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
             col0: '',
             col1: dayGroupProductInfo.date,
@@ -891,6 +941,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           _itemId: parseInt(itemId),
           _uploadToken: uploadToken,
           _dayGroup: parseInt(dayGroup),
+          _isSuspended: isDayGroupSuspended,
           col0: '',
           col1: `📷 업로드 링크 복사`,
           col2: '', col3: '', col4: '', col5: '', col6: '', col7: '', col8: '', col9: '',
@@ -902,6 +953,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           _rowType: ROW_TYPES.BUYER_HEADER,
           _itemId: parseInt(itemId),
           _dayGroup: parseInt(dayGroup),
+          _isSuspended: isDayGroupSuspended,
           col0: '', col1: '날짜', col2: '순번', col3: '제품명', col4: '옵션', col5: '비고', col6: '예상구매자',
           col7: '주문번호', col8: '구매자', col9: '수취인', col10: '아이디', col11: '연락처', col12: '주소', col13: '계좌', col14: '금액',
           col15: '송장번호', col16: '리뷰샷', col17: '상태', col18: '입금명', col19: '입금여부'
@@ -912,9 +964,36 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           const buyer = slot.buyer || {};
           const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
 
-          const hasBuyerData = buyer.order_number || buyer.buyer_name || buyer.recipient_name ||
-                               buyer.user_id || buyer.contact || buyer.address ||
-                               buyer.account_info || buyer.amount;
+          // changedSlots에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
+          const slotChanges = changedSlots[slot.id] || {};
+
+          // buyer 필드 (changedSlots > buyer 우선순위)
+          const mergedBuyer = {
+            order_number: slotChanges.order_number ?? buyer.order_number ?? '',
+            buyer_name: slotChanges.buyer_name ?? buyer.buyer_name ?? '',
+            recipient_name: slotChanges.recipient_name ?? buyer.recipient_name ?? '',
+            user_id: slotChanges.user_id ?? buyer.user_id ?? '',
+            contact: slotChanges.contact ?? buyer.contact ?? '',
+            address: slotChanges.address ?? buyer.address ?? '',
+            account_info: slotChanges.account_info ?? buyer.account_info ?? '',
+            amount: slotChanges.amount ?? buyer.amount ?? '',
+            tracking_number: slotChanges.tracking_number ?? buyer.tracking_number ?? '',
+            deposit_name: slotChanges.deposit_name ?? buyer.deposit_name ?? '',
+            date: slotChanges.date ?? buyer.date ?? ''
+          };
+
+          // slot 필드 (changedSlots > slot 우선순위)
+          const mergedSlot = {
+            product_name: slotChanges.product_name ?? slot.product_name ?? '',
+            purchase_option: slotChanges.purchase_option ?? slot.purchase_option ?? '',
+            buyer_notes: slotChanges.buyer_notes ?? slot.buyer_notes ?? '',
+            expected_buyer: slotChanges.expected_buyer ?? slot.expected_buyer ?? '',
+            date: slotChanges.date ?? slot.date ?? ''
+          };
+
+          const hasBuyerData = mergedBuyer.order_number || mergedBuyer.buyer_name || mergedBuyer.recipient_name ||
+                               mergedBuyer.user_id || mergedBuyer.contact || mergedBuyer.address ||
+                               mergedBuyer.account_info || mergedBuyer.amount;
           const hasReviewImage = reviewImage?.s3_url;
           // slot.status가 'resubmitted'이면 우선 사용, 아니면 자동 계산
           const calculatedStatus = slot.status === 'resubmitted'
@@ -928,30 +1007,31 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             _buyerId: buyer.id || null,
             _dayGroup: parseInt(dayGroup),
             _uploadToken: uploadToken,
+            _isSuspended: isDayGroupSuspended,
             _reviewImages: buyer.images || [],
             _reviewImageUrl: reviewImage?.s3_url || '',
             _reviewImageName: reviewImage?.file_name || '',
             _buyer: buyer,
             _hasBuyerData: !!hasBuyerData,
             col0: '',
-            col1: buyer.date || slot.date || '',  // Buyer.date 우선, 없으면 slot.date
+            col1: mergedBuyer.date || mergedSlot.date || '',  // Buyer.date 우선, 없으면 slot.date
             col2: slotIndex + 1,
-            col3: slot.product_name || '',
-            col4: slot.purchase_option || '',
-            col5: slot.buyer_notes || '',  // 비고 (buyer_notes)
-            col6: slot.expected_buyer || '',
-            col7: buyer.order_number || '',
-            col8: buyer.buyer_name || '',
-            col9: buyer.recipient_name || '',
-            col10: buyer.user_id || '',
-            col11: buyer.contact || '',
-            col12: buyer.address || '',
-            col13: buyer.account_info || '',
-            col14: buyer.amount || '',
-            col15: buyer.tracking_number || '',
+            col3: mergedSlot.product_name,
+            col4: mergedSlot.purchase_option,
+            col5: mergedSlot.buyer_notes,
+            col6: mergedSlot.expected_buyer,
+            col7: mergedBuyer.order_number,
+            col8: mergedBuyer.buyer_name,
+            col9: mergedBuyer.recipient_name,
+            col10: mergedBuyer.user_id,
+            col11: mergedBuyer.contact,
+            col12: mergedBuyer.address,
+            col13: mergedBuyer.account_info,
+            col14: mergedBuyer.amount,
+            col15: mergedBuyer.tracking_number,
             col16: reviewImage?.s3_url || '',
             col17: calculatedStatus,
-            col18: buyer.deposit_name || '',
+            col18: mergedBuyer.deposit_name,
             col19: buyer.payment_confirmed_at || ''
           });
         });
@@ -959,7 +1039,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     }); // Object.entries(itemGroups).forEach 끝
 
     return { baseTableData: data };
-  }, [slots, items, changedItems]); // changedItems 추가 - 로컬 수정사항 즉시 반영
+  }, [slots, items, changedItems, changedSlots]); // changedItems, changedSlots 추가 - 로컬 수정사항 즉시 반영
 
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
   // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
@@ -1483,6 +1563,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     [tableData, statusLabels, duplicateOrderNumbers, columnAlignments]
   );
 
+  const buyerHeaderRenderer = useMemo(() =>
+    createBuyerHeaderRenderer(tableData),
+    [tableData]
+  );
+
   // 셀 렌더러 - 행 타입별 분기 (최적화: 외부 정의 렌더러 사용)
   const cellsRenderer = useCallback((row, col, prop) => {
     const cellProperties = {};
@@ -1514,17 +1599,26 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       case ROW_TYPES.UPLOAD_LINK_BAR:
         cellProperties.readOnly = true;
         cellProperties.renderer = uploadLinkBarRenderer;
+        // 중단 상태면 suspended 클래스 추가
+        if (rowData._isSuspended) {
+          cellProperties.className = 'suspended-row';
+        }
         break;
 
       case ROW_TYPES.BUYER_HEADER:
         cellProperties.readOnly = true;
         cellProperties.renderer = buyerHeaderRenderer;
+        // 중단 상태면 suspended 클래스 추가
+        if (rowData._isSuspended) {
+          cellProperties.className = 'suspended-row';
+        }
         break;
 
       case ROW_TYPES.BUYER_DATA:
         const dayGroup = rowData._dayGroup || 1;
         const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
-        cellProperties.className = dayClass;
+        // 중단 상태면 suspended 클래스 추가
+        cellProperties.className = rowData._isSuspended ? `${dayClass} suspended-row` : dayClass;
 
         // col16: 리뷰샷 (readOnly)
         if (col === 16) {
@@ -1746,6 +1840,10 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         // 홀수 일차 배경
         '& .day-odd': {
           backgroundColor: '#fff !important'
+        },
+        // 중단된 day_group 배경 (빨간색)
+        '& .suspended-row': {
+          backgroundColor: '#ffcdd2 !important'
         },
         // 중복 주문번호 배경
         '& .duplicate-order': {
@@ -2234,12 +2332,22 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
               // 제품 데이터 행의 col14(상세보기) 클릭 시 팝업
               if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
                 const item = rowData._item;
+                const itemId = rowData._itemId;
+                const dayGroup = rowData._dayGroup;
                 if (item) {
+                  // slots에서 해당 day_group의 첫 번째 슬롯 찾기
+                  const dayGroupSlots = slots.filter(s => s.item_id === itemId && s.day_group === dayGroup);
+                  const firstSlot = dayGroupSlots[0];
+                  // changedItems에서 로컬 수정 내용 가져와서 병합
+                  const dayGroupKey = `${itemId}_${dayGroup}`;
+                  const localChanges = changedItemsRef.current[dayGroupKey] || {};
+                  // slot과 localChanges를 병합한 객체 생성
+                  const mergedSlot = firstSlot ? { ...firstSlot, ...localChanges } : localChanges;
                   setProductDetailPopup({
                     open: true,
                     item: item,
-                    slot: null,
-                    dayGroup: null
+                    slot: mergedSlot,
+                    dayGroup: dayGroup
                   });
                 }
                 return;
@@ -2463,8 +2571,10 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           {productDetailPopup.item && (
             <Box>
               {(() => {
+                const slot = productDetailPopup.slot || {};
                 const item = productDetailPopup.item || {};
-                const getValue = (field) => item[field] || '-';
+                // 슬롯 값(changedItems 병합됨) 우선, 없으면 item 값 사용
+                const getValue = (field) => slot[field] || item[field] || '-';
 
                 // 가격 포맷팅 함수 - 숫자면 천단위 구분, 아니면 그대로 표시
                 const formatPrice = (price) => {

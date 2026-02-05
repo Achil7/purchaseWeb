@@ -123,9 +123,7 @@ const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
         completionBadge = `<span style="color: #f57c00; font-size: 10px; margin-left: 4px;">${status.completed}/${status.total}</span>`;
       }
 
-      // 중단된 경우 경고 아이콘 추가
-      const suspendedIcon = isSuspended ? '<span style="color: #d32f2f; font-size: 12px; margin-right: 4px;">⚠️</span>' : '';
-      td.innerHTML = `${suspendedIcon}<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: ${isSuspended ? '#b71c1c' : '#666'};">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
+      td.innerHTML = `<span class="collapse-toggle" style="cursor: pointer; user-select: none; font-size: 14px; color: ${isSuspended ? '#b71c1c' : '#666'};">${isCollapsed ? '▶' : '▼'}</span>${completionBadge}`;
       td.style.textAlign = 'center';
       td.style.cursor = 'pointer';
       // 토글 클릭은 afterOnCellMouseUp에서 처리 (beforeOnCellMouseDown에서 스크롤 방지)
@@ -782,7 +780,7 @@ function BrandItemSheetInner({
           _itemId: parseInt(itemId),
           _dayGroup: parseInt(dayGroup),
           _isSuspended: isSuspended,
-          col0: '', col1: isSuspended ? '날짜 ⚠️' : '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
+          col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
           col7: '가격', col8: '총건수', col9: '일건수', col10: '택배사', col11: '택배대행', col12: 'URL', col13: '특이사항', col14: '상세'
         });
 
@@ -1423,12 +1421,17 @@ function BrandItemSheetInner({
               // 제품 데이터 행의 col14(상세보기) 클릭 시 팝업
               if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
                 const item = rowData._item;
+                const itemId = rowData._itemId;
+                const dayGroup = rowData._dayGroup;
                 if (item) {
+                  // 해당 day_group의 슬롯 데이터 가져오기
+                  const dayGroupSlots = slots.filter(s => s.item_id === itemId && s.day_group === dayGroup);
+                  const firstSlot = dayGroupSlots[0] || null;
                   setProductDetailPopup({
                     open: true,
                     item: item,
-                    slot: null,
-                    dayGroup: null
+                    slot: firstSlot,
+                    dayGroup: dayGroup
                   });
                 }
                 return;
@@ -1518,8 +1521,10 @@ function BrandItemSheetInner({
           {productDetailPopup.item && (
             <Box>
               {(() => {
+                const slot = productDetailPopup.slot || {};
                 const item = productDetailPopup.item || {};
-                const getValue = (field) => item[field] || '-';
+                // 슬롯 값 우선, 없으면 item 값 사용
+                const getValue = (field) => slot[field] || item[field] || '-';
 
                 // 가격 포맷팅 함수 - 숫자면 천단위 구분, 아니면 그대로 표시
                 const formatPrice = (price) => {
