@@ -9,7 +9,8 @@ Handsontable 기반 시트 컴포넌트들의 성능을 개선하여, 대용량 
 1. **초기 로딩**: 1000행 기준 300ms 이내
 2. **스크롤**: 60fps 유지 (버벅거림 없음)
 3. **데이터 입력**: 키 입력 후 50ms 이내 반응
-4. **100행 제한 해제**: 제한 없이도 위 성능 목표 달성
+4. **슬래시 복붙**: 100줄 데이터 붙여넣기 1초 이내
+5. **100행 제한 해제**: 제한 없이도 위 성능 목표 달성
 
 ### 1.3 제약 조건
 - **UI 변경 절대 불가** - 컬럼 구조, 색상, 레이아웃 등 모든 UI 요소 유지
@@ -22,7 +23,15 @@ Handsontable 기반 시트 컴포넌트들의 성능을 개선하여, 대용량 
 | 로딩 느림 | 한 캠페인에 많은 품목 추가 시 시트 표시까지 오래 걸림 |
 | 스크롤 버벅거림 | 500~1000+ 구매자 행 스크롤 시 프레임 드랍 |
 | 입력 지연 | 많은 데이터에서 셀 편집 시 반응 느림 |
+| 슬래시 복붙 느림 | 주문번호 컬럼에 `/` 구분 데이터 붙여넣기 시 오래 걸림 |
 | 100행 제한 | 임시방편으로 100행씩 로딩 중 (근본 해결 아님) |
+
+### 1.5 슬래시 복붙 기능 설명
+영업사/진행자가 주문번호 컬럼(col7)에 아래 형식으로 붙여넣으면 자동 파싱:
+```
+8100156654667/최민석/최민석/fake03@gmail.com/010-4567-8901/대구광역시.../우리1002-345-678901 최민석/78000
+```
+→ `/` 기준 split하여 8개 컬럼(주문번호~금액)에 분배
 
 ---
 
@@ -52,29 +61,55 @@ Handsontable 기반 시트 컴포넌트들의 성능을 개선하여, 대용량 
 
 ---
 
-## 3. 성능 병목 분석
+## 3. 성능 병목 분석 (코드 분석 완료)
 
 ### 3.1 확인된 병목점
 
-#### 🔴 심각 (Critical)
-| # | 문제 | 위치 | 영향 |
-|---|------|------|------|
-| 1 | afterChange 내 O(n) filter | `handleAfterChange` 함수 | 매 편집마다 전체 slots 순회 |
-| 2 | tableData 변경 시 모든 행 새 객체 생성 | `useMemo` 내 map() | GC 부담, 불필요한 리렌더링 |
-| 3 | 렌더러가 tableData 의존 | `createXxxRenderer` 함수들 | 데이터 변경 시 렌더러 재생성 |
+#### 🔴 심각 (Critical) - 즉시 해결 필요
 
-#### 🟠 중간 (Medium)
-| # | 문제 | 위치 | 영향 |
-|---|------|------|------|
-| 4 | hiddenRowIndices 매번 전체 순회 | `useMemo` 내 forEach | 접기 상태 변경 시 불필요한 계산 |
-| 5 | cellsRenderer 매 셀마다 분기 처리 | `cells` prop | 보이는 모든 셀에 대해 실행 |
-| 6 | changedSlots + changedSlotsRef 이중 관리 | 상태 관리 | 메모리 오버헤드 |
+| # | 문제 | 위치 | 코드 라인 | 영향 |
+|---|------|------|----------|------|
+| 1 | **handleAfterChange 내 tableData 전체 순회** | `currentTableData.forEach()` | OperatorItemSheet:1313 | 날짜 변경 시 O(n) 순회, 500행이면 500번 반복 |
+| 2 | **afterChange 호출 후 setTimeout 내 hiddenRows 복원** | `setTimeout(() => {...})` | OperatorItemSheet:1370-1392 | 매 변경마다 hiddenRows 플러그인 전체 검사 |
+| 3 | **handleSaveChanges 내 slots.filter() 반복** | `slots.filter(s => ...)` | OperatorItemSheet:1428-1430 | 저장 시 day_group마다 전체 slots 순회 |
 
-#### 🟡 낮음 (Low)
+#### 🟠 중간 (Medium) - 개선 권장
+
+| # | 문제 | 위치 | 코드 라인 | 영향 |
+|---|------|------|----------|------|
+| 4 | **beforePaste에서 data 배열 재구성** | `data.length = 0; newData.forEach(...)` | OperatorItemSheet:2365-2366 | 대량 붙여넣기 시 배열 조작 오버헤드 |
+| 5 | **afterLoadData에서 hiddenRows diff 계산** | `[...currentHidden].filter(...)` | OperatorItemSheet:2385-2386 | Set → Array 변환 오버헤드 |
+| 6 | **setSlots 내 prevSlots.map() 전체 순회** | `prevSlots.map(slot => {...})` | OperatorItemSheet:1447-1448 | 저장 후 전체 slots 재생성 |
+
+#### 🟡 낮음 (Low) - 시간 여유 시 개선
+
 | # | 문제 | 위치 | 영향 |
 |---|------|------|------|
-| 7 | 슬롯 조회 시 항상 filter/find 사용 | 여러 곳 | O(n) 조회 반복 |
-| 8 | 스크롤 이벤트 쓰로틀링 없음 | 스크롤 핸들러 | 과도한 이벤트 발생 |
+| 7 | slotIndexMap 매번 재생성 가능성 | useMemo 의존성 | 캠페인 변경 시 |
+| 8 | cellsRenderer 분기 처리 | cells prop | 보이는 모든 셀에 대해 실행 |
+
+### 3.2 슬래시 복붙 관련 병목 (beforePaste → afterChange 체인)
+
+```
+사용자가 100줄 붙여넣기
+    ↓
+beforePaste: 100줄 × split('/') × 8컬럼 = 800개 데이터 생성
+    ↓
+Handsontable: 800개 셀에 데이터 설정
+    ↓
+afterChange: 800개 changes 처리
+    ↓
+각 change마다:
+  - tableData[row] 참조
+  - slotIndexMap[row] 참조
+  - slotUpdates 객체 업데이트
+    ↓
+setChangedSlots 상태 업데이트 → 리렌더링
+    ↓
+setTimeout 내 hiddenRows 복원 → 추가 렌더링
+```
+
+**핵심 문제**: 800개 change가 한 번에 오지 않고, Handsontable이 셀마다 afterChange 호출할 가능성
 
 ### 3.2 Google Sheets와의 차이 (참고)
 | 구분 | Google Sheets | 현재 Handsontable |
