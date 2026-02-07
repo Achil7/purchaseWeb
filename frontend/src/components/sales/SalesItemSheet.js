@@ -345,6 +345,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   // 5차 최적화: ref로도 추적하여 중복 상태 업데이트 방지
   const hasUnsavedChangesRef = useRef(false);
+  // 7차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
+  const isComposingRef = useRef(false);
   // 저장 중 상태
   const [saving, setSaving] = useState(false);
 
@@ -2197,7 +2199,18 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
               data.length = 0;
               newData.forEach(row => data.push(row));
             }}
-            afterChange={handleAfterChange}
+            // 7차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
+            beforeCompositionstart={() => {
+              isComposingRef.current = true;
+            }}
+            afterCompositionend={() => {
+              isComposingRef.current = false;
+            }}
+            afterChange={(changes, source) => {
+              // 7차 최적화: IME 조합 중이면 무시 (한글 입력 깨짐 방지)
+              if (isComposingRef.current) return;
+              handleAfterChange(changes, source);
+            }}
             // 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
             // 중요: showRows() 먼저 호출하면 모든 행이 순간적으로 표시되어 깜빡임 발생
             // 차분(diff) 방식으로 필요한 행만 숨기거나 표시

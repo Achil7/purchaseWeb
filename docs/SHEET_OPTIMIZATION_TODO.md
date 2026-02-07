@@ -672,10 +672,74 @@ requestAnimationFrame(() => {
 - 한글 입력 중 끊김 현상 해결
 
 **테스트 항목:**
+- [x] 한글 "홍길동" + 엔터 빠르게 입력 → 글자 깨짐 없음 → ❌ 여전히 깨짐
+- [x] 엔터 후 다음 셀 이동 시 딜레이 없음 → ❌ 딜레이 존재
+- [x] Ctrl+S 저장 시 딜레이 감소 → ❌ 딜레이 심함
+- [ ] 날짜 동기화 정상 작동
+
+**결론:** ❌ **효과 없음** - `requestAnimationFrame`만으로는 IME 조합 상태 감지 불가
+
+**테스트 결과:**
+- "gㅗㅇ길동", "ㅇ길동h" 등 한글 IME 깨짐 여전
+- 비동기화만으로는 IME 조합 중인지 판단할 수 없음
+
+**원인 재분석:**
+- `requestAnimationFrame`은 다음 프레임에 실행되지만, IME 조합 중인지 알 수 없음
+- Handsontable의 `afterChange`는 IME 조합 중에도 호출됨
+- 근본적으로 **IME 조합 상태를 감지**해야 함
+
+---
+
+### 7차 최적화 (2026-02-07)
+
+**적용 내용:**
+- Handsontable 15.3.0+에서 추가된 **`beforeCompositionstart`**, **`afterCompositionend`** 훅 사용
+- `isComposingRef`로 IME 조합 상태 추적
+- `afterChange`에서 IME 조합 중이면 처리 스킵
+
+**해결책 발견:**
+- Handsontable 15.3.0부터 IME 조합 이벤트 훅 지원
+- 프로젝트는 16.2.0 사용 중 → 사용 가능
+
+**수정 파일:**
+- `OperatorItemSheet.js`:
+  - `const isComposingRef = useRef(false);` 추가
+  - HotTable에 `beforeCompositionstart`, `afterCompositionend` 훅 추가
+  - `afterChange`에서 `if (isComposingRef.current) return;` 체크
+- `SalesItemSheet.js`: 동일 변경
+
+**수정 코드:**
+```javascript
+// IME 조합 상태 추적용 ref
+const isComposingRef = useRef(false);
+
+<HotTable
+  // 7차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
+  beforeCompositionstart={() => {
+    isComposingRef.current = true;
+  }}
+  afterCompositionend={() => {
+    isComposingRef.current = false;
+  }}
+  afterChange={(changes, source) => {
+    // 7차 최적화: IME 조합 중이면 무시 (한글 입력 깨짐 방지)
+    if (isComposingRef.current) return;
+    handleAfterChange(changes, source);
+  }}
+/>
+```
+
+**기대 효과:**
+- IME 조합이 완전히 완료된 후에만 `afterChange` 처리
+- 한글 "홍길동" 입력 시 끊김/깨짐 없음
+- 일본어, 중국어 등 다른 IME 입력도 지원
+
+**테스트 항목:**
 - [ ] 한글 "홍길동" + 엔터 빠르게 입력 → 글자 깨짐 없음
 - [ ] 엔터 후 다음 셀 이동 시 딜레이 없음
 - [ ] Ctrl+S 저장 시 딜레이 감소
 - [ ] 날짜 동기화 정상 작동
+- [ ] 일반 영문/숫자 입력 정상
 
 **결론:** ⏳ 테스트 대기
 
@@ -792,4 +856,4 @@ measureFPS();
 
 ---
 
-## 최종 업데이트: 2026-02-05
+## 최종 업데이트: 2026-02-07

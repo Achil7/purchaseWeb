@@ -398,6 +398,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
   // 메모 기능 비활성화됨
 
+  // 7차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
+  const isComposingRef = useRef(false);
+
   // 필터링된 행 인덱스 (null이면 전체, 배열이면 필터링된 행만)
   const [filteredRows, setFilteredRows] = useState(null);
 
@@ -2359,7 +2362,18 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
               data.length = 0;
               newData.forEach(row => data.push(row));
             }}
-            afterChange={handleAfterChange}
+            // 7차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
+            beforeCompositionstart={() => {
+              isComposingRef.current = true;
+            }}
+            afterCompositionend={() => {
+              isComposingRef.current = false;
+            }}
+            afterChange={(changes, source) => {
+              // 7차 최적화: IME 조합 중이면 무시 (한글 입력 깨짐 방지)
+              if (isComposingRef.current) return;
+              handleAfterChange(changes, source);
+            }}
             cells={cellsRenderer}
             // 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
             // 중요: showRows() 먼저 호출하면 모든 행이 순간적으로 표시되어 깜빡임 발생
