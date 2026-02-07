@@ -354,6 +354,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
   // 저장 버튼 표시용 상태 (첫 변경 시에만 true로 설정)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // 5차 최적화: ref로도 추적하여 중복 상태 업데이트 방지
+  const hasUnsavedChangesRef = useRef(false);
 
   // 스낵바 상태
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
@@ -518,6 +520,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       setSlots(cached.slots);
       changedSlotsRef.current = {};
         changedItemsRef.current = {};
+        hasUnsavedChangesRef.current = false;
         setHasUnsavedChanges(false);
 
       // preserveCollapsedState가 true면 현재 접기 상태 유지
@@ -577,6 +580,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         setSlots(newSlots);
         changedSlotsRef.current = {};
         changedItemsRef.current = {};
+        hasUnsavedChangesRef.current = false;
         setHasUnsavedChanges(false);
 
         // 캐시에 저장
@@ -1132,6 +1136,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       // 상태 초기화
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
       // 데이터 새로고침 (변경사항 유무와 관계없이 항상 최신 데이터 로드)
       await loadSlots(campaignId, viewAsUserId);
@@ -1367,10 +1372,11 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     changedSlotsRef.current = slotUpdates;
     changedItemsRef.current = itemUpdates;
 
-    // 저장 버튼 표시: 첫 변경 시에만 상태 업데이트 (리렌더링 최소화)
+    // 5차 최적화: 첫 변경 시에만 상태 업데이트 (ref로 중복 호출 방지)
     const hasSlotChanges = Object.keys(slotUpdates).length > 0;
     const hasItemChanges = Object.keys(itemUpdates).length > 0;
-    if (hasSlotChanges || hasItemChanges) {
+    if ((hasSlotChanges || hasItemChanges) && !hasUnsavedChangesRef.current) {
+      hasUnsavedChangesRef.current = true;
       setHasUnsavedChanges(true);
     }
 
@@ -1468,6 +1474,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       // ref 및 state 초기화
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
 
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
@@ -1492,6 +1499,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       // 저장 실패 시 변경사항 ref 초기화 (다음 저장에 영향 주지 않도록)
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
 
       // 에러 메시지 표시

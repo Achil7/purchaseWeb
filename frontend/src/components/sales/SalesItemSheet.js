@@ -343,6 +343,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   const changedItemsRef = useRef({});
   // 저장 버튼 표시용 상태 (첫 변경 시에만 true로 설정)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // 5차 최적화: ref로도 추적하여 중복 상태 업데이트 방지
+  const hasUnsavedChangesRef = useRef(false);
   // 저장 중 상태
   const [saving, setSaving] = useState(false);
 
@@ -696,6 +698,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       // ref 및 state 초기화
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
 
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
@@ -717,6 +720,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       // 저장 실패 시 ref 초기화 (다음 저장에 영향 주지 않도록)
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
       setSnackbar({ open: true, message: '저장 실패: ' + (error.response?.data?.message || error.message) });
     } finally {
@@ -1158,6 +1162,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       // 상태 초기화
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
       setHasUnsavedChanges(false);
       // 데이터 새로고침 (변경사항 유무와 관계없이 항상 최신 데이터 로드)
       await loadSlots(campaignId);
@@ -1294,8 +1299,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           ...changedItemsRef.current,
           [dayGroupKey]: { ...(changedItemsRef.current[dayGroupKey] || {}), itemId, dayGroup, [fieldName]: newValue ?? '' }
         };
-        // 저장 버튼 표시 (첫 변경 시에만)
-        setHasUnsavedChanges(true);
+        // 5차 최적화: 첫 변경 시에만 상태 업데이트 (ref로 중복 호출 방지)
+        if (!hasUnsavedChangesRef.current) {
+          hasUnsavedChangesRef.current = true;
+          setHasUnsavedChanges(true);
+        }
 
         // 핵심: 날짜 필드(col1) 변경 시 같은 품목의 구매자 행 날짜도 즉시 업데이트
         if (prop === 'col1' && fieldName === 'date') {
@@ -1363,8 +1371,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           ...changedSlotsRef.current,
           [slotId]: { ...(changedSlotsRef.current[slotId] || {}), [fieldName]: newValue || '' }
         };
-        // 저장 버튼 표시 (첫 변경 시에만)
-        setHasUnsavedChanges(true);
+        // 5차 최적화: 첫 변경 시에만 상태 업데이트 (ref로 중복 호출 방지)
+        if (!hasUnsavedChangesRef.current) {
+          hasUnsavedChangesRef.current = true;
+          setHasUnsavedChanges(true);
+        }
       }
     });
 

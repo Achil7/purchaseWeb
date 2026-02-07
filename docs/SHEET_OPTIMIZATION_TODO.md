@@ -565,10 +565,56 @@ setSlots(prevSlots.map(...))
 - 스크롤 위치 유지 (리렌더링이 없으므로)
 
 **테스트 항목:**
-- [ ] Ctrl+S 저장 시 딜레이 없음
-- [ ] 저장 후 데이터 정상 유지
+- [x] Ctrl+S 저장 시 딜레이 없음 → △ 약간 개선, 여전히 딜레이 존재
+- [x] 저장 후 데이터 정상 유지 → ✅ 정상
 - [ ] 캠페인 전환 시 최신 데이터 로드
-- [ ] 저장 후 추가 편집 정상
+- [x] 저장 후 추가 편집 정상 → ❌ 한글 IME 깨짐 발생
+
+**결론:** △ **부분 개선** - 딜레이 약간 개선, 한글 IME 깨짐 문제 발생
+
+**추가 발견:**
+- 한글 입력 중 영어로 바뀌는 현상 ("홍길동" → "ghl길동", "gㅗㅇ길동")
+- 원인: `handleAfterChange`에서 매 편집마다 `setHasUnsavedChanges(true)` 호출 → 리렌더링 → IME 컨텍스트 끊김
+
+---
+
+### 5차 최적화 (2026-02-07)
+
+**적용 내용:**
+- `setHasUnsavedChanges(true)` 호출을 **첫 변경 시에만** 실행하도록 변경
+- `hasUnsavedChangesRef` 추가하여 중복 상태 업데이트 방지
+- 이미 `true`인 경우 상태 업데이트 스킵 → 리렌더링 방지
+
+**문제 분석:**
+```
+매 셀 편집 시:
+handleAfterChange() 호출
+  → setHasUnsavedChanges(true) 매번 호출
+  → React 상태 업데이트
+  → 컴포넌트 리렌더링
+  → Handsontable 갱신
+  → 셀 포커스 변경
+  → IME 조합 컨텍스트 끊김
+  → 한글이 영어로 변환됨
+```
+
+**수정 파일:**
+- `OperatorItemSheet.js`:
+  - `const hasUnsavedChangesRef = useRef(false);` 추가
+  - `handleAfterChange`에서 조건부 호출: `if (!hasUnsavedChangesRef.current) { ... }`
+  - 저장/로드 시 `hasUnsavedChangesRef.current = false;` 초기화
+- `SalesItemSheet.js`: 동일 변경
+
+**기대 효과:**
+- 첫 편집 이후 추가 편집 시 리렌더링 없음
+- 한글 IME 깨짐 현상 해결
+- 엔터 후 다음 셀 이동 시 딜레이 감소
+
+**테스트 항목:**
+- [ ] 한글 연속 입력 시 영어로 바뀌는 현상 해결
+- [ ] 엔터 후 다음 셀 이동 시 딜레이 없음
+- [ ] Ctrl+S 저장 시 딜레이 감소
+- [ ] 저장 버튼 정상 표시/숨김
 
 **결론:** ⏳ 테스트 대기
 
