@@ -694,4 +694,30 @@ height="calc(100vh - 210px)"
 
 ---
 
-**최종 업데이트**: 2026-01-20
+## 테스트 환경
+
+### test.kwad.co.kr - Handsontable 성능 테스트 서버
+
+**목적**: Handsontable 시트 컴포넌트의 성능 최적화 테스트를 위한 전용 환경
+
+**용도**:
+- 500~1000+ 행 데이터에서의 스크롤 성능 테스트
+- 셀 편집 시 딜레이/IME 깨짐 현상 테스트
+- Ctrl+S 저장 시 반응 속도 테스트
+- 슬래시(/) 복붙 대량 데이터 입력 테스트
+- 최적화 적용 전/후 성능 비교
+
+**테스트 대상 컴포넌트**:
+- OperatorItemSheet (진행자 시트)
+- SalesItemSheet (영업사 시트)
+- BrandItemSheet (브랜드사 시트)
+- DailyWorkSheet (날짜별 작업 시트)
+- UnifiedItemSheet (통합 시트)
+
+**관련 문서**: [docs/SHEET_OPTIMIZATION_TODO.md](docs/SHEET_OPTIMIZATION_TODO.md) - 최적화 진행 기록
+
+**참고**: 운영 서버(kwad.co.kr)와 별개의 테스트 환경으로, 성능 최적화 코드를 먼저 test 서버에서 검증 후 운영 서버에 반영
+
+---
+
+**최종 업데이트**: 2026-02-07

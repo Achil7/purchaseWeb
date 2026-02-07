@@ -611,10 +611,71 @@ handleAfterChange() 호출
 - 엔터 후 다음 셀 이동 시 딜레이 감소
 
 **테스트 항목:**
-- [ ] 한글 연속 입력 시 영어로 바뀌는 현상 해결
+- [x] 한글 연속 입력 시 영어로 바뀌는 현상 해결 → ❌ 여전히 발생
+- [x] 엔터 후 다음 셀 이동 시 딜레이 없음 → ❌ 딜레이 심함
+- [x] Ctrl+S 저장 시 딜레이 감소 → ❌ 딜레이 심함
+- [ ] 저장 버튼 정상 표시/숨김
+
+**결론:** ❌ **효과 없음** - `setHasUnsavedChanges` 중복 호출이 원인이 아니었음
+
+**원인 재분석:**
+- 심층 분석 결과 **진짜 원인 발견**: `hot.setDataAtCell()` 동기 렌더링
+- 날짜(col1) 변경 시 `setDataAtCell()`이 동기적으로 호출되어 IME 조합 중단
+
+---
+
+### 6차 최적화 (2026-02-07)
+
+**적용 내용:**
+- `setDataAtCell()` 호출을 **`requestAnimationFrame`으로 비동기화**
+- IME 조합이 완료된 후 다음 렌더링 사이클에서 날짜 동기화 실행
+
+**문제 분석:**
+```
+한글 입력 중 (IME 조합):
+사용자: "홍" 입력
+  ↓
+Handsontable: afterChange 호출 (조합 중간에!)
+  ↓
+handleAfterChange: col1(날짜) 변경 감지
+  ↓
+hot.setDataAtCell(cellsToUpdate, 'syncBuyerDate')  ← 동기 렌더링!
+  ↓
+Handsontable DOM 즉시 업데이트
+  ↓
+IME 조합 컨텍스트 끊김
+  ↓
+"홍" → 조합되던 글자 유실 → "길동", "ㅗㅇ길동" 등
+```
+
+**수정 파일:**
+- `OperatorItemSheet.js`:
+  - 라인 1339-1347: `setDataAtCell`을 `requestAnimationFrame`으로 감싸기
+- `SalesItemSheet.js`: 동일 변경
+
+**수정 코드:**
+```javascript
+// Before (동기 - 문제)
+hot.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
+
+// After (비동기 - 6차 최적화)
+requestAnimationFrame(() => {
+  const hotInstance = hotRef.current?.hotInstance;
+  if (hotInstance) {
+    hotInstance.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
+  }
+});
+```
+
+**기대 효과:**
+- IME 조합이 완료된 후 렌더링 실행
+- 한글 입력 중 끊김 현상 해결
+
+**테스트 항목:**
+- [ ] 한글 "홍길동" + 엔터 빠르게 입력 → 글자 깨짐 없음
 - [ ] 엔터 후 다음 셀 이동 시 딜레이 없음
 - [ ] Ctrl+S 저장 시 딜레이 감소
-- [ ] 저장 버튼 정상 표시/숨김
+- [ ] 날짜 동기화 정상 작동
 
 **결론:** ⏳ 테스트 대기
 

@@ -1336,9 +1336,15 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
                 }
               }
             });
-            // 한 번의 호출로 모든 셀 업데이트 (렌더링 1회)
+            // 6차 최적화: 비동기화하여 IME 조합 완료 후 실행
+            // 동기 setDataAtCell은 IME 조합 중에 호출되면 한글 입력이 끊김
             if (cellsToUpdate.length > 0) {
-              hot.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
+              requestAnimationFrame(() => {
+                const hotInstance = hotRef.current?.hotInstance;
+                if (hotInstance) {
+                  hotInstance.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
+                }
+              });
             }
           }
         }
