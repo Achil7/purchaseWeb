@@ -398,8 +398,31 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
   // 메모 기능 비활성화됨
 
-  // 7차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
+  // 8차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
   const isComposingRef = useRef(false);
+
+  // 8차 최적화: DOM compositionstart/compositionend 이벤트 리스너
+  // Handsontable은 afterCompositionEnd 훅을 지원하지 않으므로 DOM 이벤트 직접 사용
+  useEffect(() => {
+    const container = hotRef.current?.hotInstance?.rootElement;
+    if (!container) return;
+
+    const handleCompositionStart = () => {
+      isComposingRef.current = true;
+    };
+
+    const handleCompositionEnd = () => {
+      isComposingRef.current = false;
+    };
+
+    container.addEventListener('compositionstart', handleCompositionStart);
+    container.addEventListener('compositionend', handleCompositionEnd);
+
+    return () => {
+      container.removeEventListener('compositionstart', handleCompositionStart);
+      container.removeEventListener('compositionend', handleCompositionEnd);
+    };
+  }, [slots]); // slots 변경 시 재설정
 
   // 필터링된 행 인덱스 (null이면 전체, 배열이면 필터링된 행만)
   const [filteredRows, setFilteredRows] = useState(null);
@@ -2362,15 +2385,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
               data.length = 0;
               newData.forEach(row => data.push(row));
             }}
-            // 7차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
-            beforeCompositionstart={() => {
-              isComposingRef.current = true;
-            }}
-            afterCompositionend={() => {
-              isComposingRef.current = false;
-            }}
             afterChange={(changes, source) => {
-              // 7차 최적화: IME 조합 중이면 무시 (한글 입력 깨짐 방지)
+              // 8차 최적화: IME 조합 중이면 무시 (한글 입력 깨짐 방지)
+              // DOM 이벤트 리스너로 isComposingRef 상태 관리 (useEffect에서 설정)
               if (isComposingRef.current) return;
               handleAfterChange(changes, source);
             }}

@@ -735,6 +735,75 @@ const isComposingRef = useRef(false);
 - 일본어, 중국어 등 다른 IME 입력도 지원
 
 **테스트 항목:**
+- [x] 한글 "홍길동" + 엔터 빠르게 입력 → 글자 깨짐 없음 → ❌ 여전히 깨짐
+- [x] 엔터 후 다음 셀 이동 시 딜레이 없음 → ❌ 딜레이 존재
+- [x] Ctrl+S 저장 시 딜레이 감소 → ❌ 딜레이 심함
+- [ ] 날짜 동기화 정상 작동
+- [ ] 일반 영문/숫자 입력 정상
+
+**결론:** ❌ **효과 없음** - `afterCompositionEnd` 훅이 Handsontable에서 미지원!
+
+**실패 원인 분석:**
+- Handsontable 15.3.0+에서 `beforeCompositionStart`만 공식 지원
+- `afterCompositionEnd` 훅은 **존재하지 않음**
+- `isComposingRef.current = false`가 실행되지 않아 항상 true 상태
+
+---
+
+### 8차 최적화 (2026-02-07)
+
+**적용 내용:**
+- Handsontable 훅 대신 **DOM의 `compositionstart`/`compositionend` 이벤트 직접 리스닝**
+- useEffect로 Handsontable 컨테이너에 이벤트 리스너 추가
+- 7차에서 추가한 HotTable의 `beforeCompositionstart`, `afterCompositionend` prop 제거
+
+**수정 파일:**
+- `OperatorItemSheet.js`:
+  - HotTable의 composition 훅 제거
+  - useEffect로 DOM 이벤트 리스너 추가
+- `SalesItemSheet.js`: 동일 변경
+
+**수정 코드:**
+```javascript
+// 8차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
+const isComposingRef = useRef(false);
+
+// 8차 최적화: DOM compositionstart/compositionend 이벤트 리스너
+// Handsontable은 afterCompositionEnd 훅을 지원하지 않으므로 DOM 이벤트 직접 사용
+useEffect(() => {
+  const container = hotRef.current?.hotInstance?.rootElement;
+  if (!container) return;
+
+  const handleCompositionStart = () => {
+    isComposingRef.current = true;
+  };
+
+  const handleCompositionEnd = () => {
+    isComposingRef.current = false;
+  };
+
+  container.addEventListener('compositionstart', handleCompositionStart);
+  container.addEventListener('compositionend', handleCompositionEnd);
+
+  return () => {
+    container.removeEventListener('compositionstart', handleCompositionStart);
+    container.removeEventListener('compositionend', handleCompositionEnd);
+  };
+}, [slots]); // slots 변경 시 재설정
+
+// afterChange에서 IME 조합 중이면 무시
+afterChange={(changes, source) => {
+  if (isComposingRef.current) return;
+  handleAfterChange(changes, source);
+}}
+```
+
+**기대 효과:**
+- DOM 레벨에서 정확한 IME 조합 상태 감지
+- 한글 조합이 완료된 후에만 afterChange 처리
+- "홍길동" 정상 입력 가능
+
+**테스트 항목:**
 - [ ] 한글 "홍길동" + 엔터 빠르게 입력 → 글자 깨짐 없음
 - [ ] 엔터 후 다음 셀 이동 시 딜레이 없음
 - [ ] Ctrl+S 저장 시 딜레이 감소
