@@ -8,6 +8,7 @@ import ImageSwipeViewer from '../common/ImageSwipeViewer';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
+import { debounce } from 'lodash';
 import itemSlotService from '../../services/itemSlotService';
 import itemService from '../../services/itemService';
 import { downloadExcel, convertSlotsToExcelData } from '../../utils/excelExport';
@@ -1407,6 +1408,21 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     }, 0);
   }, []);  // 의존성 배열 비움 - ref만 사용
 
+  // 성능 최적화: 디바운스된 afterChange (빠른 타이핑/붙여넣기 시 UI 블로킹 방지)
+  const debouncedAfterChange = useMemo(
+    () => debounce((changes, source) => {
+      handleAfterChange(changes, source);
+    }, 50), // 50ms 디바운스 (타이핑 반응성과 성능 균형)
+    [handleAfterChange]
+  );
+
+  // 컴포넌트 언마운트 시 디바운스 취소
+  useEffect(() => {
+    return () => {
+      debouncedAfterChange.cancel();
+    };
+  }, [debouncedAfterChange]);
+
   // 삭제 확인 다이얼로그 열기
   const openDeleteDialog = (type, data, message) => {
     setDeleteDialog({ open: true, type, data, message });
@@ -2215,7 +2231,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
               data.length = 0;
               newData.forEach(row => data.push(row));
             }}
-            afterChange={handleAfterChange}
+            afterChange={debouncedAfterChange}
             // 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
             // 중요: showRows() 먼저 호출하면 모든 행이 순간적으로 표시되어 깜빡임 발생
             // 차분(diff) 방식으로 필요한 행만 숨기거나 표시

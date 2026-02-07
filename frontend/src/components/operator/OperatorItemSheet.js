@@ -8,6 +8,7 @@ import ImageSwipeViewer from '../common/ImageSwipeViewer';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
+import { debounce } from 'lodash';
 import itemSlotService from '../../services/itemSlotService';
 import itemService from '../../services/itemService';
 import imageService from '../../services/imageService';
@@ -1392,6 +1393,21 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     }, 0);
   }, [slotIndexMap, itemFieldMap, buyerFieldMap, buyerFieldsList]);
 
+  // 성능 최적화: 디바운스된 afterChange (빠른 타이핑/붙여넣기 시 UI 블로킹 방지)
+  const debouncedAfterChange = useMemo(
+    () => debounce((changes, source) => {
+      handleAfterChange(changes, source);
+    }, 50), // 50ms 디바운스 (타이핑 반응성과 성능 균형)
+    [handleAfterChange]
+  );
+
+  // 컴포넌트 언마운트 시 디바운스 취소
+  useEffect(() => {
+    return () => {
+      debouncedAfterChange.cancel();
+    };
+  }, [debouncedAfterChange]);
+
   // 변경사항 저장 (슬롯 데이터 + 제품 정보) - DB 저장 + 스크롤 위치 유지
   const handleSaveChanges = async () => {
     // ref에서 변경사항 읽기 (성능 최적화로 state 대신 ref 사용)
@@ -2365,7 +2381,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
               data.length = 0;
               newData.forEach(row => data.push(row));
             }}
-            afterChange={handleAfterChange}
+            afterChange={debouncedAfterChange}
             cells={cellsRenderer}
             // 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
             // 중요: showRows() 먼저 호출하면 모든 행이 순간적으로 표시되어 깜빡임 발생
