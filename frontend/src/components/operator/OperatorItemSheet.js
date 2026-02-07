@@ -1367,8 +1367,13 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     setChangedSlots(slotUpdates);
     setChangedItems(itemUpdates);
 
-    // 셀 편집 후 hiddenRows 플러그인 상태 복원 (Handsontable 내부 렌더링으로 리셋될 수 있음)
-    setTimeout(() => {
+    // 셀 편집 후 hiddenRows 플러그인 상태 복원 (디바운스로 성능 최적화)
+    debouncedRestoreHiddenRows();
+  }, [slotIndexMap, itemFieldMap, buyerFieldMap, buyerFieldsList, debouncedRestoreHiddenRows]);
+
+  // 성능 최적화: hiddenRows 복원을 디바운스 (매 변경마다 실행 방지)
+  const debouncedRestoreHiddenRows = useMemo(
+    () => debounce(() => {
       const hot = hotRef.current?.hotInstance;
       if (!hot) return;
 
@@ -1381,7 +1386,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       const currentHidden = new Set(hiddenRowsPlugin.getHiddenRows());
       const targetHidden = new Set(indices);
 
-      // 현재 숨겨진 행이 목표와 다르면 복원
       if (currentHidden.size !== targetHidden.size || ![...currentHidden].every(r => targetHidden.has(r))) {
         hot.batch(() => {
           const rowsToHide = [...targetHidden].filter(r => !currentHidden.has(r));
@@ -1390,23 +1394,16 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
           }
         });
       }
-    }, 0);
-  }, [slotIndexMap, itemFieldMap, buyerFieldMap, buyerFieldsList]);
-
-  // 성능 최적화: 디바운스된 afterChange (빠른 타이핑/붙여넣기 시 UI 블로킹 방지)
-  const debouncedAfterChange = useMemo(
-    () => debounce((changes, source) => {
-      handleAfterChange(changes, source);
-    }, 50), // 50ms 디바운스 (타이핑 반응성과 성능 균형)
-    [handleAfterChange]
+    }, 100), // 100ms 디바운스 - 연속 편집 시 한 번만 실행
+    []
   );
 
   // 컴포넌트 언마운트 시 디바운스 취소
   useEffect(() => {
     return () => {
-      debouncedAfterChange.cancel();
+      debouncedRestoreHiddenRows.cancel();
     };
-  }, [debouncedAfterChange]);
+  }, [debouncedRestoreHiddenRows]);
 
   // 변경사항 저장 (슬롯 데이터 + 제품 정보) - DB 저장 + 스크롤 위치 유지
   const handleSaveChanges = async () => {
@@ -2381,7 +2378,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
               data.length = 0;
               newData.forEach(row => data.push(row));
             }}
-            afterChange={debouncedAfterChange}
+            afterChange={handleAfterChange}
             cells={cellsRenderer}
             // 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
             // 중요: showRows() 먼저 호출하면 모든 행이 순간적으로 표시되어 깜빡임 발생
