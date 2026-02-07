@@ -1460,52 +1460,10 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         }
       }
 
-      // 로컬 slots 상태 업데이트 (DB 재조회 대신 직접 업데이트)
-      // buyer 필드 목록 (slot이 아닌 buyer 객체에 속하는 필드들)
-      const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'tracking_number', 'deposit_name', 'payment_confirmed'];
-
-      setSlots(prevSlots => {
-        return prevSlots.map(slot => {
-          let updatedSlot = slot;
-
-          // 슬롯(구매자) 변경사항 적용
-          const slotChangesData = currentChangedSlots[slot.id];
-          if (slotChangesData) {
-            // slot 필드와 buyer 필드 분리
-            const slotFieldChanges = {};
-            const buyerChanges = {};
-
-            Object.entries(slotChangesData).forEach(([key, value]) => {
-              if (key === 'id') return; // id는 제외
-              if (buyerFields.includes(key)) {
-                buyerChanges[key] = value;
-              } else {
-                slotFieldChanges[key] = value;
-              }
-            });
-
-            // buyer 객체 업데이트
-            const updatedBuyer = slot.buyer
-              ? { ...slot.buyer, ...buyerChanges }
-              : Object.keys(buyerChanges).length > 0 ? buyerChanges : null;
-
-            updatedSlot = { ...updatedSlot, ...slotFieldChanges, buyer: updatedBuyer };
-          }
-
-          // day_group별 제품 정보 변경사항 적용 (슬롯에 직접 저장)
-          const dayGroupKey = `${slot.item_id}_${slot.day_group}`;
-          const productChangesData = currentChangedItems[dayGroupKey];
-          if (productChangesData) {
-            const { itemId, dayGroup, ...productFieldChanges } = productChangesData;
-            updatedSlot = {
-              ...updatedSlot,
-              ...productFieldChanges
-            };
-          }
-
-          return updatedSlot;
-        });
-      });
+      // 4차 최적화: setSlots 제거 - 전체 리렌더링 방지
+      // Handsontable에 이미 사용자가 수정한 데이터가 표시되어 있으므로
+      // DB 저장만 수행하고 React 상태는 건드리지 않음
+      // 캠페인 전환 시에만 slots 상태가 갱신됨
 
       // ref 및 state 초기화
       changedSlotsRef.current = {};

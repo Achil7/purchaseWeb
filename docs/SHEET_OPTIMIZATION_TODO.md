@@ -497,10 +497,78 @@ useEffect(() => {
 - Ctrl+S 저장 시 즉각 반응
 
 **테스트 항목:**
-- [ ] 엔터 연속 입력 시 글자 누락/지연 없음
-- [ ] Ctrl+S 즉시 반응
-- [ ] 스크롤 부드러움
+- [x] 엔터 연속 입력 시 글자 누락/지연 없음 → ❌ 딜레이 심함
+- [x] Ctrl+S 즉시 반응 → ❌ 딜레이 심함
+- [x] 스크롤 부드러움 → ❌ 딜레이 존재
 - [ ] 저장 버튼 정상 표시/숨김
+
+**결론:** ❌ **효과 없음** - React 상태 업데이트가 아닌 다른 병목 존재
+
+**원인 분석:**
+- `setChangedSlots`/`setChangedItems` 제거만으로는 효과 없음
+- **진짜 병목은 다른 곳에 있음**:
+  1. `handleAfterChange` 내부 로직 자체 (tableData 순회 등)
+  2. `handleSaveChanges` 내 `slots.filter()` 반복
+  3. `setSlots(prevSlots.map(...))` 전체 슬롯 재생성
+  4. Handsontable 렌더링 자체 (DOM 기반)
+
+---
+
+## 6. 근본 원인 재분석 필요
+
+### 1-3차 최적화 결과 요약
+| 차수 | 적용 내용 | 결과 |
+|------|----------|------|
+| 1차 | afterChange 50ms 디바운스 | ❌ 입력 누락 |
+| 2차 | hiddenRows 복원 100ms 디바운스 | ❌ 효과 없음 |
+| 3차 | setChangedSlots/Items 제거 (ref 사용) | ❌ 효과 없음 |
+
+### 다음 단계 후보
+1. **handleSaveChanges 최적화** - `slots.filter()` 대신 인덱스 맵 사용
+2. **setSlots 최적화** - 전체 재생성 대신 부분 업데이트
+3. **Handsontable 설정 조정** - viewportRowRenderingOffset 감소
+4. **cells 함수 최적화** - 캐싱 또는 단순화
+5. **tableData useMemo 최적화** - 의존성 최소화
+
+---
+
+### 4차 최적화 (2026-02-07)
+
+**적용 내용:**
+- `handleSaveChanges`에서 **`setSlots()` 호출 완전 제거**
+- DB 저장만 수행하고 React 상태는 건드리지 않음
+- Handsontable에 이미 사용자가 수정한 데이터가 표시되어 있으므로 추가 업데이트 불필요
+- 캠페인 전환 시에만 `slots` 상태가 갱신됨
+
+**문제 분석:**
+```
+저장 시 병목 체인:
+setSlots(prevSlots.map(...))
+  → 500개 슬롯 새 객체 생성
+  → slots 변경 감지
+  → baseTableData useMemo 재계산
+  → tableData 전체 재생성
+  → HotTable data prop 변경
+  → Handsontable 전체 DOM 리렌더링
+  → 500+ <td> 요소 다시 그림
+  → 심각한 딜레이
+```
+
+**수정 파일:**
+- `OperatorItemSheet.js`:
+  - `handleSaveChanges` 내 `setSlots(prevSlots => {...})` 블록 제거 (약 45줄)
+- `SalesItemSheet.js`: 동일 변경
+
+**기대 효과:**
+- Ctrl+S 저장 시 전체 리렌더링 제거
+- 저장 직후 즉시 반응
+- 스크롤 위치 유지 (리렌더링이 없으므로)
+
+**테스트 항목:**
+- [ ] Ctrl+S 저장 시 딜레이 없음
+- [ ] 저장 후 데이터 정상 유지
+- [ ] 캠페인 전환 시 최신 데이터 로드
+- [ ] 저장 후 추가 편집 정상
 
 **결론:** ⏳ 테스트 대기
 
