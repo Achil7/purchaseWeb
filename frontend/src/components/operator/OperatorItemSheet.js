@@ -346,15 +346,14 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // 컬럼 너비 상태
   const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
 
-  // 변경된 슬롯들 추적
-  const [changedSlots, setChangedSlots] = useState({});
-  const changedSlotsRef = useRef(changedSlots);
-  changedSlotsRef.current = changedSlots;
+  // 변경된 슬롯들 추적 (ref만 사용 - 성능 최적화)
+  const changedSlotsRef = useRef({});
 
-  // 변경된 아이템들 추적 (제품 정보 수정용)
-  const [changedItems, setChangedItems] = useState({});
-  const changedItemsRef = useRef(changedItems);
-  changedItemsRef.current = changedItems;
+  // 변경된 아이템들 추적 (제품 정보 수정용, ref만 사용)
+  const changedItemsRef = useRef({});
+
+  // 저장 버튼 표시용 상태 (첫 변경 시에만 true로 설정)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // 스낵바 상태
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
@@ -517,7 +516,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     if (!forceRefresh && slotsCache.has(cacheKey)) {
       const cached = slotsCache.get(cacheKey);
       setSlots(cached.slots);
-      setChangedSlots({});
+      changedSlotsRef.current = {};
+        changedItemsRef.current = {};
+        setHasUnsavedChanges(false);
 
       // preserveCollapsedState가 true면 현재 접기 상태 유지
       if (!preserveCollapsedState) {
@@ -574,7 +575,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         const newSlots = response.data || [];
         console.log('[loadSlots] setSlots called, preserveCollapsedState:', preserveCollapsedState, 'newSlots:', newSlots.length);
         setSlots(newSlots);
-        setChangedSlots({});
+        changedSlotsRef.current = {};
+        changedItemsRef.current = {};
+        setHasUnsavedChanges(false);
 
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: newSlots, timestamp: Date.now() });
@@ -684,15 +687,13 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault(); // 브라우저 기본 저장 동작 방지
-        if (Object.keys(changedSlots).length > 0 || Object.keys(changedItems).length > 0) {
-          handleSaveChanges();
-        }
+        handleSaveChanges();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [changedSlots, changedItems]);
+  }, [handleSaveChanges]);
 
   // Shift+휠 스크롤로 횡스크롤만 지원 - 전체 테이블 영역에서 작동
   useEffect(() => {
@@ -774,10 +775,10 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         ).length;
         const isAllCompleted = totalSlots > 0 && totalSlots === completedSlots;
 
-        // day_group별 독립 제품 정보: changedItems > 슬롯 값 > Item 값 (우선순위)
+        // day_group별 독립 제품 정보: changedItemsRef > 슬롯 값 > Item 값 (우선순위)
         const firstSlot = groupData.slots[0] || {};
         const dayGroupKey = `${itemId}_${dayGroup}`;
-        const localChanges = changedItems[dayGroupKey] || {};
+        const localChanges = changedItemsRef.current[dayGroupKey] || {};
         const dayGroupProductInfo = {
           date: localChanges.date ?? firstSlot.date ?? '',
           product_name: localChanges.product_name ?? firstSlot.product_name ?? mergedItem.product_name ?? '',
@@ -879,10 +880,10 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
           const buyer = slot.buyer || {};
           const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
 
-          // changedSlots에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
-          const slotChanges = changedSlots[slot.id] || {};
+          // changedSlotsRef에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
+          const slotChanges = changedSlotsRef.current[slot.id] || {};
 
-          // buyer 필드 (changedSlots > buyer 우선순위)
+          // buyer 필드 (changedSlotsRef > buyer 우선순위)
           const mergedBuyer = {
             order_number: slotChanges.order_number ?? buyer.order_number ?? '',
             buyer_name: slotChanges.buyer_name ?? buyer.buyer_name ?? '',
@@ -898,7 +899,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
             shipping_delayed: slotChanges.shipping_delayed ?? buyer.shipping_delayed ?? false
           };
 
-          // slot 필드 (changedSlots > slot 우선순위)
+          // slot 필드 (changedSlotsRef > slot 우선순위)
           const mergedSlot = {
             product_name: slotChanges.product_name ?? slot.product_name ?? '',
             purchase_option: slotChanges.purchase_option ?? slot.purchase_option ?? '',
@@ -967,7 +968,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     });
 
     return { baseTableData: data, baseSlotIndexMap: indexMap, baseRowMetaMap: metaMap };
-  }, [slots, changedItems, changedSlots]); // changedItems, changedSlots 추가 - 로컬 수정사항 즉시 반영
+  }, [slots]); // changedItemsRef, changedSlotsRef는 ref이므로 의존성에서 제거
 
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
   // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
@@ -1097,18 +1098,20 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
   // 변경사항 저장 및 새로고침 헬퍼 함수
   const saveAndRefresh = useCallback(async () => {
-    const hasSlotChanges = Object.keys(changedSlots).length > 0;
-    const hasItemChanges = Object.keys(changedItems).length > 0;
+    const currentChangedSlots = changedSlotsRef.current;
+    const currentChangedItems = changedItemsRef.current;
+    const hasSlotChanges = Object.keys(currentChangedSlots).length > 0;
+    const hasItemChanges = Object.keys(currentChangedItems).length > 0;
 
     try {
       // 슬롯 데이터 저장
       if (hasSlotChanges) {
-        const slotsToUpdate = Object.values(changedSlots);
+        const slotsToUpdate = Object.values(currentChangedSlots);
         await itemSlotService.updateSlotsBulk(slotsToUpdate);
       }
       // 제품 정보 저장 (day_group별 슬롯 업데이트)
       if (hasItemChanges) {
-        const dayGroupUpdates = Object.values(changedItems);
+        const dayGroupUpdates = Object.values(currentChangedItems);
         for (const update of dayGroupUpdates) {
           const { itemId, dayGroup, ...productData } = update;
           // 해당 day_group의 모든 슬롯 ID 수집
@@ -1127,14 +1130,15 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         }
       }
       // 상태 초기화
-      setChangedSlots({});
-      setChangedItems({});
+      changedSlotsRef.current = {};
+      changedItemsRef.current = {};
+      setHasUnsavedChanges(false);
       // 데이터 새로고침 (변경사항 유무와 관계없이 항상 최신 데이터 로드)
       await loadSlots(campaignId, viewAsUserId);
     } catch (error) {
       console.error('Auto-save failed:', error);
     }
-  }, [changedSlots, changedItems, slots, loadSlots]);
+  }, [slots, loadSlots]);
 
   // 개별 품목 접기/펼치기 토글 (item_id + day_group 조합으로 독립적 관리)
   // 성능 최적화: localStorage 저장을 디바운스하여 I/O 지연
@@ -1359,13 +1363,16 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       }
     });
 
-    // ref에 저장 (저장 시 사용)
+    // ref에 저장 (저장 시 사용) - 성능 최적화: state 업데이트 제거
     changedSlotsRef.current = slotUpdates;
     changedItemsRef.current = itemUpdates;
 
-    // state도 업데이트 (저장 버튼 표시용)
-    setChangedSlots(slotUpdates);
-    setChangedItems(itemUpdates);
+    // 저장 버튼 표시: 첫 변경 시에만 상태 업데이트 (리렌더링 최소화)
+    const hasSlotChanges = Object.keys(slotUpdates).length > 0;
+    const hasItemChanges = Object.keys(itemUpdates).length > 0;
+    if (hasSlotChanges || hasItemChanges) {
+      setHasUnsavedChanges(true);
+    }
 
     // 셀 편집 후 hiddenRows 플러그인 상태 복원 (디바운스로 성능 최적화)
     debouncedRestoreHiddenRows();
@@ -1503,8 +1510,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       // ref 및 state 초기화
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
-      setChangedSlots({});
-      setChangedItems({});
+      setHasUnsavedChanges(false);
 
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
       slotsCache.clear();
@@ -1528,6 +1534,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       // 저장 실패 시 변경사항 ref 초기화 (다음 저장에 영향 주지 않도록)
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
+      setHasUnsavedChanges(false);
 
       // 에러 메시지 표시
       setSnackbar({ open: true, message: `저장 실패: ${serverMessage}` });
@@ -1810,8 +1817,10 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     return cellProperties;
   }, [tableData, statusOptions, productDataRenderer, uploadLinkBarRenderer, buyerDataRenderer]);
 
-  const hasChanges = Object.keys(changedSlots).length > 0 || Object.keys(changedItems).length > 0;
-  const totalChanges = Object.keys(changedSlots).length + Object.keys(changedItems).length;
+  // 성능 최적화: hasUnsavedChanges state 사용 (ref 기반으로 변경하여 리렌더링 최소화)
+  const hasChanges = hasUnsavedChanges;
+  // totalChanges는 저장 시 ref에서 계산
+  const totalChanges = Object.keys(changedSlotsRef.current).length + Object.keys(changedItemsRef.current).length;
 
   // 전체 데이터 건수 (원본 slots 데이터 기준 - 접기/펼치기와 무관)
   const totalDataCount = useMemo(() => {

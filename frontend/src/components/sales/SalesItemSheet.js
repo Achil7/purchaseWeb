@@ -337,14 +337,12 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     message: ''
   });
 
-  // Admin 편집용 - 변경된 슬롯 추적
-  const [changedSlots, setChangedSlots] = useState({});
-  const changedSlotsRef = useRef(changedSlots);
-  changedSlotsRef.current = changedSlots;
-  // Admin 편집용 - 변경된 품목 추적
-  const [changedItems, setChangedItems] = useState({});
-  const changedItemsRef = useRef(changedItems);
-  changedItemsRef.current = changedItems;
+  // Admin 편집용 - 변경된 슬롯 추적 (ref만 사용 - 성능 최적화)
+  const changedSlotsRef = useRef({});
+  // Admin 편집용 - 변경된 품목 추적 (ref만 사용)
+  const changedItemsRef = useRef({});
+  // 저장 버튼 표시용 상태 (첫 변경 시에만 true로 설정)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   // 저장 중 상태
   const [saving, setSaving] = useState(false);
 
@@ -746,8 +744,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       // ref 및 state 초기화
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
-      setChangedSlots({});
-      setChangedItems({});
+      setHasUnsavedChanges(false);
 
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
       slotsCache.clear();
@@ -768,6 +765,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       // 저장 실패 시 ref 초기화 (다음 저장에 영향 주지 않도록)
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
+      setHasUnsavedChanges(false);
       setSnackbar({ open: true, message: '저장 실패: ' + (error.response?.data?.message || error.message) });
     } finally {
       setSaving(false);
@@ -875,10 +873,10 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         // day_group 중단 상태 확인 (슬롯 중 하나라도 is_suspended가 true면 중단됨)
         const isDayGroupSuspended = groupData.slots.some(s => s.is_suspended);
 
-        // day_group별 독립 제품 정보: 슬롯 값 > changedItems 값 > Item 값 (우선순위)
+        // day_group별 독립 제품 정보: 슬롯 값 > changedItemsRef 값 > Item 값 (우선순위)
         const firstSlot = groupData.slots[0] || {};
         const dayGroupKey = `${itemId}_${dayGroup}`;
-        const localChanges = changedItems[dayGroupKey] || {};
+        const localChanges = changedItemsRef.current[dayGroupKey] || {};
 
         const dayGroupProductInfo = {
           date: localChanges.date ?? firstSlot.date ?? item.date ?? '',
@@ -970,10 +968,10 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           const buyer = slot.buyer || {};
           const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
 
-          // changedSlots에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
-          const slotChanges = changedSlots[slot.id] || {};
+          // changedSlotsRef에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
+          const slotChanges = changedSlotsRef.current[slot.id] || {};
 
-          // buyer 필드 (changedSlots > buyer 우선순위)
+          // buyer 필드 (changedSlotsRef > buyer 우선순위)
           const mergedBuyer = {
             order_number: slotChanges.order_number ?? buyer.order_number ?? '',
             buyer_name: slotChanges.buyer_name ?? buyer.buyer_name ?? '',
@@ -988,7 +986,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             date: slotChanges.date ?? buyer.date ?? ''
           };
 
-          // slot 필드 (changedSlots > slot 우선순위)
+          // slot 필드 (changedSlotsRef > slot 우선순위)
           const mergedSlot = {
             product_name: slotChanges.product_name ?? slot.product_name ?? '',
             purchase_option: slotChanges.purchase_option ?? slot.purchase_option ?? '',
@@ -1045,7 +1043,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     }); // Object.entries(itemGroups).forEach 끝
 
     return { baseTableData: data };
-  }, [slots, items, changedItems, changedSlots]); // changedItems, changedSlots 추가 - 로컬 수정사항 즉시 반영
+  }, [slots, items]); // changedItemsRef, changedSlotsRef는 ref이므로 의존성에서 제거
 
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
   // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
@@ -1185,33 +1183,36 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
   // 변경사항 저장 및 새로고침 헬퍼 함수
   const saveAndRefresh = useCallback(async () => {
-    const hasSlotChanges = Object.keys(changedSlots).length > 0;
-    const hasItemChanges = Object.keys(changedItems).length > 0;
+    const currentChangedSlots = changedSlotsRef.current;
+    const currentChangedItems = changedItemsRef.current;
+    const hasSlotChanges = Object.keys(currentChangedSlots).length > 0;
+    const hasItemChanges = Object.keys(currentChangedItems).length > 0;
 
     try {
       // 제품 정보 저장
       if (hasItemChanges) {
-        for (const [itemId, itemData] of Object.entries(changedItems)) {
+        for (const [itemId, itemData] of Object.entries(currentChangedItems)) {
           await itemService.updateItem(parseInt(itemId), itemData);
         }
       }
       // 슬롯 데이터 저장
       if (hasSlotChanges) {
-        const slotsToUpdate = Object.entries(changedSlots).map(([slotId, slotData]) => ({
+        const slotsToUpdate = Object.entries(currentChangedSlots).map(([slotId, slotData]) => ({
           id: parseInt(slotId),
           ...slotData
         }));
         await itemSlotService.updateSlotsBulk(slotsToUpdate);
       }
       // 상태 초기화
-      setChangedSlots({});
-      setChangedItems({});
+      changedSlotsRef.current = {};
+      changedItemsRef.current = {};
+      setHasUnsavedChanges(false);
       // 데이터 새로고침 (변경사항 유무와 관계없이 항상 최신 데이터 로드)
       await loadSlots(campaignId);
     } catch (error) {
       console.error('Auto-save failed:', error);
     }
-  }, [changedSlots, changedItems, loadSlots]);
+  }, [loadSlots]);
 
   // 개별 품목 접기/펼치기 토글
   // 성능 최적화: localStorage 저장을 디바운스하여 I/O 지연
@@ -1335,14 +1336,14 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
         const dayGroup = rowData._dayGroup || 1;  // 기본값 1
 
-        // ref에 저장 (day_group별 키 형식 통일)
+        // ref에 저장 (day_group별 키 형식 통일) - 성능 최적화: state 업데이트 제거
         const dayGroupKey = `${itemId}_${dayGroup}`;
-        const newItemUpdates = {
+        changedItemsRef.current = {
           ...changedItemsRef.current,
           [dayGroupKey]: { ...(changedItemsRef.current[dayGroupKey] || {}), itemId, dayGroup, [fieldName]: newValue ?? '' }
         };
-        changedItemsRef.current = newItemUpdates;
-        setChangedItems(newItemUpdates);
+        // 저장 버튼 표시 (첫 변경 시에만)
+        setHasUnsavedChanges(true);
 
         // 핵심: 날짜 필드(col1) 변경 시 같은 품목의 구매자 행 날짜도 즉시 업데이트
         if (prop === 'col1' && fieldName === 'date') {
@@ -1370,7 +1371,6 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             if (cellsToUpdate.length > 0) {
               hot.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
             }
-            setChangedSlots(changedSlotsRef.current);
           }
         }
       }
@@ -1406,13 +1406,13 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         const fieldName = buyerFieldMap[prop];
         if (!fieldName) return;
 
-        // ref에 저장
-        const newSlotUpdates = {
+        // ref에 저장 - 성능 최적화: state 업데이트 제거
+        changedSlotsRef.current = {
           ...changedSlotsRef.current,
           [slotId]: { ...(changedSlotsRef.current[slotId] || {}), [fieldName]: newValue || '' }
         };
-        changedSlotsRef.current = newSlotUpdates;
-        setChangedSlots(newSlotUpdates);
+        // 저장 버튼 표시 (첫 변경 시에만)
+        setHasUnsavedChanges(true);
       }
     });
 
@@ -1804,7 +1804,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             저장 중...
           </Box>
         )}
-        {(Object.keys(changedSlots).length > 0 || Object.keys(changedItems).length > 0) && !saving && (
+        {hasUnsavedChanges && !saving && (
           <Button
             variant="contained"
             color="success"
@@ -1813,7 +1813,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             onClick={handleSaveChanges}
             sx={{ bgcolor: '#4caf50' }}
           >
-            저장 ({Object.keys(changedSlots).length + Object.keys(changedItems).length})
+            저장
           </Button>
         )}
       </Box>

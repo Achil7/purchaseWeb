@@ -469,12 +469,40 @@ useEffect(() => {
 
 ---
 
-### 3차 최적화 (예정)
+### 3차 최적화 (2026-02-07)
 
-**후보 방안:**
-1. `handleAfterChange` 내 `currentTableData.forEach()` 최적화 (인덱스 맵 사용)
-2. `setChangedSlots` 상태 업데이트 배치 처리
-3. `viewportRowRenderingOffset` 100 → 50 감소
+**적용 내용:**
+- `setChangedSlots`/`setChangedItems` **상태(state) 업데이트 제거**
+- **ref만 사용**하여 변경사항 추적 (리렌더링 방지)
+- 저장 버튼 표시용으로 `hasUnsavedChanges` boolean 상태 추가 (첫 변경 시에만 true)
+
+**문제 분석:**
+- 매 셀 편집마다 `setChangedSlots(newSlotUpdates)` 호출
+- React 상태 업데이트 → 컴포넌트 리렌더링 트리거
+- 리렌더링 시 Handsontable도 갱신 → 딜레이 발생
+
+**수정 파일:**
+- `OperatorItemSheet.js`:
+  - `const [changedSlots, setChangedSlots] = useState({})` → `const changedSlotsRef = useRef({})`
+  - `const [changedItems, setChangedItems] = useState({})` → `const changedItemsRef = useRef({})`
+  - `const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)` 추가
+  - `handleAfterChange`에서 `setChangedSlots`/`setChangedItems` 호출 제거
+  - 저장 버튼 표시: `hasChanges = hasUnsavedChanges`로 변경
+  - 저장 완료 시 `setHasUnsavedChanges(false)` 호출
+- `SalesItemSheet.js`: 동일 변경
+
+**기대 효과:**
+- 매 셀 편집마다 발생하던 리렌더링 제거
+- 엔터 후 다음 셀 이동 시 딜레이 감소
+- Ctrl+S 저장 시 즉각 반응
+
+**테스트 항목:**
+- [ ] 엔터 연속 입력 시 글자 누락/지연 없음
+- [ ] Ctrl+S 즉시 반응
+- [ ] 스크롤 부드러움
+- [ ] 저장 버튼 정상 표시/숨김
+
+**결론:** ⏳ 테스트 대기
 
 ---
 
