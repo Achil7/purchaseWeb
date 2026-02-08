@@ -942,10 +942,66 @@ requestAnimationFrame(() => {
 - `requestAnimationFrame`으로 스크롤 복원 타이밍 최적화
 
 **테스트 항목:**
-- [ ] Ctrl+S 저장 시 딜레이 횟수 감소 (2-3회 → 1회)
-- [ ] 저장 후 스크롤 위치 유지
-- [ ] 저장 완료 메시지 정상 표시
-- [ ] 에러 발생 시 에러 메시지 정상 표시
+- [x] Ctrl+S 저장 시 딜레이 횟수 감소 (2-3회 → 1회) → ❌ 여전히 딜레이 존재
+- [x] 저장 후 스크롤 위치 유지 → ✅
+- [x] 저장 완료 메시지 정상 표시 → ✅
+- [x] 에러 발생 시 에러 메시지 정상 표시 → ✅
+
+**테스트 결과 (2026-02-09):**
+- ❌ 엔터 후 딜레이: 0.1~0.5초 딜레이 여전히 존재
+- ❌ Ctrl+S 딜레이: 여전히 존재
+
+**결론:** ❌ 딜레이 미해결 - setSaving(true)가 배칭 전에 발생, debouncedRestoreHiddenRows 여전히 실행
+
+---
+
+### 11차 최적화 (2026-02-09)
+
+**적용 내용:**
+1. **saving 상태를 ref로 변경** - 리렌더링 제거
+   - `const [saving, setSaving] = useState(false)` → `const savingRef = useRef(false)`
+   - UI에서 "저장 중..." 표시 제거 (중복 저장은 ref로 방지)
+   - `setSaving(true)` 호출 시 발생하던 리렌더링 완전 제거
+2. **debouncedRestoreHiddenRows 완전 제거**
+   - handleAfterChange에서 호출하던 부분 제거
+   - 함수 자체와 관련 useEffect 삭제
+   - 일반 셀 편집 시 hiddenRows 복원은 불필요함
+   - 접기/펼치기는 collapsedItems 상태 변경으로 자동 처리됨
+
+**수정 파일:**
+- `OperatorItemSheet.js`
+- `SalesItemSheet.js`
+
+**수정 코드:**
+```javascript
+// 1. saving 상태 → ref 변경
+const savingRef = useRef(false);
+
+// handleSaveChanges 시작 시:
+if (savingRef.current) return;  // 중복 저장 방지
+savingRef.current = true;
+
+// 완료/실패 시:
+savingRef.current = false;
+
+// 2. debouncedRestoreHiddenRows 호출 제거
+// handleAfterChange 끝에서:
+// debouncedRestoreHiddenRows(); ← 제거
+
+// 3. debouncedRestoreHiddenRows 함수 및 useEffect 완전 제거
+```
+
+**기대 효과:**
+- Ctrl+S: 리렌더링 2회 → 1회 (setSaving 제거)
+- 엔터 후: hiddenRows 복원이 100ms마다 실행되지 않아 딜레이 대폭 감소
+- 전반적인 입력 반응성 향상
+
+**테스트 항목:**
+- [ ] Ctrl+S 저장 시 딜레이 감소
+- [ ] 엔터 후 다음 셀 입력 시 딜레이 감소 (0.1~0.5초 → 거의 없음)
+- [ ] 한글 "홍길동" 입력 → 앞글자 잘림 해결
+- [ ] 접기/펼치기 기능 정상 작동
+- [ ] 저장 버튼 정상 작동 (중복 클릭 방지)
 
 **결론:** ⏳ 테스트 대기
 

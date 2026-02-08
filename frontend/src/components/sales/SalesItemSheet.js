@@ -372,8 +372,9 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     };
   }, [slots]); // slots 변경 시 재설정
 
-  // 저장 중 상태
-  const [saving, setSaving] = useState(false);
+  // 11차 최적화: saving 상태를 ref로 변경하여 리렌더링 제거
+  // 저장 중 상태는 중복 저장 방지용으로만 사용 (UI 표시 없음)
+  const savingRef = useRef(false);
 
   // 제품 상세 정보 팝업 상태
   const [productDetailPopup, setProductDetailPopup] = useState({
@@ -670,6 +671,9 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
   // 저장 핸들러 - DB 저장 + 스크롤 위치 유지
   const handleSaveChanges = useCallback(async () => {
+    // 11차 최적화: 중복 저장 방지 (ref로 체크 - 리렌더링 없음)
+    if (savingRef.current) return;
+
     // ref에서 변경사항 읽기 (성능 최적화로 state 대신 ref 사용)
     const currentChangedSlots = changedSlotsRef.current;
     const currentChangedItems = changedItemsRef.current;
@@ -684,7 +688,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     const scrollPosition = hot?.rootElement?.querySelector('.wtHolder')?.scrollTop || 0;
     const scrollLeft = hot?.rootElement?.querySelector('.wtHolder')?.scrollLeft || 0;
 
-    setSaving(true);
+    // 11차 최적화: ref만 설정 (리렌더링 없음)
+    savingRef.current = true;
 
     try {
       // 품목(제품 정보) 저장 - day_group별 슬롯에 저장 (DailyWorkSheet/OperatorItemSheet와 동일한 방식)
@@ -726,13 +731,13 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
       hasUnsavedChangesRef.current = false;
+      savingRef.current = false;
 
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
       slotsCache.clear();
 
-      // 10차 최적화: 모든 상태 업데이트를 한 번에 배칭하여 리렌더링 1회로 줄임
+      // 11차 최적화: setSaving 제거하여 리렌더링 줄임
       unstable_batchedUpdates(() => {
-        setSaving(false);
         setHasUnsavedChanges(false);
         setSnackbar({ open: true, message: '저장되었습니다' });
       });
@@ -752,10 +757,10 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
       hasUnsavedChangesRef.current = false;
+      savingRef.current = false;
 
-      // 10차 최적화: 에러 시에도 배칭
+      // 11차 최적화: setSaving 제거
       unstable_batchedUpdates(() => {
-        setSaving(false);
         setHasUnsavedChanges(false);
         setSnackbar({ open: true, message: '저장 실패: ' + (error.response?.data?.message || error.message) });
       });
@@ -1252,39 +1257,10 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     saveCollapsedItems(allCollapsed);
   }, [slots, saveCollapsedItems]);
 
-  // 성능 최적화: hiddenRows 복원을 디바운스 (매 변경마다 실행 방지)
-  const debouncedRestoreHiddenRows = useMemo(
-    () => debounce(() => {
-      const hot = hotRef.current?.hotInstance;
-      if (!hot) return;
-
-      const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-      if (!hiddenRowsPlugin) return;
-
-      const indices = hiddenRowIndicesRef.current;
-      if (indices.length === 0) return;
-
-      const currentHidden = new Set(hiddenRowsPlugin.getHiddenRows());
-      const targetHidden = new Set(indices);
-
-      if (currentHidden.size !== targetHidden.size || ![...currentHidden].every(r => targetHidden.has(r))) {
-        hot.batch(() => {
-          const rowsToHide = [...targetHidden].filter(r => !currentHidden.has(r));
-          if (rowsToHide.length > 0) {
-            hiddenRowsPlugin.hideRows(rowsToHide);
-          }
-        });
-      }
-    }, 100), // 100ms 디바운스 - 연속 편집 시 한 번만 실행
-    []
-  );
-
-  // 컴포넌트 언마운트 시 디바운스 취소
-  useEffect(() => {
-    return () => {
-      debouncedRestoreHiddenRows.cancel();
-    };
-  }, [debouncedRestoreHiddenRows]);
+  // 11차 최적화: debouncedRestoreHiddenRows 완전 제거
+  // - 일반 셀 편집 시에는 hiddenRows 복원이 불필요함
+  // - 접기/펼치기 시에는 collapsedItems 상태 변경으로 자동으로 처리됨
+  // - 이 함수가 100ms마다 실행되면서 입력 딜레이를 유발했음
 
   // 성능 최적화: afterChange 콜백을 useCallback으로 분리하여 재생성 방지
   const handleAfterChange = useCallback((changes, source) => {
@@ -1424,9 +1400,9 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       }
     });
 
-    // 셀 편집 후 hiddenRows 플러그인 상태 복원 (디바운스로 성능 최적화)
-    debouncedRestoreHiddenRows();
-  }, [debouncedRestoreHiddenRows]);  // 디바운스 함수 의존성 추가
+    // 11차 최적화: debouncedRestoreHiddenRows 호출 제거
+    // 일반 셀 편집 시에는 hiddenRows 복원이 불필요함
+  }, []);
 
   // 삭제 확인 다이얼로그 열기
   const openDeleteDialog = (type, data, message) => {
@@ -1807,12 +1783,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         }}>
           작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!
         </Box>
-        {saving && (
-          <Box sx={{ fontSize: '0.85rem', color: '#1976d2', fontWeight: 'bold' }}>
-            저장 중...
-          </Box>
-        )}
-        {hasUnsavedChanges && !saving && (
+        {/* 11차 최적화: saving 상태 UI 제거 - 중복 저장은 ref로 방지 */}
+        {hasUnsavedChanges && (
           <Button
             variant="contained"
             color="success"
