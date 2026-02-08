@@ -1325,10 +1325,13 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           ...changedItemsRef.current,
           [dayGroupKey]: { ...(changedItemsRef.current[dayGroupKey] || {}), itemId, dayGroup, [fieldName]: newValue ?? '' }
         };
-        // 5차 최적화: 첫 변경 시에만 상태 업데이트 (ref로 중복 호출 방지)
+        // 9차 최적화: 상태 업데이트를 requestAnimationFrame으로 지연
+        // 셀 이동이 먼저 완료된 후 리렌더링되도록 하여 입력 끊김 방지
         if (!hasUnsavedChangesRef.current) {
           hasUnsavedChangesRef.current = true;
-          setHasUnsavedChanges(true);
+          requestAnimationFrame(() => {
+            setHasUnsavedChanges(true);
+          });
         }
 
         // 핵심: 날짜 필드(col1) 변경 시 같은 품목의 구매자 행 날짜도 즉시 업데이트
@@ -1403,10 +1406,12 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           ...changedSlotsRef.current,
           [slotId]: { ...(changedSlotsRef.current[slotId] || {}), [fieldName]: newValue || '' }
         };
-        // 5차 최적화: 첫 변경 시에만 상태 업데이트 (ref로 중복 호출 방지)
+        // 9차 최적화: 상태 업데이트를 requestAnimationFrame으로 지연
         if (!hasUnsavedChangesRef.current) {
           hasUnsavedChangesRef.current = true;
-          setHasUnsavedChanges(true);
+          requestAnimationFrame(() => {
+            setHasUnsavedChanges(true);
+          });
         }
       }
     });

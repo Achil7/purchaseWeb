@@ -1404,12 +1404,15 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     changedSlotsRef.current = slotUpdates;
     changedItemsRef.current = itemUpdates;
 
-    // 5차 최적화: 첫 변경 시에만 상태 업데이트 (ref로 중복 호출 방지)
+    // 9차 최적화: 상태 업데이트를 requestAnimationFrame으로 지연
+    // 셀 이동이 먼저 완료된 후 리렌더링되도록 하여 입력 끊김 방지
     const hasSlotChanges = Object.keys(slotUpdates).length > 0;
     const hasItemChanges = Object.keys(itemUpdates).length > 0;
     if ((hasSlotChanges || hasItemChanges) && !hasUnsavedChangesRef.current) {
       hasUnsavedChangesRef.current = true;
-      setHasUnsavedChanges(true);
+      requestAnimationFrame(() => {
+        setHasUnsavedChanges(true);
+      });
     }
 
     // 셀 편집 후 hiddenRows 플러그인 상태 복원 (디바운스로 성능 최적화)

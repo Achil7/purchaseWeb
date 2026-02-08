@@ -804,10 +804,71 @@ afterChange={(changes, source) => {
 - "홍길동" 정상 입력 가능
 
 **테스트 항목:**
-- [ ] 한글 "홍길동" + 엔터 빠르게 입력 → 글자 깨짐 없음
+- [x] 한글 "홍길동" + 엔터 빠르게 입력 → 글자 깨짐 없음 → △ 영어 변환 해결, 앞글자 잘림 잔존 ("ㅗㅇ길동")
+- [x] 엔터 후 다음 셀 이동 시 딜레이 없음 → ❌ 딜레이 존재
+- [x] Ctrl+S 저장 시 딜레이 감소 → ❌ 딜레이 심함
+- [ ] 날짜 동기화 정상 작동
+- [ ] 일반 영문/숫자 입력 정상
+
+**결론:** △ **부분 개선** - 영어 변환 해결, 딜레이 및 앞글자 잘림 잔존
+
+**개선된 점:**
+- 영어 변환 문제 해결 (더 이상 "gㅗㅇ길동" 같은 영문 혼합 안 나옴)
+
+**남은 문제:**
+- 엔터 후 딜레이로 인한 앞글자 잘림 ("ㅗㅇ길동")
+- Ctrl+S 저장 딜레이
+
+---
+
+### 9차 최적화 (2026-02-07)
+
+**적용 내용:**
+- `setHasUnsavedChanges(true)`를 **`requestAnimationFrame`으로 지연**
+- 셀 이동이 먼저 완료된 후 리렌더링되도록 하여 입력 끊김 방지
+
+**문제 분석:**
+```
+한글 입력 후 엔터
+  ↓
+compositionend 이벤트 → isComposingRef = false
+  ↓
+afterChange 호출 → handleAfterChange 실행
+  ↓
+setHasUnsavedChanges(true) 호출 (첫 변경 시)
+  ↓
+React 상태 업데이트 → 컴포넌트 리렌더링
+  ↓
+Handsontable 갱신 중 다음 셀로 이동
+  ↓
+이 타이밍에 다음 입력 시작 → 앞글자 잘림
+```
+
+**수정 파일:**
+- `OperatorItemSheet.js`
+- `SalesItemSheet.js`
+
+**수정 코드:**
+```javascript
+// 9차 최적화: 상태 업데이트를 requestAnimationFrame으로 지연
+// 셀 이동이 먼저 완료된 후 리렌더링되도록 하여 입력 끊김 방지
+if (!hasUnsavedChangesRef.current) {
+  hasUnsavedChangesRef.current = true;
+  requestAnimationFrame(() => {
+    setHasUnsavedChanges(true);
+  });
+}
+```
+
+**기대 효과:**
+- 현재 프레임의 셀 이동 완료 후 상태 업데이트
+- 입력 중 리렌더링으로 인한 끊김 방지
+- 엔터 후 다음 셀 입력 시 앞글자 잘림 해결
+
+**테스트 항목:**
+- [ ] 한글 "홍길동" + 엔터 빠르게 입력 → 앞글자 잘림 없음
 - [ ] 엔터 후 다음 셀 이동 시 딜레이 없음
 - [ ] Ctrl+S 저장 시 딜레이 감소
-- [ ] 날짜 동기화 정상 작동
 - [ ] 일반 영문/숫자 입력 정상
 
 **결론:** ⏳ 테스트 대기
