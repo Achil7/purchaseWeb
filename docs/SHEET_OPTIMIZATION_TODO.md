@@ -871,6 +871,82 @@ if (!hasUnsavedChangesRef.current) {
 - [ ] Ctrl+S 저장 시 딜레이 감소
 - [ ] 일반 영문/숫자 입력 정상
 
+**테스트 결과 (2026-02-08):**
+- ❌ 한글 입력: "ㅗㅇ길동" 여전히 발생 (약 50% 확률)
+- △ 영문 변환: 해결됨 ("gㅗㅇ길동" 더 이상 발생 안 함)
+- ❌ Ctrl+S 딜레이: 여전히 존재, **2-3회에 걸쳐 딜레이 발생**
+  - Ctrl+S 직후 첫 번째 딜레이
+  - 1~2초 후 두 번째 딜레이
+  - 총 2~3번의 버벅거림
+
+**원인 분석:**
+```
+Ctrl+S 누름
+  ↓
+handleSaveChanges() 시작
+  ↓
+1️⃣ setSaving(true) → 리렌더링
+  ↓
+API 호출 (await) - 네트워크 대기
+  ↓
+2️⃣ setHasUnsavedChanges(false) → 리렌더링
+  ↓
+3️⃣ setSnackbar({ open: true }) → 리렌더링
+  ↓
+4️⃣ setSaving(false) → 리렌더링
+  ↓
+(100ms 후) debouncedRestoreHiddenRows 실행 → 추가 딜레이
+```
+**문제**: 4회의 상태 업데이트 = 4회의 리렌더링 = 4회의 Handsontable 갱신
+
+**결론:** △ 부분 성공 (영문 변환 해결), 한글 잘림/딜레이 미해결
+
+---
+
+### 10차 최적화 (2026-02-08)
+
+**적용 내용:**
+- `handleSaveChanges` 내 상태 업데이트를 **`unstable_batchedUpdates`로 배칭**
+- 4회 리렌더링 → 1회 리렌더링으로 줄임
+- `finally` 블록 제거하고 try/catch 내에서 직접 처리
+- 스크롤 복원을 `requestAnimationFrame`으로 변경
+
+**수정 파일:**
+- `OperatorItemSheet.js`
+- `SalesItemSheet.js`
+
+**수정 코드:**
+```javascript
+import { unstable_batchedUpdates } from 'react-dom';
+
+// handleSaveChanges 내 성공 시:
+unstable_batchedUpdates(() => {
+  setSaving(false);
+  setHasUnsavedChanges(false);
+  setSnackbar({ open: true, message: '저장되었습니다' });
+});
+
+// 스크롤 복원:
+requestAnimationFrame(() => {
+  const wtHolder = hot?.rootElement?.querySelector('.wtHolder');
+  if (wtHolder) {
+    wtHolder.scrollTop = scrollPosition;
+    wtHolder.scrollLeft = scrollLeft;
+  }
+});
+```
+
+**기대 효과:**
+- 저장 완료 후 상태 업데이트 1회로 통합
+- 리렌더링 횟수 감소 → 딜레이 감소
+- `requestAnimationFrame`으로 스크롤 복원 타이밍 최적화
+
+**테스트 항목:**
+- [ ] Ctrl+S 저장 시 딜레이 횟수 감소 (2-3회 → 1회)
+- [ ] 저장 후 스크롤 위치 유지
+- [ ] 저장 완료 메시지 정상 표시
+- [ ] 에러 발생 시 에러 메시지 정상 표시
+
 **결론:** ⏳ 테스트 대기
 
 ---

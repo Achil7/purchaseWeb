@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
+import { unstable_batchedUpdates } from 'react-dom';
 import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Snackbar, Alert, IconButton, Tooltip, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
@@ -721,25 +722,29 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       // DB 저장만 수행하고 React 상태는 건드리지 않음
       // 캠페인 전환 시에만 slots 상태가 갱신됨
 
-      // ref 및 state 초기화
+      // ref 초기화 (먼저 실행 - 리렌더링 없음)
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
       hasUnsavedChangesRef.current = false;
-      setHasUnsavedChanges(false);
 
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
       slotsCache.clear();
 
-      setSnackbar({ open: true, message: '저장되었습니다' });
+      // 10차 최적화: 모든 상태 업데이트를 한 번에 배칭하여 리렌더링 1회로 줄임
+      unstable_batchedUpdates(() => {
+        setSaving(false);
+        setHasUnsavedChanges(false);
+        setSnackbar({ open: true, message: '저장되었습니다' });
+      });
 
-      // 스크롤 위치 복원 (다음 렌더링 후)
-      setTimeout(() => {
+      // 스크롤 위치 복원 (배칭된 렌더링 후)
+      requestAnimationFrame(() => {
         const wtHolder = hot?.rootElement?.querySelector('.wtHolder');
         if (wtHolder) {
           wtHolder.scrollTop = scrollPosition;
           wtHolder.scrollLeft = scrollLeft;
         }
-      }, 0);
+      });
 
     } catch (error) {
       console.error('Save failed:', error);
@@ -747,10 +752,13 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
       hasUnsavedChangesRef.current = false;
-      setHasUnsavedChanges(false);
-      setSnackbar({ open: true, message: '저장 실패: ' + (error.response?.data?.message || error.message) });
-    } finally {
-      setSaving(false);
+
+      // 10차 최적화: 에러 시에도 배칭
+      unstable_batchedUpdates(() => {
+        setSaving(false);
+        setHasUnsavedChanges(false);
+        setSnackbar({ open: true, message: '저장 실패: ' + (error.response?.data?.message || error.message) });
+      });
     }
   }, [loadSlots, campaignId, slots]);  // slots 의존성 추가 (day_group별 슬롯 필터링용)
 
