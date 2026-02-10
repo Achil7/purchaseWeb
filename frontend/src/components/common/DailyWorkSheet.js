@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, Snackbar, Alert, IconButton, Typography } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -279,8 +279,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   const changedItemsRef = useRef(changedItems);
   changedItemsRef.current = changedItems;
 
-  // 스낵바 상태
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  // 스낵바 ref (성능 최적화: state 대신 ref + DOM 직접 조작)
+  const snackbarRef = useRef(null);
+
+  // 한글 입력 조합 중 상태 추적 (성능 최적화)
+  const isComposingRef = useRef(false);
 
   // 저장 중 상태
   const [saving, setSaving] = useState(false);
@@ -388,6 +391,53 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     }
   }, [getSavedColumnWidths]);
 
+  // showSnackbar 함수 (성능 최적화: CSS animation 사용, setTimeout 콜백 제거)
+  const showSnackbar = useCallback((message) => {
+    const snackbarEl = snackbarRef.current;
+    if (!snackbarEl) return;
+
+    const messageEl = snackbarEl.querySelector('.snackbar-message');
+    if (messageEl) {
+      messageEl.textContent = message;
+    }
+
+    // CSS animation 초기화 및 재시작
+    snackbarEl.style.animation = 'none';
+    snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
+    snackbarEl.style.visibility = 'visible';
+    snackbarEl.style.opacity = '1';
+    // 2초 후 0.3초 동안 페이드아웃 (CSS animation)
+    snackbarEl.style.animation = 'snackbarFadeOut 0.3s 2s forwards';
+  }, []);
+
+  // 한글 입력 compositionend 이벤트 리스너 (성능 최적화: rAF 지연)
+  useEffect(() => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    const rootElement = hot.rootElement;
+    if (!rootElement) return;
+
+    const handleCompositionStart = () => {
+      isComposingRef.current = true;
+    };
+
+    const handleCompositionEnd = () => {
+      // requestAnimationFrame으로 1프레임 지연하여 브라우저가 IME 상태를 완전히 정리할 시간을 줌
+      requestAnimationFrame(() => {
+        isComposingRef.current = false;
+      });
+    };
+
+    rootElement.addEventListener('compositionstart', handleCompositionStart);
+    rootElement.addEventListener('compositionend', handleCompositionEnd);
+
+    return () => {
+      rootElement.removeEventListener('compositionstart', handleCompositionStart);
+      rootElement.removeEventListener('compositionend', handleCompositionEnd);
+    };
+  }, [slots]);
+
   // 날짜별 슬롯 조회
   const loadSlots = useCallback(async (forceRefresh = false) => {
     if (!searchDate) return;
@@ -419,15 +469,15 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: newSlots, timestamp: Date.now() });
       } else {
-        setSnackbar({ open: true, message: response.message || '데이터 조회 실패', severity: 'error' });
+        showSnackbar(response.message || '데이터 조회 실패');
       }
     } catch (error) {
       console.error('Load slots error:', error);
-      setSnackbar({ open: true, message: '데이터를 불러오는데 실패했습니다.', severity: 'error' });
+      showSnackbar('데이터를 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
-  }, [searchDate, viewAsUserId]);
+  }, [searchDate, viewAsUserId, showSnackbar]);
 
   // 조회 버튼 클릭
   const handleSearch = () => {
@@ -807,11 +857,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     if (!token) return;
     const uploadUrl = `${window.location.origin}/upload-slot/${token}`;
     navigator.clipboard.writeText(uploadUrl).then(() => {
-      setSnackbar({ open: true, message: '업로드 링크가 복사되었습니다', severity: 'success' });
+      showSnackbar('업로드 링크가 복사되었습니다');
     }).catch(err => {
       console.error('Failed to copy:', err);
     });
-  }, []);
+  }, [showSnackbar]);
 
   // 금액 파싱 함수
   const parseAmount = useCallback((value) => {
@@ -1037,7 +1087,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     const hasItemChanges = Object.keys(currentChangedItems).length > 0;
 
     if (!hasSlotChanges && !hasItemChanges) {
-      setSnackbar({ open: true, message: '변경된 내용이 없습니다.', severity: 'info' });
+      showSnackbar('변경된 내용이 없습니다.');
       return;
     }
 
@@ -1131,7 +1181,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
       slotsCache.clear();
 
-      setSnackbar({ open: true, message: '저장되었습니다.', severity: 'success' });
+      showSnackbar('저장되었습니다.');
 
       // 스크롤 위치 복원 (다음 렌더링 후)
       setTimeout(() => {
@@ -1148,11 +1198,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
       const serverMessage = error.response?.data?.message || error.response?.data?.error || error.message;
-      setSnackbar({ open: true, message: `저장 실패: ${serverMessage}`, severity: 'error' });
+      showSnackbar(`저장 실패: ${serverMessage}`);
     } finally {
       setSaving(false);
     }
-  }, [slots, searchDate, viewAsUserId]);
+  }, [slots, searchDate, viewAsUserId, showSnackbar]);
 
   // 리뷰샷 삭제 핸들러
   const handleDeleteReviewConfirm = useCallback(async () => {
@@ -1168,7 +1218,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
       // 삭제 팝업 닫기
       setDeleteReviewPopup({ open: false, images: [], buyer: null, rowIndex: null });
-      setSnackbar({ open: true, message: '리뷰샷이 삭제되었습니다', severity: 'success' });
+      showSnackbar('리뷰샷이 삭제되었습니다');
 
       // 캐시 무효화 및 데이터 새로고침
       const formattedDate = format(searchDate, 'yyyy-MM-dd');
@@ -1178,11 +1228,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     } catch (error) {
       console.error('Delete review failed:', error);
       const errorMessage = error.response?.data?.message || error.message || '알 수 없는 오류';
-      setSnackbar({ open: true, message: '리뷰샷 삭제 실패: ' + errorMessage, severity: 'error' });
+      showSnackbar('리뷰샷 삭제 실패: ' + errorMessage);
     } finally {
       setDeletingReview(false);
     }
-  }, [deleteReviewPopup, searchDate, viewAsUserId, loadSlots]);
+  }, [deleteReviewPopup, searchDate, viewAsUserId, loadSlots, showSnackbar]);
 
   // 컬럼 설정 (23개 컬럼 - col6에 비고 추가)
   const columns = useMemo(() => {
@@ -1621,10 +1671,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
                       const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
                       slotsCache.delete(cacheKey);
 
-                      setSnackbar({ open: true, message: '행이 추가되었습니다', severity: 'success' });
+                      showSnackbar('행이 추가되었습니다');
                     } catch (error) {
                       console.error('Failed to add row:', error);
-                      setSnackbar({ open: true, message: '행 추가 실패: ' + (error.response?.data?.message || error.message), severity: 'error' });
+                      showSnackbar('행 추가 실패: ' + (error.response?.data?.message || error.message));
                     }
                   }
                 },
@@ -1666,10 +1716,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
                       const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
                       slotsCache.delete(cacheKey);
 
-                      setSnackbar({ open: true, message: `${slotIds.length}개 행이 삭제되었습니다`, severity: 'success' });
+                      showSnackbar(`${slotIds.length}개 행이 삭제되었습니다`);
                     } catch (error) {
                       console.error('Failed to delete rows:', error);
-                      setSnackbar({ open: true, message: '행 삭제 실패: ' + (error.response?.data?.message || error.message), severity: 'error' });
+                      showSnackbar('행 삭제 실패: ' + (error.response?.data?.message || error.message));
                     }
                   }
                 }
@@ -1868,17 +1918,35 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         </DialogActions>
       </Dialog>
 
-      {/* 스낵바 */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      {/* 스낵바 (성능 최적화: ref 기반 DOM 직접 조작 + CSS animation) */}
+      <Box
+        ref={snackbarRef}
+        sx={{
+          visibility: 'hidden',
+          opacity: 0,
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 9999,
+          '@keyframes snackbarFadeOut': {
+            '0%': { opacity: 1, visibility: 'visible' },
+            '100%': { opacity: 0, visibility: 'hidden' }
+          },
+          '& .snackbar-content': {
+            backgroundColor: '#323232',
+            color: 'white',
+            padding: '10px 24px',
+            borderRadius: '4px',
+            fontSize: '14px',
+            boxShadow: '0 3px 5px -1px rgba(0,0,0,.2), 0 6px 10px 0 rgba(0,0,0,.14), 0 1px 18px 0 rgba(0,0,0,.12)'
+          }
+        }}
       >
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        <Box className="snackbar-content">
+          <span className="snackbar-message"></span>
+        </Box>
+      </Box>
     </Box>
   );
 }

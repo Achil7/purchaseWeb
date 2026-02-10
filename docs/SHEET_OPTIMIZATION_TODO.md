@@ -1140,6 +1140,100 @@ const showSnackbar = useCallback((message) => {
 - [ ] 저장 완료 Snackbar 정상 표시 (6초 유지 후 자동 숨김)
 - [ ] Snackbar 닫힘 시 딜레이 없음
 
+**테스트 결과 (2026-02-11):**
+- ❌ 6초 후 딜레이: 여전히 존재
+- ❌ 한글 입력 깨짐: 여전히 발생 ("홍길동, ㅇ길동h, ㅗㅇ길동...")
+
+**결론:** △ 부분 성공 - 리렌더링은 제거되었으나 딜레이 잔존
+
+---
+
+### 13차 최적화 (2026-02-11)
+
+**적용 내용:**
+1. **Snackbar CSS animation 방식으로 완전 변경**
+   - `setTimeout` 콜백 완전 제거
+   - CSS `@keyframes snackbarFadeOut` 사용
+   - 6초 → 2초로 단축 (사용자가 딜레이 체감 시간 감소)
+   - `visibility: hidden` 사용 (레이아웃 재계산 최소화)
+   - JS 콜백이 없어 메인 스레드 차단 없음
+
+2. **compositionend 이벤트에 requestAnimationFrame 지연 추가**
+   - `isComposingRef.current = false`를 rAF로 1프레임 지연
+   - 브라우저가 IME 상태를 완전히 정리할 시간 확보
+   - 한글 입력 깨짐 개선 기대
+
+**수정 파일:**
+- `OperatorItemSheet.js` ✅
+- `SalesItemSheet.js` ✅
+- `DailyWorkSheet.js` ✅
+
+**수정 코드:**
+```javascript
+// 1. showSnackbar - CSS animation 방식
+const showSnackbar = useCallback((message) => {
+  const snackbarEl = snackbarRef.current;
+  if (!snackbarEl) return;
+
+  const messageEl = snackbarEl.querySelector('.snackbar-message');
+  if (messageEl) {
+    messageEl.textContent = message;
+  }
+
+  // CSS animation 초기화 및 재시작
+  snackbarEl.style.animation = 'none';
+  snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
+  snackbarEl.style.visibility = 'visible';
+  snackbarEl.style.opacity = '1';
+  // 2초 후 0.3초 동안 페이드아웃 (CSS animation)
+  snackbarEl.style.animation = 'snackbarFadeOut 0.3s 2s forwards';
+}, []);
+
+// 2. compositionend에 rAF 지연
+const handleCompositionEnd = () => {
+  // requestAnimationFrame으로 1프레임 지연하여 브라우저가 IME 상태를 완전히 정리할 시간을 줌
+  requestAnimationFrame(() => {
+    isComposingRef.current = false;
+  });
+};
+
+// 3. Custom Snackbar Box with CSS keyframes
+<Box
+  ref={snackbarRef}
+  sx={{
+    visibility: 'hidden',
+    opacity: 0,
+    position: 'fixed',
+    bottom: 24,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 9999,
+    '@keyframes snackbarFadeOut': {
+      '0%': { opacity: 1, visibility: 'visible' },
+      '100%': { opacity: 0, visibility: 'hidden' }
+    },
+    '& .snackbar-content': { ... }
+  }}
+>
+  <Box className="snackbar-content">
+    <span className="snackbar-message"></span>
+  </Box>
+</Box>
+```
+
+**기대 효과:**
+- **6초 → 2초**: 사용자가 느끼는 딜레이 대폭 감소
+- **CSS animation**: setTimeout 콜백 실행이 없어 JS 스레드 차단 없음
+- **visibility: hidden**: display:none과 달리 레이아웃 재계산 최소화
+- **compositionend rAF 지연**: 브라우저 IME 정리 후 상태 변경으로 한글 입력 개선
+
+**테스트 항목:**
+- [ ] Snackbar 2초 후 자동 페이드아웃
+- [ ] 페이드아웃 시 딜레이 없음
+- [ ] 한글 "홍길동" 입력 → 글자 깨짐 없음
+- [ ] 엔터 후 다음 셀 입력 시 딜레이 감소
+- [ ] DailyWorkSheet(날짜별 작업) 동일하게 개선됨
+
 **결론:** ⏳ 테스트 대기
 
 ---
@@ -1255,4 +1349,4 @@ measureFPS();
 
 ---
 
-## 최종 업데이트: 2026-02-07
+## 최종 업데이트: 2026-02-11
