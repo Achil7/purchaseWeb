@@ -1047,13 +1047,17 @@ savingRef.current = false;
 2. **저장 버튼 항상 표시** - 조건부 렌더링 제거로 리렌더링 없음
    - `{hasChanges && (...)}` → 항상 렌더링
    - 버튼 텍스트: "저장 (Ctrl+S)"
-3. **Snackbar autoHideDuration 6초로 증가** - 1~2초 후 딜레이 체감 감소
-   - `autoHideDuration={3000}` → `autoHideDuration={6000}`
+3. **Snackbar를 ref 기반 DOM 직접 조작으로 변경** - 리렌더링 완전 제거
+   - MUI `<Snackbar>` 컴포넌트 제거
+   - `const [snackbar, setSnackbar] = useState(...)` 제거
+   - `snackbarRef` + custom `<Box>` div로 교체
+   - `showSnackbar(message)` 함수로 DOM 직접 조작
+   - 6초 후 자동 숨김 (CSS transition)
 4. **unstable_batchedUpdates import 제거** - 더 이상 사용하지 않음
 
 **수정 파일:**
 - `OperatorItemSheet.js`
-- `SalesItemSheet.js`
+- `SalesItemSheet.js` (예정)
 
 **수정 코드:**
 ```javascript
@@ -1072,14 +1076,60 @@ if (hasSlotChanges || hasItemChanges) {
   저장 (Ctrl+S)
 </Button>
 
-// 4. Snackbar 6초로 변경
-<Snackbar autoHideDuration={6000} ...>
+// 4. Snackbar ref 기반 변경
+const snackbarRef = useRef(null);
+const snackbarTimeoutRef = useRef(null);
+
+const showSnackbar = useCallback((message) => {
+  const snackbarEl = snackbarRef.current;
+  if (!snackbarEl) return;
+
+  // 기존 타이머 취소
+  if (snackbarTimeoutRef.current) {
+    clearTimeout(snackbarTimeoutRef.current);
+  }
+
+  // 메시지 설정 및 표시
+  const messageEl = snackbarEl.querySelector('.snackbar-message');
+  if (messageEl) {
+    messageEl.textContent = message;
+  }
+  snackbarEl.style.display = 'flex';
+  snackbarEl.style.opacity = '1';
+
+  // 6초 후 자동 숨김
+  snackbarTimeoutRef.current = setTimeout(() => {
+    snackbarEl.style.opacity = '0';
+    setTimeout(() => {
+      snackbarEl.style.display = 'none';
+    }, 300);
+  }, 6000);
+}, []);
+
+// JSX: MUI Snackbar 대신 custom Box
+<Box
+  ref={snackbarRef}
+  sx={{
+    display: 'none',
+    position: 'fixed',
+    bottom: 24,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 9999,
+    transition: 'opacity 0.3s ease',
+    ...
+  }}
+>
+  <Box className="snackbar-content">
+    <span className="snackbar-message"></span>
+  </Box>
+</Box>
 ```
 
 **기대 효과:**
 - **엔터 후 딜레이**: 완전 제거 (리렌더링 없음)
-- **Ctrl+S 딜레이**: 즉시 Snackbar 표시, 리렌더링 최소화
-- **1~2초 후 딜레이**: Snackbar 닫힘 시간 증가로 사용자가 인지하지 못함
+- **Ctrl+S 딜레이**: 즉시 Snackbar 표시, 리렌더링 없음
+- **6초 후 딜레이**: Snackbar 닫힘 시 React 상태 변경 없음 → 리렌더링 없음
 - **한글 입력 깨짐**: 리렌더링이 없으므로 해결 예상
 
 **테스트 항목:**
@@ -1087,7 +1137,8 @@ if (hasSlotChanges || hasItemChanges) {
 - [ ] 한글 "홍길동" 입력 → 글자 깨짐 없음
 - [ ] Ctrl+S 저장 시 즉시 반응
 - [ ] 저장 버튼 항상 표시 확인
-- [ ] 저장 완료 Snackbar 정상 표시 (6초 유지)
+- [ ] 저장 완료 Snackbar 정상 표시 (6초 유지 후 자동 숨김)
+- [ ] Snackbar 닫힘 시 딜레이 없음
 
 **결론:** ⏳ 테스트 대기
 
