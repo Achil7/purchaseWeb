@@ -327,8 +327,9 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // 접기 상태 초기화 완료 플래그 (캠페인ID 추적용)
   const lastCampaignId = useRef(null);
 
-  // 스낵바 상태
-  const [snackbar, setSnackbar] = useState({ open: false, message: '' });
+  // 13차 최적화: 스낵바를 CSS animation으로 변경하여 리렌더링 + setTimeout 콜백 완전 제거
+  // DOM 직접 조작 + CSS animation으로 메시지 표시/숨김 처리 (JS 타이머 없음)
+  const snackbarRef = useRef(null);
 
   // 삭제 다이얼로그 상태
   const [deleteDialog, setDeleteDialog] = useState({
@@ -347,8 +348,9 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // 8차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
   const isComposingRef = useRef(false);
 
-  // 8차 최적화: DOM compositionstart/compositionend 이벤트 리스너
+  // 13차 최적화: DOM compositionstart/compositionend 이벤트 리스너
   // Handsontable은 afterCompositionEnd 훅을 지원하지 않으므로 DOM 이벤트 직접 사용
+  // compositionend 후 16ms(1프레임) 지연을 두어 브라우저가 IME 상태를 완전히 정리하도록 함
   useEffect(() => {
     const container = hotRef.current?.hotInstance?.rootElement;
     if (!container) return;
@@ -358,7 +360,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     };
 
     const handleCompositionEnd = () => {
-      isComposingRef.current = false;
+      // 즉시 false로 설정하지 않고 다음 프레임까지 대기
+      // 브라우저가 IME 상태를 완전히 정리할 시간을 줌
+      requestAnimationFrame(() => {
+        isComposingRef.current = false;
+      });
     };
 
     container.addEventListener('compositionstart', handleCompositionStart);
@@ -373,6 +379,29 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // 11차 최적화: saving 상태를 ref로 변경하여 리렌더링 제거
   // 저장 중 상태는 중복 저장 방지용으로만 사용 (UI 표시 없음)
   const savingRef = useRef(false);
+
+  // 13차 최적화: Snackbar를 CSS animation으로 표시 (setTimeout 콜백 제거)
+  // - 6초 → 2초로 단축 (사용자가 딜레이 느끼기 전에 사라짐)
+  // - setTimeout 대신 CSS animation 사용 (JS 콜백 없음)
+  // - visibility:hidden 사용 (display:none보다 레이아웃 재계산 없음)
+  const showSnackbar = useCallback((message) => {
+    const snackbarEl = snackbarRef.current;
+    if (!snackbarEl) return;
+
+    // 메시지 설정
+    const messageEl = snackbarEl.querySelector('.snackbar-message');
+    if (messageEl) {
+      messageEl.textContent = message;
+    }
+
+    // CSS animation 초기화 및 재시작
+    snackbarEl.style.animation = 'none';
+    snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
+    snackbarEl.style.visibility = 'visible';
+    snackbarEl.style.opacity = '1';
+    // 2초 후 0.3초 동안 페이드아웃 (CSS animation)
+    snackbarEl.style.animation = 'snackbarFadeOut 0.3s 2s forwards';
+  }, []);
 
   // 제품 상세 정보 팝업 상태
   const [productDetailPopup, setProductDetailPopup] = useState({
@@ -677,7 +706,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     const currentChangedItems = changedItemsRef.current;
 
     if (Object.keys(currentChangedSlots).length === 0 && Object.keys(currentChangedItems).length === 0) {
-      setSnackbar({ open: true, message: '변경된 내용이 없습니다' });
+      showSnackbar('변경된 내용이 없습니다');
       return;
     }
 
@@ -735,7 +764,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       slotsCache.clear();
 
       // 12차 최적화: setHasUnsavedChanges 제거 - ref만 사용
-      setSnackbar({ open: true, message: '저장되었습니다' });
+      showSnackbar('저장되었습니다');
 
       // 스크롤 위치 복원 (배칭된 렌더링 후)
       requestAnimationFrame(() => {
@@ -755,7 +784,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       savingRef.current = false;
 
       // 12차 최적화: setHasUnsavedChanges 제거 - ref만 사용
-      setSnackbar({ open: true, message: '저장 실패: ' + (error.response?.data?.message || error.message) });
+      showSnackbar('저장 실패: ' + (error.response?.data?.message || error.message));
     }
   }, [loadSlots, campaignId, slots]);  // slots 의존성 추가 (day_group별 슬롯 필터링용)
 
@@ -1146,7 +1175,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     if (!token) return;
     const uploadUrl = `${window.location.origin}/upload-slot/${token}`;
     navigator.clipboard.writeText(uploadUrl).then(() => {
-      setSnackbar({ open: true, message: '업로드 링크가 복사되었습니다' });
+      showSnackbar('업로드 링크가 복사되었습니다');
     }).catch(err => {
       console.error('Failed to copy:', err);
     });
@@ -1165,7 +1194,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     const excelData = convertSlotsToExcelData(slots, itemsMap, 'sales');
     const fileName = campaignName || 'campaign';
     downloadExcel(excelData, `${fileName}_sales`, '영업사시트');
-    setSnackbar({ open: true, message: '엑셀 파일이 다운로드되었습니다' });
+    showSnackbar('엑셀 파일이 다운로드되었습니다');
   }, [slots, campaignName]);
 
   // 변경사항 저장 및 새로고침 헬퍼 함수
@@ -1419,7 +1448,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       }
 
       closeDeleteDialog();
-      setSnackbar({ open: true, message: '삭제되었습니다' });
+      showSnackbar('삭제되었습니다');
 
       // 필터 상태 초기화 (삭제 후 필터가 유효하지 않을 수 있음)
       setFilteredRows(null);
@@ -1472,7 +1501,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       if (statusCode == 404) {
         console.log('404 detected - refreshing UI');
         closeDeleteDialog();
-        setSnackbar({ open: true, message: '이미 삭제된 항목입니다. 목록을 새로고침합니다.', severity: 'warning' });
+        showSnackbar('이미 삭제된 항목입니다. 목록을 새로고침합니다.');
         // 캐시 명시적 삭제 (중요!)
         const cacheKey = `sales_${campaignId}`;
         slotsCache.delete(cacheKey);
@@ -1914,7 +1943,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                       // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
                       slotsCache.delete(`sales_${campaignId}`);
 
-                      setSnackbar({ open: true, message: '행이 추가되었습니다' });
+                      showSnackbar( '행이 추가되었습니다' });
                     } catch (error) {
                       console.error('Failed to add row:', error);
                       alert('행 추가 실패: ' + (error.response?.data?.message || error.message));
@@ -1959,7 +1988,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                       // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
                       slotsCache.delete(`sales_${campaignId}`);
 
-                      setSnackbar({ open: true, message: `${slotIds.length}개 행이 삭제되었습니다` });
+                      showSnackbar( `${slotIds.length}개 행이 삭제되었습니다` });
                     } catch (error) {
                       console.error('Failed to delete rows:', error);
                       alert('행 삭제 실패: ' + (error.response?.data?.message || error.message));
@@ -1993,7 +2022,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
                     try {
                       const result = await itemSlotService.splitDayGroup(slotId);
-                      setSnackbar({ open: true, message: result.message });
+                      showSnackbar( result.message });
                       // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
                       loadSlots(campaignId, true, true, true);
                     } catch (error) {

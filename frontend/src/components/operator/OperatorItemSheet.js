@@ -357,10 +357,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // 저장 버튼은 항상 표시하고, 클릭 시 ref 값으로 변경사항 체크
   const hasUnsavedChangesRef = useRef(false);
 
-  // 13차 최적화: 스낵바를 ref 기반으로 변경하여 리렌더링 완전 제거
-  // DOM 직접 조작으로 메시지 표시/숨김 처리
+  // 13차 최적화: 스낵바를 CSS animation으로 변경하여 리렌더링 + setTimeout 콜백 완전 제거
+  // DOM 직접 조작 + CSS animation으로 메시지 표시/숨김 처리 (JS 타이머 없음)
   const snackbarRef = useRef(null);
-  const snackbarTimeoutRef = useRef(null);
 
   // 삭제 다이얼로그 상태
   const [deleteDialog, setDeleteDialog] = useState({
@@ -404,8 +403,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // 8차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
   const isComposingRef = useRef(false);
 
-  // 8차 최적화: DOM compositionstart/compositionend 이벤트 리스너
+  // 13차 최적화: DOM compositionstart/compositionend 이벤트 리스너
   // Handsontable은 afterCompositionEnd 훅을 지원하지 않으므로 DOM 이벤트 직접 사용
+  // compositionend 후 16ms(1프레임) 지연을 두어 브라우저가 IME 상태를 완전히 정리하도록 함
   useEffect(() => {
     const container = hotRef.current?.hotInstance?.rootElement;
     if (!container) return;
@@ -415,7 +415,11 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     };
 
     const handleCompositionEnd = () => {
-      isComposingRef.current = false;
+      // 즉시 false로 설정하지 않고 다음 프레임까지 대기
+      // 브라우저가 IME 상태를 완전히 정리할 시간을 줌
+      requestAnimationFrame(() => {
+        isComposingRef.current = false;
+      });
     };
 
     container.addEventListener('compositionstart', handleCompositionStart);
@@ -533,45 +537,37 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     }
   }, [COLUMN_WIDTHS_KEY]);
 
-  // 13차 최적화: Snackbar를 DOM 직접 조작으로 표시 (리렌더링 없음)
+  // 13차 최적화: Snackbar를 CSS animation으로 표시 (setTimeout 콜백 제거)
+  // - 6초 → 2초로 단축 (사용자가 딜레이 느끼기 전에 사라짐)
+  // - setTimeout 대신 CSS animation 사용 (JS 콜백 없음)
+  // - visibility:hidden 사용 (display:none보다 레이아웃 재계산 없음)
   const showSnackbar = useCallback((message) => {
     const snackbarEl = snackbarRef.current;
     if (!snackbarEl) return;
 
-    // 기존 타이머 취소
-    if (snackbarTimeoutRef.current) {
-      clearTimeout(snackbarTimeoutRef.current);
-    }
-
-    // 메시지 설정 및 표시
+    // 메시지 설정
     const messageEl = snackbarEl.querySelector('.snackbar-message');
     if (messageEl) {
       messageEl.textContent = message;
     }
-    snackbarEl.style.display = 'flex';
-    snackbarEl.style.opacity = '1';
 
-    // 6초 후 자동 숨김
-    snackbarTimeoutRef.current = setTimeout(() => {
-      snackbarEl.style.opacity = '0';
-      setTimeout(() => {
-        snackbarEl.style.display = 'none';
-      }, 300);
-    }, 6000);
+    // CSS animation 초기화 및 재시작
+    snackbarEl.style.animation = 'none';
+    snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
+    snackbarEl.style.visibility = 'visible';
+    snackbarEl.style.opacity = '1';
+    // 2초 후 0.3초 동안 페이드아웃 (CSS animation)
+    snackbarEl.style.animation = 'snackbarFadeOut 0.3s 2s forwards';
   }, []);
 
-  // 13차 최적화: Snackbar 닫기 (수동)
+  // 13차 최적화: Snackbar 닫기 (수동) - CSS animation 사용
   const hideSnackbar = useCallback(() => {
     const snackbarEl = snackbarRef.current;
     if (!snackbarEl) return;
 
-    if (snackbarTimeoutRef.current) {
-      clearTimeout(snackbarTimeoutRef.current);
-    }
+    snackbarEl.style.animation = 'none';
     snackbarEl.style.opacity = '0';
-    setTimeout(() => {
-      snackbarEl.style.display = 'none';
-    }, 300);
+    snackbarEl.style.visibility = 'hidden';
   }, []);
 
   // 캠페인별 배정된 슬롯 데이터 로드 (Operator 전용)
@@ -2729,17 +2725,22 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         </DialogActions>
       </Dialog>
 
-      {/* 13차 최적화: Snackbar를 ref 기반 custom div로 변경 - 리렌더링 완전 제거 */}
+      {/* 13차 최적화: Snackbar를 CSS animation으로 제어 - setTimeout 콜백 완전 제거 */}
       <Box
         ref={snackbarRef}
         sx={{
-          display: 'none',
+          visibility: 'hidden',
+          opacity: 0,
           position: 'fixed',
           bottom: 24,
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 9999,
-          transition: 'opacity 0.3s ease',
+          // CSS keyframes 정의 (inline)
+          '@keyframes snackbarFadeOut': {
+            '0%': { opacity: 1, visibility: 'visible' },
+            '100%': { opacity: 0, visibility: 'hidden' }
+          },
           '& .snackbar-content': {
             display: 'flex',
             alignItems: 'center',
