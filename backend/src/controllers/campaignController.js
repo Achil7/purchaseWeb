@@ -403,7 +403,7 @@ exports.deleteCampaignCascade = async (req, res) => {
           model: Item,
           as: 'items',
           include: [
-            { model: Buyer, as: 'buyers', include: [{ model: Image, as: 'images' }] },
+            { model: Buyer, as: 'buyers', include: [{ model: Image, as: 'images', where: { status: 'approved' }, required: false }] },
             { model: ItemSlot, as: 'slots' }
           ]
         }

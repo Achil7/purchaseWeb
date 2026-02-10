@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 // 12차 최적화: unstable_batchedUpdates 제거 - 더 이상 사용하지 않음
-import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Snackbar, Alert, IconButton, Tooltip, Typography } from '@mui/material';
+import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, IconButton, Tooltip, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -382,6 +382,9 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // 저장 중 상태는 중복 저장 방지용으로만 사용 (UI 표시 없음)
   const savingRef = useRef(false);
 
+  // handleSaveChanges를 ref로 참조 (useEffect에서 초기화 순서 문제 해결)
+  const handleSaveChangesRef = useRef(null);
+
   // 13차 최적화: Snackbar를 CSS animation으로 표시 (setTimeout 콜백 제거)
   // - 6초 → 2초로 단축 (사용자가 딜레이 느끼기 전에 사라짐)
   // - setTimeout 대신 CSS animation 사용 (JS 콜백 없음)
@@ -398,7 +401,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
     // CSS animation 초기화 및 재시작
     snackbarEl.style.animation = 'none';
-    snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
+    void snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
     snackbarEl.style.visibility = 'visible';
     snackbarEl.style.opacity = '1';
     // 2초 후 0.3초 동안 페이드아웃 (CSS animation)
@@ -790,18 +793,22 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     }
   }, [loadSlots, campaignId, slots]);  // slots 의존성 추가 (day_group별 슬롯 필터링용)
 
+  // handleSaveChanges를 ref에 할당 (useEffect에서 참조할 수 있도록)
+  handleSaveChangesRef.current = handleSaveChanges;
+
   // Ctrl+S 키보드 단축키로 저장
+  // handleSaveChangesRef를 사용하여 초기화 순서 문제 해결
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault(); // 브라우저 기본 저장 동작 방지
-        handleSaveChanges();
+        handleSaveChangesRef.current?.();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleSaveChanges]);
+  }, []); // ref 사용으로 의존성 배열 비움
 
   // Shift+휠 스크롤로 횡스크롤만 지원 - 전체 테이블 영역에서 작동
   useEffect(() => {
@@ -1960,7 +1967,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                       // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
                       slotsCache.delete(`sales_${campaignId}`);
 
-                      showSnackbar( '행이 추가되었습니다' });
+                      showSnackbar('행이 추가되었습니다');
                     } catch (error) {
                       console.error('Failed to add row:', error);
                       alert('행 추가 실패: ' + (error.response?.data?.message || error.message));
@@ -2005,7 +2012,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                       // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
                       slotsCache.delete(`sales_${campaignId}`);
 
-                      showSnackbar( `${slotIds.length}개 행이 삭제되었습니다` });
+                      showSnackbar(`${slotIds.length}개 행이 삭제되었습니다`);
                     } catch (error) {
                       console.error('Failed to delete rows:', error);
                       alert('행 삭제 실패: ' + (error.response?.data?.message || error.message));
@@ -2039,7 +2046,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
                     try {
                       const result = await itemSlotService.splitDayGroup(slotId);
-                      showSnackbar( result.message });
+                      showSnackbar(result.message);
                       // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
                       loadSlots(campaignId, true, true, true);
                     } catch (error) {
@@ -2553,17 +2560,41 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         )}
       </Paper>
 
-      {/* 스낵바 알림 - 12차 최적화: autoHideDuration 6초로 증가 */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={6000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      {/* 13차 최적화: Snackbar를 CSS animation으로 제어 - setTimeout 콜백 완전 제거 */}
+      <Box
+        ref={snackbarRef}
+        sx={{
+          visibility: 'hidden',
+          opacity: 0,
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 9999,
+          // CSS keyframes 정의 (inline)
+          '@keyframes snackbarFadeOut': {
+            '0%': { opacity: 1, visibility: 'visible' },
+            '100%': { opacity: 0, visibility: 'hidden' }
+          },
+          '& .snackbar-content': {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            bgcolor: '#4caf50',
+            color: 'white',
+            px: 2,
+            py: 1,
+            borderRadius: 1,
+            boxShadow: 3,
+            fontSize: '0.875rem',
+            fontWeight: 500,
+          }
+        }}
       >
-        <Alert severity="success" onClose={() => setSnackbar({ ...snackbar, open: false })}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        <Box className="snackbar-content">
+          <span className="snackbar-message"></span>
+        </Box>
+      </Box>
 
       {/* 이미지 스와이프 뷰어 */}
       <ImageSwipeViewer

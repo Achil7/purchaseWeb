@@ -64,6 +64,8 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
                     {
                       model: Image,
                       as: 'images',
+                      where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
+                      required: false,
                       attributes: ['id']
                     }
                   ]
@@ -715,7 +717,7 @@ router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operat
               model: Item,
               as: 'items',
               include: [
-                { model: Buyer, as: 'buyers', include: [{ model: Image, as: 'images' }] },
+                { model: Buyer, as: 'buyers', include: [{ model: Image, as: 'images', where: { status: 'approved' }, required: false }] },
                 { model: ItemSlot, as: 'slots' }
               ]
             }

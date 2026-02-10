@@ -319,9 +319,12 @@ exports.getSlotsByCampaign = async (req, res) => {
         buyerMap[buyer.id] = buyer.toJSON();
       }
 
-      // 3단계: 이미지 정보 별도 조회
+      // 3단계: 이미지 정보 별도 조회 (승인된 이미지만)
       const images = await Image.findAll({
-        where: { buyer_id: { [Op.in]: buyerIds } },
+        where: {
+          buyer_id: { [Op.in]: buyerIds },
+          status: 'approved'  // pending 상태의 재제출 이미지는 제외
+        },
         attributes: ['id', 'buyer_id', 's3_url', 'file_name', 'created_at'],
         order: [['created_at', 'ASC']]
       });
@@ -521,9 +524,12 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
         buyerMap[buyer.id] = buyer.toJSON();
       }
 
-      // 3단계: 이미지 정보 별도 조회
+      // 3단계: 이미지 정보 별도 조회 (승인된 이미지만)
       const images = await Image.findAll({
-        where: { buyer_id: { [Op.in]: buyerIds } },
+        where: {
+          buyer_id: { [Op.in]: buyerIds },
+          status: 'approved'  // pending 상태의 재제출 이미지는 제외
+        },
         attributes: ['id', 'buyer_id', 's3_url', 'file_name', 'created_at'],
         order: [['created_at', 'ASC']]
       });
@@ -1258,6 +1264,8 @@ exports.getSlotsByDate = async (req, res) => {
         {
           model: Image,
           as: 'images',
+          where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
+          required: false,
           attributes: ['id', 's3_url', 'file_name', 'created_at'],
           order: [['created_at', 'ASC']]
         }

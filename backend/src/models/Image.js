@@ -83,6 +83,12 @@ module.exports = (sequelize, DataTypes) => {
       },
       onDelete: 'SET NULL',
       comment: '재제출인 경우 이전 이미지 ID'
+    },
+    // 재제출 그룹 ID (같은 배치로 업로드된 재제출 이미지들을 그룹화)
+    resubmission_group_id: {
+      type: DataTypes.STRING(36),
+      allowNull: true,
+      comment: '재제출 그룹 ID (UUID) - 같은 구매자가 한번에 재제출한 이미지들은 동일한 그룹 ID를 가짐'
     }
   }, {
     tableName: 'images',
@@ -98,7 +104,8 @@ module.exports = (sequelize, DataTypes) => {
       { fields: ['account_normalized'] },
       { fields: ['deleted_at'] },
       { fields: ['status'] },
-      { fields: ['previous_image_id'] }
+      { fields: ['previous_image_id'] },
+      { fields: ['resubmission_group_id'] }
     ]
   });
 

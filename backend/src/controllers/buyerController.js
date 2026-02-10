@@ -50,6 +50,8 @@ exports.getBuyersByItem = async (req, res) => {
         {
           model: Image,
           as: 'images',
+          where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
+          required: false,
           attributes: ['id', 's3_url', 'file_name', 'order_number', 'created_at']
         },
         {
@@ -98,7 +100,9 @@ exports.getBuyer = async (req, res) => {
         },
         {
           model: Image,
-          as: 'images'
+          as: 'images',
+          where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
+          required: false
         }
       ]
     });
@@ -726,7 +730,8 @@ exports.getBuyersByMonth = async (req, res) => {
             created_at: {
               [Op.gte]: startDateKST,
               [Op.lt]: endDateKST
-            }
+            },
+            status: 'approved'  // pending 상태의 재제출 이미지는 제외
           },
           required: true, // INNER JOIN - 이미지가 있는 구매자만
           attributes: ['id', 's3_url', 'file_name', 'created_at']
@@ -868,6 +873,7 @@ exports.getBuyersByDate = async (req, res) => {
         {
           model: Image,
           as: 'images',
+          where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
           required: false,  // LEFT JOIN - 이미지가 없어도 조회
           attributes: ['id', 's3_url', 'file_name', 'created_at']
         },

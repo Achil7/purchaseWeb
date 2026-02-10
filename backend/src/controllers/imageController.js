@@ -6,6 +6,7 @@ const multer = require('multer');
 const { normalizeAccountNumber } = require('../utils/accountNormalizer');
 const { createNotification } = require('./notificationController');
 const { getNextBusinessDay, formatDateToYYYYMMDD } = require('../utils/dateUtils');
+const { v4: uuidv4 } = require('uuid');
 
 // multer 설정 - 메모리 스토리지 사용 (S3로 직접 업로드)
 const storage = multer.memoryStorage();
@@ -121,7 +122,7 @@ exports.searchBuyersByName = async (req, res) => {
       });
     }
 
-    // 해당 day_group 내 구매자만 조회 (이미지 정보 포함)
+    // 해당 day_group 내 구매자만 조회 (승인된 이미지 정보 포함)
     const allBuyers = await Buyer.findAll({
       where: {
         id: { [Op.in]: slotBuyerIds },  // day_group 내 구매자만
@@ -130,6 +131,8 @@ exports.searchBuyersByName = async (req, res) => {
       include: [{
         model: Image,
         as: 'images',
+        where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
+        required: false,
         attributes: ['id']
       }],
       order: [['created_at', 'ASC']]
@@ -262,6 +265,8 @@ exports.uploadImages = async (req, res) => {
       include: [{
         model: Image,
         as: 'images',
+        where: { status: 'approved' },  // 승인된 이미지만 체크 (재제출 여부 판단용)
+        required: false,
         attributes: ['id']
       }],
       transaction
@@ -276,7 +281,7 @@ exports.uploadImages = async (req, res) => {
       });
     }
 
-    // 이미 이미지가 있는 구매자와 없는 구매자 분리
+    // 이미 승인된 이미지가 있는 구매자와 없는 구매자 분리 (재제출 vs 신규)
     const buyersWithImage = buyers.filter(b => b.images && b.images.length > 0);
     const buyersWithoutImage = buyers.filter(b => !b.images || b.images.length === 0);
 
@@ -287,6 +292,17 @@ exports.uploadImages = async (req, res) => {
     // 다중 이미지 업로드 - buyer_ids[i] ↔ files[i] 매칭
     const uploadedImages = [];
     const resubmittedImages = [];
+
+    // 재제출 그룹 ID 생성 (같은 구매자가 한번에 재제출한 이미지들을 그룹화)
+    // 구매자별로 그룹 ID 할당
+    const buyerResubmissionGroups = {};
+    for (const buyerId of uniqueBuyerIds) {
+      const buyer = buyerMap[buyerId];
+      if (buyer && buyer.images && buyer.images.length > 0) {
+        // 재제출인 경우 그룹 ID 생성
+        buyerResubmissionGroups[buyerId] = uuidv4();
+      }
+    }
 
     for (let i = 0; i < req.files.length; i++) {
       const file = req.files[i];
@@ -315,6 +331,8 @@ exports.uploadImages = async (req, res) => {
       // DB에 이미지 레코드 생성
       // 재제출인 경우: 무조건 status='pending', previous_image_id 설정 (승인 필요)
       // 신규인 경우: status='approved' (기본값)
+      const resubmissionGroupId = hasExistingImage ? buyerResubmissionGroups[targetBuyer.id] : null;
+
       const image = await Image.create({
         item_id: item.id,
         buyer_id: targetBuyer.id,
@@ -330,7 +348,8 @@ exports.uploadImages = async (req, res) => {
         uploaded_by_ip: req.ip || req.headers['x-forwarded-for'] || 'unknown',
         status: hasExistingImage ? 'pending' : 'approved',
         resubmitted_at: hasExistingImage ? new Date() : null,
-        previous_image_id: previousImageId
+        previous_image_id: previousImageId,
+        resubmission_group_id: resubmissionGroupId
       }, { transaction });
 
       // 입금 예정일 업데이트:
@@ -621,6 +640,7 @@ exports.deleteImage = async (req, res) => {
 
 /**
  * 대기 중인 재제출 이미지 목록 조회 (Admin 전용)
+ * - 그룹별로 묶어서 반환 (같은 resubmission_group_id를 가진 이미지들)
  */
 exports.getPendingImages = async (req, res) => {
   try {
@@ -630,7 +650,7 @@ exports.getPendingImages = async (req, res) => {
         {
           model: Buyer,
           as: 'buyer',
-          attributes: ['id', 'buyer_name', 'recipient_name', 'order_number']
+          attributes: ['id', 'buyer_name', 'recipient_name', 'order_number', 'payment_status']
         },
         {
           model: Item,
@@ -641,20 +661,74 @@ exports.getPendingImages = async (req, res) => {
             as: 'campaign',
             attributes: ['id', 'name']
           }]
-        },
-        {
-          model: Image,
-          as: 'previousImage',
-          attributes: ['id', 's3_url', 'file_name', 'created_at']
         }
       ],
-      order: [['resubmitted_at', 'DESC']]
+      order: [['resubmission_group_id', 'ASC'], ['resubmitted_at', 'DESC']]
     });
+
+    // 그룹별로 묶기 + 해당 구매자의 기존 이미지들도 함께 조회
+    const groupedData = [];
+    const processedGroups = new Set();
+    const processedBuyers = new Set();
+
+    for (const image of images) {
+      const groupId = image.resubmission_group_id;
+      const buyerId = image.buyer_id;
+
+      // 그룹 ID가 있고 이미 처리한 그룹이면 스킵
+      if (groupId && processedGroups.has(groupId)) {
+        continue;
+      }
+
+      // 그룹 ID가 없고 이미 처리한 구매자면 스킵
+      if (!groupId && processedBuyers.has(buyerId)) {
+        continue;
+      }
+
+      // 같은 그룹의 모든 새 이미지들
+      let newImages = [image];
+      if (groupId) {
+        newImages = images.filter(img => img.resubmission_group_id === groupId);
+        processedGroups.add(groupId);
+      } else {
+        processedBuyers.add(buyerId);
+      }
+
+      // 해당 구매자의 기존 승인된 이미지들 조회
+      const existingImages = await Image.findAll({
+        where: {
+          buyer_id: buyerId,
+          status: 'approved'
+        },
+        attributes: ['id', 's3_url', 'file_name', 'created_at'],
+        order: [['created_at', 'ASC']]
+      });
+
+      groupedData.push({
+        groupId: groupId || `single_${image.id}`,
+        buyer: image.buyer,
+        item: image.item,
+        resubmittedAt: image.resubmitted_at,
+        newImages: newImages.map(img => ({
+          id: img.id,
+          s3_url: img.s3_url,
+          file_name: img.file_name,
+          resubmitted_at: img.resubmitted_at
+        })),
+        existingImages: existingImages.map(img => ({
+          id: img.id,
+          s3_url: img.s3_url,
+          file_name: img.file_name,
+          created_at: img.created_at
+        })),
+        isPaymentConfirmed: image.buyer?.payment_status === 'completed'
+      });
+    }
 
     res.json({
       success: true,
-      data: images,
-      count: images.length
+      data: groupedData,
+      count: groupedData.length
     });
   } catch (error) {
     console.error('Get pending images error:', error);
@@ -668,8 +742,9 @@ exports.getPendingImages = async (req, res) => {
 
 /**
  * 재제출 이미지 승인 (Admin 전용)
- * - 이전 이미지 삭제 (S3 + DB)
- * - 새 이미지 status를 'approved'로 변경
+ * - 그룹 단위 승인: 같은 resubmission_group_id를 가진 이미지들을 한번에 승인
+ * - 해당 구매자의 모든 기존 이미지 삭제 (S3 + DB)
+ * - 새 이미지들 status를 'approved'로 변경
  */
 exports.approveImage = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -701,21 +776,50 @@ exports.approveImage = async (req, res) => {
       });
     }
 
-    // 이전 이미지가 있으면 삭제
-    if (image.previousImage) {
-      try {
-        await deleteFromS3(image.previousImage.s3_key);
-      } catch (s3Error) {
-        console.error('S3 delete previous image error:', s3Error);
-      }
-      await image.previousImage.destroy({ transaction });
+    // 그룹 단위 승인: 같은 resubmission_group_id를 가진 모든 이미지 조회
+    let imagesToApprove = [image];
+    if (image.resubmission_group_id) {
+      imagesToApprove = await Image.findAll({
+        where: {
+          resubmission_group_id: image.resubmission_group_id,
+          status: 'pending'
+        },
+        include: [{ model: Buyer, as: 'buyer' }],
+        transaction
+      });
     }
 
-    // 새 이미지 승인
-    await image.update({
-      status: 'approved',
-      previous_image_id: null
-    }, { transaction });
+    // 승인할 이미지들의 ID 목록
+    const approveImageIds = imagesToApprove.map(img => img.id);
+
+    // 해당 구매자의 모든 기존 이미지 삭제 (현재 승인하는 이미지들 제외)
+    const existingImages = await Image.findAll({
+      where: {
+        buyer_id: image.buyer_id,
+        id: { [Op.notIn]: approveImageIds },  // 현재 승인하는 이미지들 제외
+        status: 'approved'  // 기존 승인된 이미지만
+      },
+      transaction
+    });
+
+    // 기존 이미지들 S3 및 DB에서 삭제
+    for (const oldImage of existingImages) {
+      try {
+        await deleteFromS3(oldImage.s3_key);
+      } catch (s3Error) {
+        console.error('S3 delete old image error:', s3Error);
+      }
+      await oldImage.destroy({ transaction });
+    }
+
+    // 그룹 내 모든 새 이미지 승인
+    for (const img of imagesToApprove) {
+      await img.update({
+        status: 'approved',
+        previous_image_id: null,
+        resubmission_group_id: null  // 승인 후 그룹 ID 제거
+      }, { transaction });
+    }
 
     // 입금 예정일 업데이트 (재제출 승인 시점 기준)
     // 단, 입금 확인된 구매자는 리뷰 제출일을 업데이트하지 않음 (날짜별 입금관리에 영향 없음)
@@ -751,7 +855,8 @@ exports.approveImage = async (req, res) => {
 
     res.json({
       success: true,
-      message: '이미지가 승인되었습니다'
+      message: `${imagesToApprove.length}개의 이미지가 승인되었습니다`,
+      approvedCount: imagesToApprove.length
     });
   } catch (error) {
     await transaction.rollback();
@@ -766,7 +871,8 @@ exports.approveImage = async (req, res) => {
 
 /**
  * 재제출 이미지 거절 (Admin 전용)
- * - 새 이미지 삭제 (S3 + DB)
+ * - 그룹 단위 거절: 같은 resubmission_group_id를 가진 이미지들을 한번에 거절
+ * - 새 이미지들 삭제 (S3 + DB)
  * - 이전 이미지 유지
  */
 exports.rejectImage = async (req, res) => {
@@ -794,21 +900,34 @@ exports.rejectImage = async (req, res) => {
       });
     }
 
-    // 새 이미지 S3에서 삭제
-    try {
-      await deleteFromS3(image.s3_key);
-    } catch (s3Error) {
-      console.error('S3 delete rejected image error:', s3Error);
+    // 그룹 단위 거절: 같은 resubmission_group_id를 가진 모든 이미지 조회
+    let imagesToReject = [image];
+    if (image.resubmission_group_id) {
+      imagesToReject = await Image.findAll({
+        where: {
+          resubmission_group_id: image.resubmission_group_id,
+          status: 'pending'
+        },
+        transaction
+      });
     }
 
-    // 새 이미지 DB에서 삭제
-    await image.destroy({ transaction });
+    // 그룹 내 모든 새 이미지 S3 및 DB에서 삭제
+    for (const img of imagesToReject) {
+      try {
+        await deleteFromS3(img.s3_key);
+      } catch (s3Error) {
+        console.error('S3 delete rejected image error:', s3Error);
+      }
+      await img.destroy({ transaction });
+    }
 
     await transaction.commit();
 
     res.json({
       success: true,
-      message: '이미지가 거절되었습니다'
+      message: `${imagesToReject.length}개의 이미지가 거절되었습니다`,
+      rejectedCount: imagesToReject.length
     });
   } catch (error) {
     await transaction.rollback();

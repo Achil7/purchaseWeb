@@ -662,7 +662,7 @@ exports.getMyMonthlyBrands = async (req, res) => {
         raw: true
       });
 
-      // 리뷰 완료 수 (이미지가 있는 구매자) - 별도 쿼리
+      // 리뷰 완료 수 (승인된 이미지가 있는 구매자) - 별도 쿼리
       const reviewStats = await Buyer.findAll({
         where: {
           item_id: itemIds,
@@ -671,8 +671,9 @@ exports.getMyMonthlyBrands = async (req, res) => {
         include: [{
           model: Image,
           as: 'images',
+          where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
           attributes: [],
-          required: true  // INNER JOIN - 이미지 있는 것만
+          required: true  // INNER JOIN - 승인된 이미지 있는 것만
         }],
         attributes: [
           'item_id',

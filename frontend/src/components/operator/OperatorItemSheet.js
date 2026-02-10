@@ -376,6 +376,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // 저장 중 상태는 중복 저장 방지용으로만 사용 (UI 표시 없음)
   const savingRef = useRef(false);
 
+  // handleSaveChanges를 ref로 참조 (useEffect에서 초기화 순서 문제 해결)
+  const handleSaveChangesRef = useRef(null);
+
   // 이미지 갤러리 팝업 상태
   const [imagePopup, setImagePopup] = useState({
     open: false,
@@ -556,7 +559,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
     // CSS animation 초기화 및 재시작
     snackbarEl.style.animation = 'none';
-    snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
+    void snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
     snackbarEl.style.visibility = 'visible';
     snackbarEl.style.opacity = '1';
     // 2초 후 0.3초 동안 페이드아웃 (CSS animation)
@@ -754,17 +757,18 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   }, []); // 최초 마운트 시에만 실행
 
   // Ctrl+S 키보드 단축키로 저장
+  // handleSaveChangesRef를 사용하여 초기화 순서 문제 해결
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault(); // 브라우저 기본 저장 동작 방지
-        handleSaveChanges();
+        handleSaveChangesRef.current?.();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleSaveChanges]);
+  }, []); // ref 사용으로 의존성 배열 비움
 
   // Shift+휠 스크롤로 횡스크롤만 지원 - 전체 테이블 영역에서 작동
   useEffect(() => {
@@ -1556,6 +1560,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       showSnackbar(`저장 실패: ${serverMessage}`);
     }
   };
+
+  // handleSaveChanges를 ref에 할당 (useEffect에서 참조할 수 있도록)
+  handleSaveChangesRef.current = handleSaveChanges;
 
   // 삭제 확인 다이얼로그 열기
   const openDeleteDialog = (type, data, message) => {

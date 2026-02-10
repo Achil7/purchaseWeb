@@ -3,12 +3,6 @@ import {
   Box,
   Paper,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Button,
   IconButton,
   Dialog,
@@ -22,32 +16,34 @@ import {
   Alert,
   Card,
   CardMedia,
-  Tooltip
+  Tooltip,
+  Divider
 } from '@mui/material';
 import {
   CheckCircle as ApproveIcon,
   Cancel as RejectIcon,
-  Visibility as ViewIcon,
   Refresh as RefreshIcon,
-  CompareArrows as CompareIcon
+  CompareArrows as CompareIcon,
+  ArrowForward as ArrowIcon,
+  Payment as PaymentIcon
 } from '@mui/icons-material';
 import imageService from '../../services/imageService';
 
 /**
  * Admin 이미지 재제출 승인 페이지
- * - 대기 중인 재제출 이미지 목록 표시
- * - 이전 이미지 vs 새 이미지 비교
- * - 승인/거절 기능
+ * - 그룹별로 묶어서 표시 (같은 구매자가 한번에 재제출한 이미지들)
+ * - 기존 이미지들 vs 새 이미지들 비교
+ * - 그룹 단위 승인/거절 기능
  */
 const AdminImageApproval = () => {
-  const [pendingImages, setPendingImages] = useState([]);
+  const [pendingGroups, setPendingGroups] = useState([]);
   const [loading, setLoading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   // 비교 다이얼로그 상태
   const [compareDialog, setCompareDialog] = useState({
     open: false,
-    image: null
+    group: null
   });
 
   // 이미지 확대 다이얼로그 상태
@@ -57,13 +53,13 @@ const AdminImageApproval = () => {
     title: ''
   });
 
-  // 대기 중인 이미지 목록 조회
+  // 대기 중인 이미지 그룹 목록 조회
   const fetchPendingImages = useCallback(async () => {
     setLoading(true);
     try {
       const response = await imageService.getPendingImages();
       if (response.success) {
-        setPendingImages(response.data || []);
+        setPendingGroups(response.data || []);
       }
     } catch (error) {
       console.error('Failed to fetch pending images:', error);
@@ -81,19 +77,22 @@ const AdminImageApproval = () => {
     fetchPendingImages();
   }, [fetchPendingImages]);
 
-  // 이미지 승인
-  const handleApprove = async (imageId) => {
+  // 그룹 승인 (첫 번째 이미지 ID로 호출하면 그룹 전체가 승인됨)
+  const handleApprove = async (group) => {
+    if (!group.newImages || group.newImages.length === 0) return;
+
     try {
-      const response = await imageService.approveImage(imageId);
+      const firstImageId = group.newImages[0].id;
+      const response = await imageService.approveImage(firstImageId);
       if (response.success) {
         setSnackbar({
           open: true,
-          message: '이미지가 승인되었습니다',
+          message: response.message || '이미지가 승인되었습니다',
           severity: 'success'
         });
         // 목록에서 제거
-        setPendingImages(prev => prev.filter(img => img.id !== imageId));
-        setCompareDialog({ open: false, image: null });
+        setPendingGroups(prev => prev.filter(g => g.groupId !== group.groupId));
+        setCompareDialog({ open: false, group: null });
       }
     } catch (error) {
       console.error('Failed to approve image:', error);
@@ -105,23 +104,30 @@ const AdminImageApproval = () => {
     }
   };
 
-  // 이미지 거절
-  const handleReject = async (imageId) => {
-    if (!window.confirm('이 이미지를 거절하시겠습니까? 새로 업로드된 이미지가 삭제되고 기존 이미지가 유지됩니다.')) {
+  // 그룹 거절 (첫 번째 이미지 ID로 호출하면 그룹 전체가 거절됨)
+  const handleReject = async (group) => {
+    if (!group.newImages || group.newImages.length === 0) return;
+
+    const confirmMsg = group.newImages.length > 1
+      ? `${group.newImages.length}개의 새 이미지를 모두 거절하시겠습니까? 기존 이미지가 유지됩니다.`
+      : '이 이미지를 거절하시겠습니까? 기존 이미지가 유지됩니다.';
+
+    if (!window.confirm(confirmMsg)) {
       return;
     }
 
     try {
-      const response = await imageService.rejectImage(imageId);
+      const firstImageId = group.newImages[0].id;
+      const response = await imageService.rejectImage(firstImageId);
       if (response.success) {
         setSnackbar({
           open: true,
-          message: '이미지가 거절되었습니다',
+          message: response.message || '이미지가 거절되었습니다',
           severity: 'info'
         });
         // 목록에서 제거
-        setPendingImages(prev => prev.filter(img => img.id !== imageId));
-        setCompareDialog({ open: false, image: null });
+        setPendingGroups(prev => prev.filter(g => g.groupId !== group.groupId));
+        setCompareDialog({ open: false, group: null });
       }
     } catch (error) {
       console.error('Failed to reject image:', error);
@@ -134,10 +140,10 @@ const AdminImageApproval = () => {
   };
 
   // 비교 다이얼로그 열기
-  const openCompareDialog = (image) => {
+  const openCompareDialog = (group) => {
     setCompareDialog({
       open: true,
-      image
+      group
     });
   };
 
@@ -183,213 +189,276 @@ const AdminImageApproval = () => {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
           <CircularProgress />
         </Box>
-      ) : pendingImages.length === 0 ? (
+      ) : pendingGroups.length === 0 ? (
         <Paper sx={{ p: 4, textAlign: 'center' }}>
           <Typography color="text.secondary">
             대기 중인 재제출 이미지가 없습니다.
           </Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                <TableCell>캠페인</TableCell>
-                <TableCell>제품명</TableCell>
-                <TableCell>구매자</TableCell>
-                <TableCell>주문번호</TableCell>
-                <TableCell>재제출 시간</TableCell>
-                <TableCell align="center">미리보기</TableCell>
-                <TableCell align="center">작업</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {pendingImages.map((image) => (
-                <TableRow key={image.id} hover>
-                  <TableCell>
-                    {image.item?.campaign?.name || '-'}
-                  </TableCell>
-                  <TableCell>
-                    {image.item?.product_name || '-'}
-                  </TableCell>
-                  <TableCell>
-                    {image.buyer?.buyer_name || image.buyer?.recipient_name || '-'}
-                  </TableCell>
-                  <TableCell>
-                    {image.buyer?.order_number || '-'}
-                  </TableCell>
-                  <TableCell>
-                    {formatDate(image.resubmitted_at)}
-                  </TableCell>
-                  <TableCell align="center">
-                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                      <Tooltip title="새 이미지 보기">
-                        <IconButton
-                          size="small"
-                          onClick={() => openImagePreview(image.s3_url, '새 이미지')}
-                        >
-                          <ViewIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="비교하기">
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => openCompareDialog(image)}
-                        >
-                          <CompareIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                      <Tooltip title="승인">
-                        <IconButton
-                          size="small"
-                          color="success"
-                          onClick={() => handleApprove(image.id)}
-                        >
-                          <ApproveIcon />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="거절">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleReject(image.id)}
-                        >
-                          <RejectIcon />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {pendingGroups.map((group) => (
+            <Paper key={group.groupId} sx={{ p: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                {/* 좌측: 구매자 정보 */}
+                <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Typography variant="subtitle1" fontWeight="bold">
+                      {group.buyer?.buyer_name || group.buyer?.recipient_name || '이름 없음'}
+                    </Typography>
+                    {group.isPaymentConfirmed && (
+                      <Chip
+                        icon={<PaymentIcon />}
+                        label="입금완료"
+                        size="small"
+                        color="success"
+                        variant="outlined"
+                      />
+                    )}
+                  </Box>
+                  <Typography variant="body2" color="text.secondary">
+                    {group.item?.campaign?.name} · {group.item?.product_name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    주문번호: {group.buyer?.order_number || '-'} · 재제출: {formatDate(group.resubmittedAt)}
+                  </Typography>
+                </Box>
+
+                {/* 우측: 버튼들 */}
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Tooltip title="비교하기">
+                    <IconButton
+                      color="primary"
+                      onClick={() => openCompareDialog(group)}
+                    >
+                      <CompareIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="거절">
+                    <IconButton
+                      color="error"
+                      onClick={() => handleReject(group)}
+                    >
+                      <RejectIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    startIcon={<ApproveIcon />}
+                    onClick={() => handleApprove(group)}
+                  >
+                    승인 ({group.newImages?.length || 0}장)
+                  </Button>
+                </Box>
+              </Box>
+
+              {/* 이미지 비교 미리보기 */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, overflowX: 'auto' }}>
+                {/* 기존 이미지들 */}
+                <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+                  {group.existingImages && group.existingImages.length > 0 ? (
+                    group.existingImages.map((img, idx) => (
+                      <Card
+                        key={img.id}
+                        sx={{ width: 120, cursor: 'pointer', flexShrink: 0 }}
+                        onClick={() => openImagePreview(img.s3_url, `기존 이미지 ${idx + 1}`)}
+                      >
+                        <CardMedia
+                          component="img"
+                          image={img.s3_url}
+                          alt={`기존 ${idx + 1}`}
+                          sx={{ height: 90, objectFit: 'cover' }}
+                        />
+                        <Box sx={{ p: 0.5, bgcolor: '#f5f5f5', textAlign: 'center' }}>
+                          <Typography variant="caption">기존 {idx + 1}</Typography>
+                        </Box>
+                      </Card>
+                    ))
+                  ) : (
+                    <Paper sx={{ width: 120, height: 115, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f5f5f5' }}>
+                      <Typography variant="caption" color="text.secondary">없음</Typography>
+                    </Paper>
+                  )}
+                </Box>
+
+                {/* 화살표 */}
+                <ArrowIcon sx={{ color: '#1976d2', fontSize: 32, flexShrink: 0 }} />
+
+                {/* 새 이미지들 */}
+                <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+                  {group.newImages && group.newImages.map((img, idx) => (
+                    <Card
+                      key={img.id}
+                      sx={{ width: 120, cursor: 'pointer', flexShrink: 0, border: '2px solid #ff9800' }}
+                      onClick={() => openImagePreview(img.s3_url, `새 이미지 ${idx + 1}`)}
+                    >
+                      <CardMedia
+                        component="img"
+                        image={img.s3_url}
+                        alt={`새 ${idx + 1}`}
+                        sx={{ height: 90, objectFit: 'cover' }}
+                      />
+                      <Box sx={{ p: 0.5, bgcolor: '#fff8e1', textAlign: 'center' }}>
+                        <Typography variant="caption" color="warning.dark">새 {idx + 1}</Typography>
+                      </Box>
+                    </Card>
+                  ))}
+                </Box>
+              </Box>
+
+              {/* 입금완료 안내 메시지 */}
+              {group.isPaymentConfirmed && (
+                <Box sx={{ mt: 1.5, p: 1, bgcolor: '#e8f5e9', borderRadius: 1 }}>
+                  <Typography variant="caption" color="success.dark">
+                    입금완료된 구매자입니다. 승인 시 리뷰 제출일이 변경되지 않습니다 (날짜별 입금관리에 영향 없음).
+                  </Typography>
+                </Box>
+              )}
+            </Paper>
+          ))}
+        </Box>
       )}
 
       {/* 비교 다이얼로그 */}
       <Dialog
         open={compareDialog.open}
-        onClose={() => setCompareDialog({ open: false, image: null })}
+        onClose={() => setCompareDialog({ open: false, group: null })}
         maxWidth="lg"
         fullWidth
       >
         <DialogTitle sx={{ bgcolor: '#1976d2', color: 'white' }}>
           이미지 비교
+          {compareDialog.group?.isPaymentConfirmed && (
+            <Chip
+              icon={<PaymentIcon />}
+              label="입금완료"
+              size="small"
+              sx={{ ml: 2, bgcolor: 'white', color: 'success.main' }}
+            />
+          )}
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
-          {compareDialog.image && (
-            <Grid container spacing={3}>
-              {/* 이전 이미지 */}
-              <Grid item xs={12} md={6}>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  기존 이미지
-                </Typography>
-                {compareDialog.image.previousImage ? (
-                  <Card
-                    sx={{ cursor: 'pointer' }}
-                    onClick={() => openImagePreview(
-                      compareDialog.image.previousImage.s3_url,
-                      '기존 이미지'
-                    )}
-                  >
-                    <CardMedia
-                      component="img"
-                      image={compareDialog.image.previousImage.s3_url}
-                      alt="기존 이미지"
-                      sx={{ maxHeight: 400, objectFit: 'contain' }}
-                    />
-                    <Box sx={{ p: 1, bgcolor: '#f5f5f5' }}>
-                      <Typography variant="caption" color="text.secondary">
-                        업로드: {formatDate(compareDialog.image.previousImage.created_at)}
-                      </Typography>
-                    </Box>
-                  </Card>
-                ) : (
-                  <Paper sx={{ p: 3, textAlign: 'center', bgcolor: '#f5f5f5' }}>
-                    <Typography color="text.secondary">
-                      이전 이미지 없음
-                    </Typography>
-                  </Paper>
-                )}
-              </Grid>
-
-              {/* 새 이미지 */}
-              <Grid item xs={12} md={6}>
-                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  새 이미지 (재제출)
-                  <Chip
-                    label="승인 대기"
-                    size="small"
-                    color="warning"
-                    sx={{ ml: 1 }}
-                  />
-                </Typography>
-                <Card
-                  sx={{ cursor: 'pointer' }}
-                  onClick={() => openImagePreview(
-                    compareDialog.image.s3_url,
-                    '새 이미지'
-                  )}
-                >
-                  <CardMedia
-                    component="img"
-                    image={compareDialog.image.s3_url}
-                    alt="새 이미지"
-                    sx={{ maxHeight: 400, objectFit: 'contain' }}
-                  />
-                  <Box sx={{ p: 1, bgcolor: '#fff8e1' }}>
-                    <Typography variant="caption" color="text.secondary">
-                      재제출: {formatDate(compareDialog.image.resubmitted_at)}
-                    </Typography>
-                  </Box>
-                </Card>
-              </Grid>
-
+          {compareDialog.group && (
+            <Box>
               {/* 구매자 정보 */}
-              <Grid item xs={12}>
-                <Paper sx={{ p: 2, bgcolor: '#f5f5f5' }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    구매자 정보
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid item xs={6} md={3}>
-                      <Typography variant="caption" color="text.secondary">캠페인</Typography>
-                      <Typography variant="body2">
-                        {compareDialog.image.item?.campaign?.name || '-'}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={6} md={3}>
-                      <Typography variant="caption" color="text.secondary">제품명</Typography>
-                      <Typography variant="body2">
-                        {compareDialog.image.item?.product_name || '-'}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={6} md={3}>
-                      <Typography variant="caption" color="text.secondary">구매자</Typography>
-                      <Typography variant="body2">
-                        {compareDialog.image.buyer?.buyer_name || '-'}
-                      </Typography>
-                    </Grid>
-                    <Grid item xs={6} md={3}>
-                      <Typography variant="caption" color="text.secondary">주문번호</Typography>
-                      <Typography variant="body2">
-                        {compareDialog.image.buyer?.order_number || '-'}
-                      </Typography>
-                    </Grid>
+              <Paper sx={{ p: 2, mb: 3, bgcolor: '#f5f5f5' }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={6} md={3}>
+                    <Typography variant="caption" color="text.secondary">캠페인</Typography>
+                    <Typography variant="body2">
+                      {compareDialog.group.item?.campaign?.name || '-'}
+                    </Typography>
                   </Grid>
-                </Paper>
+                  <Grid item xs={6} md={3}>
+                    <Typography variant="caption" color="text.secondary">제품명</Typography>
+                    <Typography variant="body2">
+                      {compareDialog.group.item?.product_name || '-'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Typography variant="caption" color="text.secondary">구매자</Typography>
+                    <Typography variant="body2">
+                      {compareDialog.group.buyer?.buyer_name || '-'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Typography variant="caption" color="text.secondary">주문번호</Typography>
+                    <Typography variant="body2">
+                      {compareDialog.group.buyer?.order_number || '-'}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              <Grid container spacing={3}>
+                {/* 기존 이미지들 */}
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                    기존 이미지 ({compareDialog.group.existingImages?.length || 0}장)
+                  </Typography>
+                  <Divider sx={{ mb: 2 }} />
+                  {compareDialog.group.existingImages && compareDialog.group.existingImages.length > 0 ? (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {compareDialog.group.existingImages.map((img, idx) => (
+                        <Card
+                          key={img.id}
+                          sx={{ width: 150, cursor: 'pointer' }}
+                          onClick={() => openImagePreview(img.s3_url, `기존 이미지 ${idx + 1}`)}
+                        >
+                          <CardMedia
+                            component="img"
+                            image={img.s3_url}
+                            alt={`기존 ${idx + 1}`}
+                            sx={{ height: 120, objectFit: 'cover' }}
+                          />
+                          <Box sx={{ p: 1, bgcolor: '#f5f5f5' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              {formatDate(img.created_at)}
+                            </Typography>
+                          </Box>
+                        </Card>
+                      ))}
+                    </Box>
+                  ) : (
+                    <Paper sx={{ p: 3, textAlign: 'center', bgcolor: '#f5f5f5' }}>
+                      <Typography color="text.secondary">
+                        기존 이미지 없음
+                      </Typography>
+                    </Paper>
+                  )}
+                </Grid>
+
+                {/* 새 이미지들 */}
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                    새 이미지 ({compareDialog.group.newImages?.length || 0}장)
+                    <Chip
+                      label="승인 대기"
+                      size="small"
+                      color="warning"
+                      sx={{ ml: 1 }}
+                    />
+                  </Typography>
+                  <Divider sx={{ mb: 2 }} />
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {compareDialog.group.newImages?.map((img, idx) => (
+                      <Card
+                        key={img.id}
+                        sx={{ width: 150, cursor: 'pointer', border: '2px solid #ff9800' }}
+                        onClick={() => openImagePreview(img.s3_url, `새 이미지 ${idx + 1}`)}
+                      >
+                        <CardMedia
+                          component="img"
+                          image={img.s3_url}
+                          alt={`새 ${idx + 1}`}
+                          sx={{ height: 120, objectFit: 'cover' }}
+                        />
+                        <Box sx={{ p: 1, bgcolor: '#fff8e1' }}>
+                          <Typography variant="caption" color="text.secondary">
+                            {formatDate(img.resubmitted_at)}
+                          </Typography>
+                        </Box>
+                      </Card>
+                    ))}
+                  </Box>
+                </Grid>
               </Grid>
-            </Grid>
+
+              {/* 입금완료 안내 */}
+              {compareDialog.group.isPaymentConfirmed && (
+                <Box sx={{ mt: 3, p: 2, bgcolor: '#e8f5e9', borderRadius: 1 }}>
+                  <Typography variant="body2" color="success.dark">
+                    입금완료된 구매자입니다. 승인 시 이미지만 교체되고 리뷰 제출일은 변경되지 않습니다.
+                  </Typography>
+                </Box>
+              )}
+            </Box>
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button
-            onClick={() => setCompareDialog({ open: false, image: null })}
+            onClick={() => setCompareDialog({ open: false, group: null })}
           >
             닫기
           </Button>
@@ -397,17 +466,17 @@ const AdminImageApproval = () => {
             variant="outlined"
             color="error"
             startIcon={<RejectIcon />}
-            onClick={() => compareDialog.image && handleReject(compareDialog.image.id)}
+            onClick={() => compareDialog.group && handleReject(compareDialog.group)}
           >
-            거절
+            거절 ({compareDialog.group?.newImages?.length || 0}장)
           </Button>
           <Button
             variant="contained"
             color="success"
             startIcon={<ApproveIcon />}
-            onClick={() => compareDialog.image && handleApprove(compareDialog.image.id)}
+            onClick={() => compareDialog.group && handleApprove(compareDialog.group)}
           >
-            승인
+            승인 ({compareDialog.group?.newImages?.length || 0}장)
           </Button>
         </DialogActions>
       </Dialog>
