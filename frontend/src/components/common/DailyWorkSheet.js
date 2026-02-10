@@ -403,7 +403,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
     // CSS animation 초기화 및 재시작
     snackbarEl.style.animation = 'none';
-    snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
+    void snackbarEl.offsetHeight; // reflow 강제 (animation 재시작 트릭)
     snackbarEl.style.visibility = 'visible';
     snackbarEl.style.opacity = '1';
     // 2초 후 0.3초 동안 페이드아웃 (CSS animation)
