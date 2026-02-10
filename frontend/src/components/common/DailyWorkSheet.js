@@ -1514,7 +1514,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             imeFastEdit={true}
             minSpareRows={0}
             cells={cellsRenderer}
-            afterChange={handleAfterChange}
+            afterChange={(changes, source) => {
+              if (isComposingRef.current) return;  // IME 조합 중에는 건너뛰기
+              handleAfterChange(changes, source);
+            }}
             afterOnCellMouseUp={(event, coords) => {
               const rowData = tableData[coords.row];
               if (!rowData) return;
