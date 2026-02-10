@@ -997,11 +997,97 @@ savingRef.current = false;
 - 전반적인 입력 반응성 향상
 
 **테스트 항목:**
-- [ ] Ctrl+S 저장 시 딜레이 감소
-- [ ] 엔터 후 다음 셀 입력 시 딜레이 감소 (0.1~0.5초 → 거의 없음)
-- [ ] 한글 "홍길동" 입력 → 앞글자 잘림 해결
-- [ ] 접기/펼치기 기능 정상 작동
-- [ ] 저장 버튼 정상 작동 (중복 클릭 방지)
+- [x] Ctrl+S 저장 시 딜레이 감소 → ❌ 여전히 존재 (직후 + 1~2초 후)
+- [x] 엔터 후 다음 셀 입력 시 딜레이 감소 → △ 약간 개선
+- [x] 한글 "홍길동" 입력 → ❌ 앞글자 잘림 여전히 발생 (ㅗㅇ길동, gㅗㅇ길동, 익ㄹ동h, 길동d)
+- [x] 접기/펼치기 기능 정상 작동 → ✅
+- [x] 저장 버튼 정상 작동 (중복 클릭 방지) → ✅
+
+**테스트 결과 (2026-02-10):**
+- ❌ 엔터 후 딜레이: 아주 살짝 존재 (0.1초 미만)
+- ❌ 한글 입력 깨짐: "ㅗㅇ길동", "gㅗㅇ길동", "익ㄹ동h", "길동d" 등 다양한 패턴으로 발생
+- ❌ Ctrl+S 딜레이:
+  - Ctrl+S 직후 딜레이 존재
+  - 1~2초 후 추가 딜레이 발생 (Snackbar autoHideDuration으로 인한 리렌더링)
+
+**원인 분석:**
+```
+1. 엔터 후 딜레이 원인:
+   handleAfterChange() 실행
+     ↓
+   hasUnsavedChangesRef.current = true
+     ↓
+   requestAnimationFrame(() => {
+     setHasUnsavedChanges(true);  ← 여전히 리렌더링 발생!
+   })
+     ↓
+   다음 셀로 이동 중 리렌더링 → 입력 끊김
+
+2. Ctrl+S 1~2초 후 딜레이 원인:
+   Snackbar autoHideDuration={3000}
+     ↓
+   3초 후 onClose 호출
+     ↓
+   setSnackbar({ open: false }) → 리렌더링
+     ↓
+   Handsontable 갱신 → 딜레이
+```
+
+**결론:** △ 부분 성공 - saving ref 변환은 효과 있었으나 여전히 딜레이 존재
+
+---
+
+### 12차 최적화 (2026-02-10)
+
+**적용 내용:**
+1. **hasUnsavedChanges state 완전 제거** - ref만 사용하여 리렌더링 완전 제거
+   - `const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)` 제거
+   - `setHasUnsavedChanges(true/false)` 모든 호출 제거
+   - `hasUnsavedChangesRef`만 사용
+2. **저장 버튼 항상 표시** - 조건부 렌더링 제거로 리렌더링 없음
+   - `{hasChanges && (...)}` → 항상 렌더링
+   - 버튼 텍스트: "저장 (Ctrl+S)"
+3. **Snackbar autoHideDuration 6초로 증가** - 1~2초 후 딜레이 체감 감소
+   - `autoHideDuration={3000}` → `autoHideDuration={6000}`
+4. **unstable_batchedUpdates import 제거** - 더 이상 사용하지 않음
+
+**수정 파일:**
+- `OperatorItemSheet.js`
+- `SalesItemSheet.js`
+
+**수정 코드:**
+```javascript
+// 1. hasUnsavedChanges state 제거
+// 제거: const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+// 유지: const hasUnsavedChangesRef = useRef(false);
+
+// 2. handleAfterChange에서 setHasUnsavedChanges 호출 제거
+if (hasSlotChanges || hasItemChanges) {
+  hasUnsavedChangesRef.current = true;
+  // setHasUnsavedChanges 호출 제거 - 리렌더링 방지
+}
+
+// 3. 저장 버튼 항상 표시
+<Button onClick={handleSaveChanges} ...>
+  저장 (Ctrl+S)
+</Button>
+
+// 4. Snackbar 6초로 변경
+<Snackbar autoHideDuration={6000} ...>
+```
+
+**기대 효과:**
+- **엔터 후 딜레이**: 완전 제거 (리렌더링 없음)
+- **Ctrl+S 딜레이**: 즉시 Snackbar 표시, 리렌더링 최소화
+- **1~2초 후 딜레이**: Snackbar 닫힘 시간 증가로 사용자가 인지하지 못함
+- **한글 입력 깨짐**: 리렌더링이 없으므로 해결 예상
+
+**테스트 항목:**
+- [ ] 엔터 후 다음 셀 입력 시 딜레이 완전 제거
+- [ ] 한글 "홍길동" 입력 → 글자 깨짐 없음
+- [ ] Ctrl+S 저장 시 즉시 반응
+- [ ] 저장 버튼 항상 표시 확인
+- [ ] 저장 완료 Snackbar 정상 표시 (6초 유지)
 
 **결론:** ⏳ 테스트 대기
 

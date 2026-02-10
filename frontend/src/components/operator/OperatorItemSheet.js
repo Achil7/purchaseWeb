@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { unstable_batchedUpdates } from 'react-dom';
+// 12차 최적화: unstable_batchedUpdates 제거 - 더 이상 사용하지 않음
 import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert, IconButton, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
@@ -353,13 +353,14 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // 변경된 아이템들 추적 (제품 정보 수정용, ref만 사용)
   const changedItemsRef = useRef({});
 
-  // 저장 버튼 표시용 상태 (첫 변경 시에만 true로 설정)
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  // 5차 최적화: ref로도 추적하여 중복 상태 업데이트 방지
+  // 12차 최적화: hasUnsavedChanges state 제거 - ref만 사용하여 리렌더링 완전 제거
+  // 저장 버튼은 항상 표시하고, 클릭 시 ref 값으로 변경사항 체크
   const hasUnsavedChangesRef = useRef(false);
 
-  // 스낵바 상태
-  const [snackbar, setSnackbar] = useState({ open: false, message: '' });
+  // 13차 최적화: 스낵바를 ref 기반으로 변경하여 리렌더링 완전 제거
+  // DOM 직접 조작으로 메시지 표시/숨김 처리
+  const snackbarRef = useRef(null);
+  const snackbarTimeoutRef = useRef(null);
 
   // 삭제 다이얼로그 상태
   const [deleteDialog, setDeleteDialog] = useState({
@@ -532,6 +533,47 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     }
   }, [COLUMN_WIDTHS_KEY]);
 
+  // 13차 최적화: Snackbar를 DOM 직접 조작으로 표시 (리렌더링 없음)
+  const showSnackbar = useCallback((message) => {
+    const snackbarEl = snackbarRef.current;
+    if (!snackbarEl) return;
+
+    // 기존 타이머 취소
+    if (snackbarTimeoutRef.current) {
+      clearTimeout(snackbarTimeoutRef.current);
+    }
+
+    // 메시지 설정 및 표시
+    const messageEl = snackbarEl.querySelector('.snackbar-message');
+    if (messageEl) {
+      messageEl.textContent = message;
+    }
+    snackbarEl.style.display = 'flex';
+    snackbarEl.style.opacity = '1';
+
+    // 6초 후 자동 숨김
+    snackbarTimeoutRef.current = setTimeout(() => {
+      snackbarEl.style.opacity = '0';
+      setTimeout(() => {
+        snackbarEl.style.display = 'none';
+      }, 300);
+    }, 6000);
+  }, []);
+
+  // 13차 최적화: Snackbar 닫기 (수동)
+  const hideSnackbar = useCallback(() => {
+    const snackbarEl = snackbarRef.current;
+    if (!snackbarEl) return;
+
+    if (snackbarTimeoutRef.current) {
+      clearTimeout(snackbarTimeoutRef.current);
+    }
+    snackbarEl.style.opacity = '0';
+    setTimeout(() => {
+      snackbarEl.style.display = 'none';
+    }, 300);
+  }, []);
+
   // 캠페인별 배정된 슬롯 데이터 로드 (Operator 전용)
   // 성능 최적화: 의존성 배열을 비워서 함수 재생성 방지, campaignId는 파라미터로 전달
   // preserveCollapsedState: true면 현재 접기 상태 유지 (행 추가/삭제 시 사용)
@@ -547,9 +589,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       const cached = slotsCache.get(cacheKey);
       setSlots(cached.slots);
       changedSlotsRef.current = {};
-        changedItemsRef.current = {};
-        hasUnsavedChangesRef.current = false;
-        setHasUnsavedChanges(false);
+      changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
 
       // preserveCollapsedState가 true면 현재 접기 상태 유지
       if (!preserveCollapsedState) {
@@ -609,7 +650,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         changedSlotsRef.current = {};
         changedItemsRef.current = {};
         hasUnsavedChangesRef.current = false;
-        setHasUnsavedChanges(false);
 
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: newSlots, timestamp: Date.now() });
@@ -1106,7 +1146,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     if (!token) return;
     const uploadUrl = `${window.location.origin}/upload-slot/${token}`;
     navigator.clipboard.writeText(uploadUrl).then(() => {
-      setSnackbar({ open: true, message: '업로드 링크가 복사되었습니다' });
+      showSnackbar('업로드 링크가 복사되었습니다');
     }).catch(err => {
       console.error('Failed to copy:', err);
     });
@@ -1125,7 +1165,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     const excelData = convertSlotsToExcelData(slots, itemsMap, 'operator');
     const fileName = campaignName || 'campaign';
     downloadExcel(excelData, `${fileName}_operator`, '진행자시트');
-    setSnackbar({ open: true, message: '엑셀 파일이 다운로드되었습니다' });
+    showSnackbar('엑셀 파일이 다운로드되었습니다');
   }, [slots, campaignName]);
 
   // 변경사항 저장 및 새로고침 헬퍼 함수
@@ -1165,7 +1205,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
       hasUnsavedChangesRef.current = false;
-      setHasUnsavedChanges(false);
       // 데이터 새로고침 (변경사항 유무와 관계없이 항상 최신 데이터 로드)
       await loadSlots(campaignId, viewAsUserId);
     } catch (error) {
@@ -1406,15 +1445,12 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     changedSlotsRef.current = slotUpdates;
     changedItemsRef.current = itemUpdates;
 
-    // 9차 최적화: 상태 업데이트를 requestAnimationFrame으로 지연
-    // 셀 이동이 먼저 완료된 후 리렌더링되도록 하여 입력 끊김 방지
+    // 12차 최적화: setHasUnsavedChanges 호출 완전 제거 - 리렌더링 없음
+    // ref만 업데이트하여 저장 시 변경사항 존재 여부 체크
     const hasSlotChanges = Object.keys(slotUpdates).length > 0;
     const hasItemChanges = Object.keys(itemUpdates).length > 0;
-    if ((hasSlotChanges || hasItemChanges) && !hasUnsavedChangesRef.current) {
+    if (hasSlotChanges || hasItemChanges) {
       hasUnsavedChangesRef.current = true;
-      requestAnimationFrame(() => {
-        setHasUnsavedChanges(true);
-      });
     }
 
     // 11차 최적화: debouncedRestoreHiddenRows 호출 제거
@@ -1439,7 +1475,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     const hasItemChanges = Object.keys(currentChangedItems).length > 0;
 
     if (!hasSlotChanges && !hasItemChanges) {
-      setSnackbar({ open: true, message: '변경된 내용이 없습니다' });
+      showSnackbar('변경된 내용이 없습니다');
       return;
     }
 
@@ -1493,11 +1529,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
       slotsCache.clear();
 
-      // 11차 최적화: setSaving 제거하여 리렌더링 줄임
-      unstable_batchedUpdates(() => {
-        setHasUnsavedChanges(false);
-        setSnackbar({ open: true, message: '저장되었습니다' });
-      });
+      // 12차 최적화: setHasUnsavedChanges 제거 - ref만 사용
+      // Snackbar만 표시 (unstable_batchedUpdates 불필요해짐)
+      showSnackbar('저장되었습니다');
 
       // 스크롤 위치 복원 (배칭된 렌더링 후)
       requestAnimationFrame(() => {
@@ -1519,11 +1553,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       hasUnsavedChangesRef.current = false;
       savingRef.current = false;
 
-      // 11차 최적화: setSaving 제거
-      unstable_batchedUpdates(() => {
-        setHasUnsavedChanges(false);
-        setSnackbar({ open: true, message: `저장 실패: ${serverMessage}` });
-      });
+      // 12차 최적화: setHasUnsavedChanges 제거 - ref만 사용
+      showSnackbar(`저장 실패: ${serverMessage}`);
     }
   };
 
@@ -1562,7 +1593,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       }
 
       closeDeleteDialog();
-      setSnackbar({ open: true, message: '삭제되었습니다' });
+      showSnackbar('삭제되었습니다');
 
       // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
       slotsCache.delete(`operator_${campaignId}_${viewAsUserId || ''}`);
@@ -1617,7 +1648,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       if (statusCode == 404) {
         console.log('404 detected - refreshing UI');
         closeDeleteDialog();
-        setSnackbar({ open: true, message: '이미 삭제된 항목입니다. 목록을 새로고침합니다.', severity: 'warning' });
+        showSnackbar('이미 삭제된 항목입니다. 목록을 새로고침합니다.');
         // 캐시 명시적 삭제 (중요!)
         const cacheKey = `operator_${campaignId}_${viewAsUserId || ''}`;
         slotsCache.delete(cacheKey);
@@ -1647,7 +1678,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
       // 삭제 팝업 닫기
       setDeleteReviewPopup({ open: false, images: [], buyer: null, rowIndex: null });
-      setSnackbar({ open: true, message: '리뷰샷이 삭제되었습니다' });
+      showSnackbar('리뷰샷이 삭제되었습니다');
 
       // 캐시 무효화 및 데이터 새로고침
       slotsCache.delete(`operator_${campaignId}_${viewAsUserId || ''}`);
@@ -1658,7 +1689,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     } catch (error) {
       console.error('Delete review failed:', error);
       const errorMessage = error.response?.data?.message || error.message || '알 수 없는 오류';
-      setSnackbar({ open: true, message: '리뷰샷 삭제 실패: ' + errorMessage });
+      showSnackbar('리뷰샷 삭제 실패: ' + errorMessage);
     } finally {
       setDeletingReview(false);
     }
@@ -1667,7 +1698,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // 배송지연 토글 핸들러 - 현재 비활성화됨
   // const handleToggleShippingDelayed = useCallback(async (buyerId, currentValue, rowIndex) => {
   //   if (!buyerId) {
-  //     setSnackbar({ open: true, message: '구매자 정보가 없습니다' });
+  //     showSnackbar( '구매자 정보가 없습니다' });
   //     return;
   //   }
   //
@@ -1697,7 +1728,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   //     });
   //   } catch (error) {
   //     console.error('Failed to toggle shipping delayed:', error);
-  //     setSnackbar({ open: true, message: '배송지연 상태 변경에 실패했습니다' });
+  //     showSnackbar( '배송지연 상태 변경에 실패했습니다' });
   //   }
   // }, []);
 
@@ -1801,8 +1832,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     return cellProperties;
   }, [tableData, statusOptions, productDataRenderer, uploadLinkBarRenderer, buyerDataRenderer]);
 
-  // 성능 최적화: hasUnsavedChanges state 사용 (ref 기반으로 변경하여 리렌더링 최소화)
-  const hasChanges = hasUnsavedChanges;
+  // 12차 최적화: 저장 버튼 항상 표시 - state 기반 조건부 렌더링 제거
+  // hasChanges는 더 이상 사용하지 않음 (저장 버튼 항상 표시)
   // totalChanges는 저장 시 ref에서 계산
   const totalChanges = Object.keys(changedSlotsRef.current).length + Object.keys(changedItemsRef.current).length;
 
@@ -1943,19 +1974,17 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         }}>
           작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!
         </Box>
-        {/* 11차 최적화: saving 상태 UI 제거 - 중복 저장은 ref로 방지 */}
-        {hasChanges && (
-          <Button
-            variant="contained"
-            color="success"
-            size="small"
-            startIcon={<SaveIcon />}
-            onClick={handleSaveChanges}
-            sx={{ bgcolor: '#4caf50' }}
-          >
-            저장 ({totalChanges})
-          </Button>
-        )}
+        {/* 12차 최적화: 저장 버튼 항상 표시 - state 기반 조건부 렌더링 제거 */}
+        <Button
+          variant="contained"
+          color="success"
+          size="small"
+          startIcon={<SaveIcon />}
+          onClick={handleSaveChanges}
+          sx={{ bgcolor: '#4caf50' }}
+        >
+          저장 (Ctrl+S)
+        </Button>
       </Box>
 
       <Paper
@@ -2122,7 +2151,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
                       // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
                       slotsCache.delete(`operator_${campaignId}_${viewAsUserId || ''}`);
 
-                      setSnackbar({ open: true, message: '행이 추가되었습니다' });
+                      showSnackbar('행이 추가되었습니다');
                     } catch (error) {
                       console.error('Failed to add row:', error);
                       alert('행 추가 실패: ' + (error.response?.data?.message || error.message));
@@ -2187,7 +2216,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
                     try {
                       const result = await itemSlotService.splitDayGroup(slotId);
-                      setSnackbar({ open: true, message: result.message });
+                      showSnackbar(result.message);
                       // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
                       loadSlots(campaignId, viewAsUserId, true, true, true);
                     } catch (error) {
@@ -2700,17 +2729,36 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         </DialogActions>
       </Dialog>
 
-      {/* 스낵바 알림 */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      {/* 13차 최적화: Snackbar를 ref 기반 custom div로 변경 - 리렌더링 완전 제거 */}
+      <Box
+        ref={snackbarRef}
+        sx={{
+          display: 'none',
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 9999,
+          transition: 'opacity 0.3s ease',
+          '& .snackbar-content': {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            bgcolor: '#4caf50',
+            color: 'white',
+            px: 2,
+            py: 1,
+            borderRadius: 1,
+            boxShadow: 3,
+            fontSize: '0.875rem',
+            fontWeight: 500,
+          }
+        }}
       >
-        <Alert severity="success" onClose={() => setSnackbar({ ...snackbar, open: false })}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        <Box className="snackbar-content">
+          <span className="snackbar-message"></span>
+        </Box>
+      </Box>
 
       {/* 이미지 스와이프 뷰어 */}
       <ImageSwipeViewer

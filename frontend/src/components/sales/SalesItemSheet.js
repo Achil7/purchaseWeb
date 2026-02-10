@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
-import { unstable_batchedUpdates } from 'react-dom';
+// 12차 최적화: unstable_batchedUpdates 제거 - 더 이상 사용하지 않음
 import { Box, Paper, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Snackbar, Alert, IconButton, Tooltip, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
@@ -342,9 +342,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   const changedSlotsRef = useRef({});
   // Admin 편집용 - 변경된 품목 추적 (ref만 사용)
   const changedItemsRef = useRef({});
-  // 저장 버튼 표시용 상태 (첫 변경 시에만 true로 설정)
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  // 5차 최적화: ref로도 추적하여 중복 상태 업데이트 방지
+  // 12차 최적화: hasUnsavedChanges state 제거 - ref만 사용하여 리렌더링 완전 제거
   const hasUnsavedChangesRef = useRef(false);
   // 8차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
   const isComposingRef = useRef(false);
@@ -736,11 +734,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
       slotsCache.clear();
 
-      // 11차 최적화: setSaving 제거하여 리렌더링 줄임
-      unstable_batchedUpdates(() => {
-        setHasUnsavedChanges(false);
-        setSnackbar({ open: true, message: '저장되었습니다' });
-      });
+      // 12차 최적화: setHasUnsavedChanges 제거 - ref만 사용
+      setSnackbar({ open: true, message: '저장되었습니다' });
 
       // 스크롤 위치 복원 (배칭된 렌더링 후)
       requestAnimationFrame(() => {
@@ -759,11 +754,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       hasUnsavedChangesRef.current = false;
       savingRef.current = false;
 
-      // 11차 최적화: setSaving 제거
-      unstable_batchedUpdates(() => {
-        setHasUnsavedChanges(false);
-        setSnackbar({ open: true, message: '저장 실패: ' + (error.response?.data?.message || error.message) });
-      });
+      // 12차 최적화: setHasUnsavedChanges 제거 - ref만 사용
+      setSnackbar({ open: true, message: '저장 실패: ' + (error.response?.data?.message || error.message) });
     }
   }, [loadSlots, campaignId, slots]);  // slots 의존성 추가 (day_group별 슬롯 필터링용)
 
@@ -1202,7 +1194,6 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
       hasUnsavedChangesRef.current = false;
-      setHasUnsavedChanges(false);
       // 데이터 새로고침 (변경사항 유무와 관계없이 항상 최신 데이터 로드)
       await loadSlots(campaignId);
     } catch (error) {
@@ -1309,14 +1300,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           ...changedItemsRef.current,
           [dayGroupKey]: { ...(changedItemsRef.current[dayGroupKey] || {}), itemId, dayGroup, [fieldName]: newValue ?? '' }
         };
-        // 9차 최적화: 상태 업데이트를 requestAnimationFrame으로 지연
-        // 셀 이동이 먼저 완료된 후 리렌더링되도록 하여 입력 끊김 방지
-        if (!hasUnsavedChangesRef.current) {
-          hasUnsavedChangesRef.current = true;
-          requestAnimationFrame(() => {
-            setHasUnsavedChanges(true);
-          });
-        }
+        // 12차 최적화: setHasUnsavedChanges 호출 완전 제거 - 리렌더링 없음
+        hasUnsavedChangesRef.current = true;
 
         // 핵심: 날짜 필드(col1) 변경 시 같은 품목의 구매자 행 날짜도 즉시 업데이트
         if (prop === 'col1' && fieldName === 'date') {
@@ -1390,13 +1375,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           ...changedSlotsRef.current,
           [slotId]: { ...(changedSlotsRef.current[slotId] || {}), [fieldName]: newValue || '' }
         };
-        // 9차 최적화: 상태 업데이트를 requestAnimationFrame으로 지연
-        if (!hasUnsavedChangesRef.current) {
-          hasUnsavedChangesRef.current = true;
-          requestAnimationFrame(() => {
-            setHasUnsavedChanges(true);
-          });
-        }
+        // 12차 최적화: setHasUnsavedChanges 호출 완전 제거 - 리렌더링 없음
+        hasUnsavedChangesRef.current = true;
       }
     });
 
@@ -1783,19 +1763,17 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         }}>
           작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!
         </Box>
-        {/* 11차 최적화: saving 상태 UI 제거 - 중복 저장은 ref로 방지 */}
-        {hasUnsavedChanges && (
-          <Button
-            variant="contained"
-            color="success"
-            size="small"
-            startIcon={<SaveIcon />}
-            onClick={handleSaveChanges}
-            sx={{ bgcolor: '#4caf50' }}
-          >
-            저장
-          </Button>
-        )}
+        {/* 12차 최적화: 저장 버튼 항상 표시 - state 기반 조건부 렌더링 제거 */}
+        <Button
+          variant="contained"
+          color="success"
+          size="small"
+          startIcon={<SaveIcon />}
+          onClick={handleSaveChanges}
+          sx={{ bgcolor: '#4caf50' }}
+        >
+          저장 (Ctrl+S)
+        </Button>
       </Box>
 
       <Paper sx={{
@@ -2510,10 +2488,10 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         )}
       </Paper>
 
-      {/* 스낵바 알림 */}
+      {/* 스낵바 알림 - 12차 최적화: autoHideDuration 6초로 증가 */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={3000}
+        autoHideDuration={6000}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
