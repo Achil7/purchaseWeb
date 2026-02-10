@@ -308,8 +308,12 @@ exports.uploadImages = async (req, res) => {
       const hasExistingImage = targetBuyer.images && targetBuyer.images.length > 0;
       const previousImageId = hasExistingImage ? targetBuyer.images[0].id : null;
 
+      // 입금 확인 여부 확인 (재제출 시 중요)
+      const fullBuyer = await Buyer.findByPk(targetBuyer.id, { transaction });
+      const isPaymentConfirmed = fullBuyer && fullBuyer.payment_status === 'completed';
+
       // DB에 이미지 레코드 생성
-      // 재제출인 경우: status='pending', previous_image_id 설정 (승인 시 이전 이미지 삭제)
+      // 재제출인 경우: 무조건 status='pending', previous_image_id 설정 (승인 필요)
       // 신규인 경우: status='approved' (기본값)
       const image = await Image.create({
         item_id: item.id,
@@ -329,19 +333,26 @@ exports.uploadImages = async (req, res) => {
         previous_image_id: previousImageId
       }, { transaction });
 
-      // 신규 업로드 및 재제출 모두 입금 예정일 업데이트
-      const now = new Date();
-      const expectedPaymentDate = getNextBusinessDay(now);
+      // 입금 예정일 업데이트:
+      // - 신규 업로드: 항상 업데이트
+      // - 재제출 (입금 미확인): 업데이트
+      // - 재제출 (입금 확인됨): 업데이트하지 않음 (날짜별 입금관리에 영향 없음)
+      if (!hasExistingImage || !isPaymentConfirmed) {
+        const now = new Date();
+        const expectedPaymentDate = getNextBusinessDay(now);
 
-      await Buyer.update({
-        review_submitted_at: now,
-        expected_payment_date: formatDateToYYYYMMDD(expectedPaymentDate)
-      }, {
-        where: { id: targetBuyer.id },
-        transaction
-      });
+        await Buyer.update({
+          review_submitted_at: now,
+          expected_payment_date: formatDateToYYYYMMDD(expectedPaymentDate)
+        }, {
+          where: { id: targetBuyer.id },
+          transaction
+        });
+      }
 
       if (!hasExistingImage) {
+        const now = new Date();
+        const expectedPaymentDate = getNextBusinessDay(now);
         uploadedImages.push({
           ...image.toJSON(),
           buyer_name: targetBuyer.buyer_name,
@@ -355,7 +366,7 @@ exports.uploadImages = async (req, res) => {
           buyer_name: targetBuyer.buyer_name,
           order_number: targetBuyer.order_number,
           previousImageId: previousImageId,
-          expected_payment_date: formatDateToYYYYMMDD(expectedPaymentDate)
+          isPaymentConfirmed: isPaymentConfirmed
         });
       }
     }
@@ -707,17 +718,23 @@ exports.approveImage = async (req, res) => {
     }, { transaction });
 
     // 입금 예정일 업데이트 (재제출 승인 시점 기준)
+    // 단, 입금 확인된 구매자는 리뷰 제출일을 업데이트하지 않음 (날짜별 입금관리에 영향 없음)
     if (image.buyer) {
-      const now = new Date();
-      const expectedPaymentDate = getNextBusinessDay(now);
+      const isPaymentConfirmed = image.buyer.payment_status === 'completed';
 
-      await Buyer.update({
-        review_submitted_at: now,
-        expected_payment_date: formatDateToYYYYMMDD(expectedPaymentDate)
-      }, {
-        where: { id: image.buyer.id },
-        transaction
-      });
+      // 입금 미확인인 경우에만 리뷰 제출일 업데이트
+      if (!isPaymentConfirmed) {
+        const now = new Date();
+        const expectedPaymentDate = getNextBusinessDay(now);
+
+        await Buyer.update({
+          review_submitted_at: now,
+          expected_payment_date: formatDateToYYYYMMDD(expectedPaymentDate)
+        }, {
+          where: { id: image.buyer.id },
+          transaction
+        });
+      }
 
       // 해당 구매자의 슬롯 상태를 '재제출완료'로 변경
       const slot = await ItemSlot.findOne({

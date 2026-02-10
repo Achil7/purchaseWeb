@@ -345,6 +345,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   const changedItemsRef = useRef({});
   // 12차 최적화: hasUnsavedChanges state 제거 - ref만 사용하여 리렌더링 완전 제거
   const hasUnsavedChangesRef = useRef(false);
+  // 선택된 셀 개수 표시용 ref (DOM 직접 업데이트로 리렌더링 방지)
+  const selectedCellCountRef = useRef(null);
   // 8차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
   const isComposingRef = useRef(false);
 
@@ -1764,6 +1766,21 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           <Box sx={{ fontSize: '0.75rem', opacity: 0.8 }}>
             드래그 복사, Ctrl+C/V 지원
           </Box>
+          {/* 선택된 셀 개수 표시 */}
+          <Box
+            component="span"
+            ref={selectedCellCountRef}
+            sx={{
+              display: 'none',
+              fontSize: '0.8rem',
+              fontWeight: 'bold',
+              color: '#ffeb3b',
+              bgcolor: 'rgba(0,0,0,0.3)',
+              px: 1,
+              py: 0.3,
+              borderRadius: 1
+            }}
+          />
           <Button
             size="small"
             onClick={handleDownloadExcel}
@@ -2270,6 +2287,25 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                 hotRef.current.hotInstance._isKeyboardNav = false;
               } else {
                 preventScrolling.value = true;
+              }
+
+              // 선택된 셀 개수 계산 및 DOM 직접 업데이트 (리렌더링 방지)
+              const rowCount = Math.abs(row2 - row) + 1;
+              const colCount = Math.abs(column2 - column) + 1;
+              const cellCount = rowCount * colCount;
+              if (selectedCellCountRef.current) {
+                if (cellCount > 1) {
+                  selectedCellCountRef.current.textContent = `선택: ${cellCount}셀 (${rowCount}행 × ${colCount}열)`;
+                  selectedCellCountRef.current.style.display = 'inline';
+                } else {
+                  selectedCellCountRef.current.style.display = 'none';
+                }
+              }
+            }}
+            afterDeselect={() => {
+              // 선택 해제 시 셀 개수 숨김
+              if (selectedCellCountRef.current) {
+                selectedCellCountRef.current.style.display = 'none';
               }
             }}
             beforeKeyDown={(event) => {
