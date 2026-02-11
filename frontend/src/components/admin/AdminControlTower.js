@@ -81,6 +81,10 @@ function AdminControlTower() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // 사용자 목록 페이지네이션 상태 (진행자/영업사/브랜드사 탭)
+  const [userPage, setUserPage] = useState(1);
+  const USERS_PER_PAGE = 20;
+
   // 진행자 배정 탭 - 영업사 검색 상태
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
 
@@ -371,6 +375,8 @@ function AdminControlTower() {
     } else {
       loadUsers();
       setSelectedUser(null);
+      setUserPage(1); // 탭 전환 시 첫 페이지로
+      setSearchQuery(''); // 검색어 초기화
     }
   }, [tabValue, loadAssignmentData, loadUsers]);
 
@@ -483,6 +489,12 @@ function AdminControlTower() {
     user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // 사용자 목록 페이지네이션 계산
+  const totalUserPages = Math.ceil(filteredUsers.length / USERS_PER_PAGE);
+  const userStartIndex = (userPage - 1) * USERS_PER_PAGE;
+  const userEndIndex = userStartIndex + USERS_PER_PAGE;
+  const paginatedUsers = filteredUsers.slice(userStartIndex, userEndIndex);
 
   // 진행자 배정 탭 렌더링 - 연월브랜드 > 캠페인 목록
   const renderAssignmentTab = () => {
@@ -884,152 +896,198 @@ function AdminControlTower() {
   const renderUserManagementTab = () => (
     <Box sx={{ display: 'flex', gap: 0, flex: 1, overflow: 'hidden', position: 'relative' }}>
       {/* 왼쪽: 사용자 목록 (접기 가능) */}
-      <Paper
-        sx={{
-          width: sidebarCollapsed ? 40 : '25%',
-          minWidth: sidebarCollapsed ? 40 : 200,
-          p: sidebarCollapsed ? 0 : 2,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          borderRadius: '4px 0 0 4px',
-          position: 'relative'
-        }}
-      >
-        {/* 사이드바 접기/펼치기 버튼 */}
-        <Box
+      {!sidebarCollapsed && (
+        <Paper
           sx={{
+            width: '25%',
+            minWidth: 200,
+            p: 2,
+            overflow: 'hidden',
             display: 'flex',
-            justifyContent: sidebarCollapsed ? 'center' : 'flex-end',
-            mb: sidebarCollapsed ? 0 : 1,
-            py: sidebarCollapsed ? 1 : 0
+            flexDirection: 'column',
+            borderRadius: '4px 0 0 4px',
+            position: 'relative'
           }}
         >
-          <Tooltip title={sidebarCollapsed ? '사용자 목록 펼치기' : '사용자 목록 접기'}>
-            <IconButton
-              size="small"
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              sx={{
-                bgcolor: 'grey.100',
-                '&:hover': { bgcolor: 'grey.200' }
-              }}
-            >
-              {sidebarCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
-            </IconButton>
-          </Tooltip>
-        </Box>
-
-        {/* 펼쳐졌을 때 내용 표시 */}
-        {!sidebarCollapsed && (
-          <>
-            <Box sx={{ mb: 2 }}>
-              <TextField
-                fullWidth
+          {/* 사이드바 접기/펼치기 버튼 */}
+          <Box
+            sx={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              mb: 1
+            }}
+          >
+            <Tooltip title="사용자 목록 접기">
+              <IconButton
                 size="small"
-                placeholder="검색 (ID, 이름)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon fontSize="small" />
-                    </InputAdornment>
-                  )
+                onClick={() => setSidebarCollapsed(true)}
+                sx={{
+                  bgcolor: 'grey.100',
+                  '&:hover': { bgcolor: 'grey.200' }
                 }}
-              />
-            </Box>
+              >
+                <ChevronLeftIcon />
+              </IconButton>
+            </Tooltip>
+          </Box>
 
-            <Box sx={{ flex: 1, overflow: 'auto' }}>
-              {loading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                  <CircularProgress />
-                </Box>
-              ) : filteredUsers.length === 0 ? (
-                <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
-                  사용자가 없습니다
-                </Typography>
-              ) : (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem' }}>상태</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem' }}>이름</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem' }}>접속</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem' }}></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredUsers.map(user => (
-                      <TableRow
-                        key={user.id}
-                        hover
-                        selected={selectedUser?.id === user.id}
-                        onClick={() => handleUserSelect(user)}
-                        sx={{ cursor: 'pointer' }}
-                      >
-                        <TableCell sx={{ py: 0.5 }}>
-                          <Tooltip title={
-                            !user.is_active ? '비활성화됨' :
-                            user.is_online ? '온라인' : '오프라인'
-                          }>
-                            {!user.is_active ? (
-                              <BlockIcon
-                                sx={{
-                                  fontSize: 14,
-                                  color: 'error.main'
-                                }}
-                              />
-                            ) : (
-                              <CircleIcon
-                                sx={{
-                                  fontSize: 12,
-                                  color: user.is_online ? 'success.main' : 'grey.400'
-                                }}
-                              />
-                            )}
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell sx={{
-                          py: 0.5,
-                          fontSize: '0.75rem',
-                          textDecoration: !user.is_active ? 'line-through' : 'none',
-                          color: !user.is_active ? 'text.disabled' : 'inherit'
-                        }}>
-                          {user.name}
-                          {!user.is_active && (
-                            <Chip
-                              label="비활성"
-                              size="small"
-                              color="error"
-                              variant="outlined"
-                              sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }}
+          {/* 검색 영역 */}
+          <Box sx={{ mb: 2 }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="검색 (ID, 이름)"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setUserPage(1); // 검색 시 첫 페이지로
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                )
+              }}
+            />
+          </Box>
+
+          {/* 페이지 정보 */}
+          {!loading && filteredUsers.length > 0 && (
+            <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="caption" color="text.secondary">
+                전체 {filteredUsers.length}명 중 {userStartIndex + 1}-{Math.min(userEndIndex, filteredUsers.length)} 표시
+              </Typography>
+            </Box>
+          )}
+
+          {/* 사용자 목록 테이블 */}
+          <Box sx={{ flex: 1, overflow: 'auto', mb: 1 }}>
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : filteredUsers.length === 0 ? (
+              <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+                사용자가 없습니다
+              </Typography>
+            ) : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem' }}>상태</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem' }}>이름</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem' }}>접속</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', fontSize: '0.75rem' }}></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {paginatedUsers.map(user => (
+                    <TableRow
+                      key={user.id}
+                      hover
+                      selected={selectedUser?.id === user.id}
+                      onClick={() => handleUserSelect(user)}
+                      sx={{ cursor: 'pointer' }}
+                    >
+                      <TableCell sx={{ py: 0.5 }}>
+                        <Tooltip title={
+                          !user.is_active ? '비활성화됨' :
+                          user.is_online ? '온라인' : '오프라인'
+                        }>
+                          {!user.is_active ? (
+                            <BlockIcon
+                              sx={{
+                                fontSize: 14,
+                                color: 'error.main'
+                              }}
+                            />
+                          ) : (
+                            <CircleIcon
+                              sx={{
+                                fontSize: 12,
+                                color: user.is_online ? 'success.main' : 'grey.400'
+                              }}
                             />
                           )}
-                        </TableCell>
-                        <TableCell sx={{ py: 0.5, fontSize: '0.75rem' }}>{user.today_login_count}</TableCell>
-                        <TableCell sx={{ py: 0.5 }}>
-                          <Tooltip title="상세보기">
-                            <IconButton
-                              size="small"
-                              onClick={(e) => handleOpenDetailDialog(user, e)}
-                              sx={{ p: 0.2 }}
-                            >
-                              <InfoIcon sx={{ fontSize: 16 }} color="info" />
-                            </IconButton>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell sx={{
+                        py: 0.5,
+                        fontSize: '0.75rem',
+                        textDecoration: !user.is_active ? 'line-through' : 'none',
+                        color: !user.is_active ? 'text.disabled' : 'inherit'
+                      }}>
+                        {user.name}
+                        {!user.is_active && (
+                          <Chip
+                            label="비활성"
+                            size="small"
+                            color="error"
+                            variant="outlined"
+                            sx={{ ml: 0.5, height: 16, fontSize: '0.6rem' }}
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell sx={{ py: 0.5, fontSize: '0.75rem' }}>{user.today_login_count}</TableCell>
+                      <TableCell sx={{ py: 0.5 }}>
+                        <Tooltip title="상세보기">
+                          <IconButton
+                            size="small"
+                            onClick={(e) => handleOpenDetailDialog(user, e)}
+                            sx={{ p: 0.2 }}
+                          >
+                            <InfoIcon sx={{ fontSize: 16 }} color="info" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </Box>
+
+          {/* 페이지네이션 */}
+          {!loading && totalUserPages > 1 && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', borderTop: '1px solid #eee', pt: 1 }}>
+              <Pagination
+                count={totalUserPages}
+                page={userPage}
+                onChange={(e, page) => setUserPage(page)}
+                color="primary"
+                size="small"
+                showFirstButton
+                showLastButton
+              />
             </Box>
-          </>
-        )}
-      </Paper>
+          )}
+        </Paper>
+      )}
 
       {/* 오른쪽: 대시보드 (나머지 공간) */}
-      <Paper sx={{ flex: 1, p: 0, overflow: 'hidden', ml: 1, borderRadius: '0 4px 4px 0', display: 'flex', flexDirection: 'column' }}>
+      <Paper sx={{ flex: 1, p: 0, overflow: 'hidden', ml: sidebarCollapsed ? 0 : 1, borderRadius: sidebarCollapsed ? '4px' : '0 4px 4px 0', display: 'flex', flexDirection: 'column' }}>
+        {/* 사이드바 펼치기 버튼 (접혔을 때만 표시) */}
+        {sidebarCollapsed && (
+          <Box sx={{ px: 2, py: 1, borderBottom: '1px solid #eee', bgcolor: '#fafafa', display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Tooltip title="사용자 목록 펼치기">
+              <IconButton
+                size="small"
+                onClick={() => setSidebarCollapsed(false)}
+                sx={{
+                  bgcolor: 'grey.100',
+                  '&:hover': { bgcolor: 'grey.200' }
+                }}
+              >
+                <ChevronRightIcon />
+              </IconButton>
+            </Tooltip>
+            <Typography variant="body2" color="text.secondary">
+              사용자 목록 보기
+            </Typography>
+          </Box>
+        )}
+
         {/* 브랜드사 탭일 때 담당 영업사 관리 패널 - 한 줄로 컴팩트하게 */}
         {tabValue === 3 && selectedUser && (
           <Box sx={{ px: 2, py: 1, borderBottom: '1px solid #eee', bgcolor: '#fafafa', display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
