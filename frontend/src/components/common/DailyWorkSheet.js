@@ -285,8 +285,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   // 한글 입력 조합 중 상태 추적 (성능 최적화)
   const isComposingRef = useRef(false);
 
-  // 저장 중 상태
-  const [saving, setSaving] = useState(false);
+  // 저장 중 상태 (성능 최적화: ref 사용으로 리렌더링 방지)
+  const savingRef = useRef(false);
 
   // 이미지 갤러리 팝업 상태
   const [imagePopup, setImagePopup] = useState({
@@ -1096,7 +1096,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     const scrollPosition = hot?.rootElement?.querySelector('.wtHolder')?.scrollTop || 0;
     const scrollLeft = hot?.rootElement?.querySelector('.wtHolder')?.scrollLeft || 0;
 
-    setSaving(true);
+    // 중복 저장 방지 (성능 최적화: ref 사용)
+    if (savingRef.current) return;
+    savingRef.current = true;
+
     try {
       // 슬롯 변경사항 저장
       if (hasSlotChanges) {
@@ -1200,7 +1203,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       const serverMessage = error.response?.data?.message || error.response?.data?.error || error.message;
       showSnackbar(`저장 실패: ${serverMessage}`);
     } finally {
-      setSaving(false);
+      savingRef.current = false;
     }
   }, [slots, searchDate, viewAsUserId, showSnackbar]);
 
@@ -1408,24 +1411,17 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!
         </Box>
 
-        {/* 저장 버튼 */}
-        {saving && (
-          <Box sx={{ fontSize: '0.85rem', color: '#90caf9', fontWeight: 'bold' }}>
-            저장 중...
-          </Box>
-        )}
-        {hasChanges && !saving && (
-          <Button
-            variant="contained"
-            color="success"
-            size="small"
-            startIcon={<SaveIcon />}
-            onClick={handleSave}
-            sx={{ bgcolor: '#4caf50' }}
-          >
-            저장 ({totalChanges})
-          </Button>
-        )}
+        {/* 저장 버튼 (성능 최적화: 항상 표시, 조건부 렌더링 제거) */}
+        <Button
+          variant="contained"
+          color="success"
+          size="small"
+          startIcon={<SaveIcon />}
+          onClick={handleSave}
+          sx={{ bgcolor: '#4caf50' }}
+        >
+          저장 (Ctrl+S)
+        </Button>
       </Box>
 
       {/* 데이터 영역 */}
