@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
+import DownloadIcon from '@mui/icons-material/Download';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -16,6 +17,7 @@ import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
 import itemSlotService from '../../services/itemSlotService';
 import imageService from '../../services/imageService';
+import { downloadExcel, convertSlotsToExcelData } from '../../utils/excelExport';
 
 // Handsontable 모든 모듈 등록
 registerAllModules();
@@ -888,6 +890,21 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     }, 0);
   }, [slots, parseAmount]);
 
+  // 엑셀 다운로드 핸들러
+  const handleDownloadExcel = useCallback(() => {
+    const itemsMap = {};
+    slots.forEach(slot => {
+      if (!itemsMap[slot.item_id] && slot.item) {
+        itemsMap[slot.item_id] = slot.item;
+      }
+    });
+
+    const excelData = convertSlotsToExcelData(slots, itemsMap, userRole);
+    const dateStr = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : 'daily';
+    downloadExcel(excelData, `${dateStr}_daily_work`, '날짜별작업');
+    showSnackbar('엑셀 파일이 다운로드되었습니다');
+  }, [slots, userRole, selectedDate]);
+
   // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
   const productDataRenderer = useMemo(() =>
     createDailyProductDataRenderer(tableData, collapsedItems),
@@ -1409,13 +1426,30 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
               display: 'none',
               fontSize: '0.8rem',
               fontWeight: 'bold',
-              color: '#fff',
-              bgcolor: 'rgba(255,255,255,0.2)',
+              color: '#ffeb3b',
+              bgcolor: 'rgba(0,0,0,0.3)',
               px: 1,
               py: 0.3,
               borderRadius: 1
             }}
           />
+          <Button
+            size="small"
+            onClick={handleDownloadExcel}
+            disabled={slots.length === 0}
+            startIcon={<DownloadIcon />}
+            sx={{
+              color: 'white',
+              bgcolor: 'rgba(255,255,255,0.15)',
+              fontSize: '0.75rem',
+              px: 1.5,
+              py: 0.5,
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+              '&:disabled': { color: 'rgba(255,255,255,0.5)' }
+            }}
+          >
+            엑셀 다운로드
+          </Button>
         </Box>
 
         {/* 중앙 저장 안내 */}
