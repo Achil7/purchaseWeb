@@ -83,7 +83,7 @@ function AdminControlTower() {
 
   // 사용자 목록 페이지네이션 상태 (진행자/영업사/브랜드사 탭)
   const [userPage, setUserPage] = useState(1);
-  const USERS_PER_PAGE = 20;
+  const USERS_PER_PAGE = 10;
 
   // 진행자 배정 탭 - 영업사 검색 상태
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
@@ -894,7 +894,7 @@ function AdminControlTower() {
 
   // 사용자 관리 탭 렌더링
   const renderUserManagementTab = () => (
-    <Box sx={{ display: 'flex', gap: 0, flex: 1, overflow: 'hidden', position: 'relative' }}>
+    <Box sx={{ display: 'flex', gap: 0, flex: 1, overflow: 'hidden', position: 'relative', height: '100%' }}>
       {/* 왼쪽: 사용자 목록 (접기 가능) */}
       {!sidebarCollapsed && (
         <Paper
@@ -906,33 +906,12 @@ function AdminControlTower() {
             display: 'flex',
             flexDirection: 'column',
             borderRadius: '4px 0 0 4px',
-            position: 'relative'
+            position: 'relative',
+            height: '100%'
           }}
         >
-          {/* 사이드바 접기/펼치기 버튼 */}
-          <Box
-            sx={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              mb: 1
-            }}
-          >
-            <Tooltip title="사용자 목록 접기">
-              <IconButton
-                size="small"
-                onClick={() => setSidebarCollapsed(true)}
-                sx={{
-                  bgcolor: 'grey.100',
-                  '&:hover': { bgcolor: 'grey.200' }
-                }}
-              >
-                <ChevronLeftIcon />
-              </IconButton>
-            </Tooltip>
-          </Box>
-
-          {/* 검색 영역 */}
-          <Box sx={{ mb: 2 }}>
+          {/* 상단: 검색 + 접기 버튼 */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
             <TextField
               fullWidth
               size="small"
@@ -950,6 +929,21 @@ function AdminControlTower() {
                 )
               }}
             />
+            <Tooltip title="접기">
+              <IconButton
+                size="small"
+                onClick={() => setSidebarCollapsed(true)}
+                sx={{
+                  bgcolor: 'grey.100',
+                  '&:hover': { bgcolor: 'grey.200' },
+                  minWidth: 32,
+                  width: 32,
+                  height: 32
+                }}
+              >
+                <ChevronLeftIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
           </Box>
 
           {/* 페이지 정보 */}
@@ -1050,7 +1044,7 @@ function AdminControlTower() {
 
           {/* 페이지네이션 */}
           {!loading && totalUserPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', borderTop: '1px solid #eee', pt: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', borderTop: '1px solid #eee', pt: 1, mt: 'auto' }}>
               <Pagination
                 count={totalUserPages}
                 page={userPage}
@@ -1066,7 +1060,7 @@ function AdminControlTower() {
       )}
 
       {/* 오른쪽: 대시보드 (나머지 공간) */}
-      <Paper sx={{ flex: 1, p: 0, overflow: 'hidden', ml: sidebarCollapsed ? 0 : 1, borderRadius: sidebarCollapsed ? '4px' : '0 4px 4px 0', display: 'flex', flexDirection: 'column' }}>
+      <Paper sx={{ flex: 1, p: 0, overflow: 'hidden', ml: sidebarCollapsed ? 0 : 1, borderRadius: sidebarCollapsed ? '4px' : '0 4px 4px 0', display: 'flex', flexDirection: 'column', height: '100%' }}>
         {/* 사이드바 펼치기 버튼 (접혔을 때만 표시) */}
         {sidebarCollapsed && (
           <Box sx={{ px: 2, py: 1, borderBottom: '1px solid #eee', bgcolor: '#fafafa', display: 'flex', alignItems: 'center', gap: 1 }}>
