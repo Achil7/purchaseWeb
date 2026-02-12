@@ -271,15 +271,14 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   // 컬럼 너비 상태
   const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
 
-  // 변경된 슬롯들 추적
-  const [changedSlots, setChangedSlots] = useState({});
-  const changedSlotsRef = useRef(changedSlots);
-  changedSlotsRef.current = changedSlots;
+  // 변경된 슬롯들 추적 (성능 최적화: ref만 사용, state 제거로 리렌더링 방지)
+  const changedSlotsRef = useRef({});
 
-  // 변경된 아이템들 추적 (제품 정보 수정용)
-  const [changedItems, setChangedItems] = useState({});
-  const changedItemsRef = useRef(changedItems);
-  changedItemsRef.current = changedItems;
+  // 변경된 아이템들 추적 (제품 정보 수정용, 성능 최적화: ref만 사용)
+  const changedItemsRef = useRef({});
+
+  // 미저장 변경사항 플래그 (성능 최적화: ref만 사용)
+  const hasUnsavedChangesRef = useRef(false);
 
   // 스낵바 ref (성능 최적화: state 대신 ref + DOM 직접 조작)
   const snackbarRef = useRef(null);
@@ -456,8 +455,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     if (!forceRefresh && slotsCache.has(cacheKey)) {
       const cached = slotsCache.get(cacheKey);
       setSlots(cached.slots);
-      setChangedSlots({});
-      setChangedItems({});
+      changedSlotsRef.current = {};
+      changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
       setLoading(false);
       return;
     }
@@ -468,8 +468,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       if (response.success) {
         const newSlots = response.data || [];
         setSlots(newSlots);
-        setChangedSlots({});
-        setChangedItems({});
+        changedSlotsRef.current = {};
+        changedItemsRef.current = {};
+        hasUnsavedChangesRef.current = false;
 
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: newSlots, timestamp: Date.now() });
@@ -520,21 +521,6 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       loadSlots();
     }
   }, [searchDate, loadSlots]);
-
-  // Ctrl+S 키보드 단축키로 저장
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        if (Object.keys(changedSlots).length > 0 || Object.keys(changedItems).length > 0) {
-          handleSave();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [changedSlots, changedItems]);
 
   // Shift+휠 횡스크롤 핸들러
   useEffect(() => {
@@ -644,7 +630,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
       // 슬롯/아이템에서 제품 정보 병합 (changedItems > 슬롯 > 아이템 우선순위)
       const firstSlot = groupData.slots[0] || {};
-      const localChanges = changedItems[groupKey] || {};
+      const localChanges = changedItemsRef.current[groupKey] || {};
       const productInfo = {
         product_name: localChanges.product_name ?? firstSlot.product_name ?? item.product_name ?? '',
         platform: localChanges.platform ?? firstSlot.platform ?? item.platform ?? '',
@@ -744,8 +730,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           const buyer = slot.buyer || {};
           const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
 
-          // changedSlots에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
-          const slotChanges = changedSlots[slot.id] || {};
+          // changedSlotsRef에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
+          const slotChanges = changedSlotsRef.current[slot.id] || {};
 
           // buyer 필드 (changedSlots > buyer 우선순위)
           const mergedBuyer = {
@@ -827,7 +813,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     });
 
     return { tableData: data, rowMeta: meta };
-  }, [groupedSlots, collapsedItems, changedItems, changedSlots]); // changedItems, changedSlots 추가 - 로컬 수정사항 즉시 반영
+  }, [groupedSlots, collapsedItems]); // 성능 최적화: changedItems, changedSlots는 ref이므로 의존성에서 제거
 
   // 접기/펼치기 토글
   const toggleCollapse = useCallback((groupKey) => {
@@ -1056,9 +1042,14 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
                   }
                 }
               });
-              // 한 번의 호출로 모든 셀 업데이트 (렌더링 1회)
+              // 성능 최적화: requestAnimationFrame로 비동기화 (IME 조합 중단 방지)
               if (cellsToUpdate.length > 0) {
-                hot.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
+                requestAnimationFrame(() => {
+                  const hotInstance = hotRef.current?.hotInstance;
+                  if (hotInstance) {
+                    hotInstance.setDataAtCell(cellsToUpdate, 'syncBuyerDate');
+                  }
+                });
               }
             }
           }
@@ -1094,9 +1085,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       }
     }
 
-    setChangedSlots(slotUpdates);
-    setChangedItems(itemUpdates);
-  }, [rowMeta, tableData]);  // 성능 최적화: changedSlots, changedItems 제거 (ref로 대체), tableData 추가
+    // 성능 최적화: ref 직접 할당 (setState 제거로 리렌더링 방지)
+    changedSlotsRef.current = slotUpdates;
+    changedItemsRef.current = itemUpdates;
+    hasUnsavedChangesRef.current = true;
+  }, [rowMeta, tableData]);
 
   // 저장 핸들러 - 캠페인 시트와 동일하게 스크롤 위치 유지, 새로고침 없음
   const handleSave = useCallback(async () => {
@@ -1195,11 +1188,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         });
       });
 
-      // ref 및 state 초기화
+      // ref 초기화 (성능 최적화: state 제거)
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
-      setChangedSlots({});
-      setChangedItems({});
+      hasUnsavedChangesRef.current = false;
 
       // 모든 캐시 무효화 (다른 시트와 동기화를 위해)
       slotsCache.clear();
@@ -1226,6 +1218,21 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       savingRef.current = false;
     }
   }, [slots, searchDate, viewAsUserId, showSnackbar]);
+
+  // Ctrl+S 키보드 단축키로 저장 (성능 최적화: ref 기반으로 의존성 최소화)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (Object.keys(changedSlotsRef.current).length > 0 || Object.keys(changedItemsRef.current).length > 0) {
+          handleSave();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSave]);
 
   // 리뷰샷 삭제 핸들러
   const handleDeleteReviewConfirm = useCallback(async () => {
@@ -1271,10 +1278,6 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     });
     return cols;
   }, [columnWidths]);
-
-  // 변경사항 존재 여부
-  const hasChanges = Object.keys(changedSlots).length > 0 || Object.keys(changedItems).length > 0;
-  const totalChanges = Object.keys(changedSlots).length + Object.keys(changedItems).length;
 
   // 배정된 품목 수 계산 (day_group별 고유 품목)
   const uniqueItemCount = useMemo(() => {
