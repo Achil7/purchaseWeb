@@ -111,8 +111,10 @@ const createSalesProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
 
     if (prop === 'col0') {
       const itemId = rowData._itemId;
+      const dayGroup = rowData._dayGroup;
+      const collapseKey = `${itemId}_${dayGroup}`;
       // ref를 통해 최신 상태 참조
-      const isCollapsed = collapsedItemsRef.current.has(itemId);
+      const isCollapsed = collapsedItemsRef.current.has(collapseKey);
       const status = rowData._completionStatus;
 
       let completionBadge = '';
@@ -881,17 +883,14 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       });
       const isAllCompleted = totalSlots > 0 && totalSlots === completedSlots;
 
-      // 첫 번째 품목이 아닌 경우 품목 구분선 추가
-      if (!isFirstItem) {
-        data.push({ _rowType: ROW_TYPES.ITEM_SEPARATOR, _itemId: parseInt(itemId) });
-      }
-      isFirstItem = false;
-
       // day_group별 제품 데이터 행 생성 (OperatorItemSheet와 동일한 구조)
       const dayGroupKeys = Object.keys(itemGroup.dayGroups).sort((a, b) => parseInt(a) - parseInt(b));
-      let isFirstDayGroup = true;
 
-      dayGroupKeys.forEach((dayGroup) => {
+      dayGroupKeys.forEach((dayGroup, dayGroupIndex) => {
+        // 품목 구분선 추가 (첫 번째 품목의 첫 day_group 제외)
+        if (!isFirstItem || dayGroupIndex > 0) {
+          data.push({ _rowType: ROW_TYPES.ITEM_SEPARATOR, _itemId: parseInt(itemId), _dayGroup: parseInt(dayGroup) });
+        }
         const groupData = itemGroup.dayGroups[dayGroup];
         const uploadToken = groupData.uploadToken;
 
@@ -924,45 +923,41 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           notes: localChanges.notes ?? firstSlot.notes ?? item.notes ?? ''
         };
 
-        // 첫 번째 day_group에만 제품 헤더/데이터 행 추가
-        if (isFirstDayGroup) {
-          // 제품 헤더 행 (20개 컬럼) - col10에 택배사 추가
-          data.push({
-            _rowType: ROW_TYPES.PRODUCT_HEADER,
-            _itemId: parseInt(itemId),
-            _dayGroup: parseInt(dayGroup),
-            col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
-            col7: '가격', col8: '총건수', col9: '일건수', col10: '택배사', col11: '택배대행', col12: 'URL', col13: '특이사항', col14: '상세',
-            col15: '', col16: '', col17: '', col18: '', col19: ''
-          });
+        // 제품 헤더 행 (20개 컬럼) - 모든 day_group에 표시
+        data.push({
+          _rowType: ROW_TYPES.PRODUCT_HEADER,
+          _itemId: parseInt(itemId),
+          _dayGroup: parseInt(dayGroup),
+          col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
+          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배사', col11: '택배대행', col12: 'URL', col13: '특이사항', col14: '상세',
+          col15: '', col16: '', col17: '', col18: '', col19: ''
+        });
 
-          // 제품 데이터 행 (20개 컬럼) - col10에 택배사 추가, changedItems 반영
-          data.push({
-            _rowType: ROW_TYPES.PRODUCT_DATA,
-            _itemId: parseInt(itemId),
-            _dayGroup: parseInt(dayGroup),
-            _item: item,
-            _isSuspended: isDayGroupSuspended,
-            _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
-            col0: '',
-            col1: dayGroupProductInfo.date,
-            col2: dayGroupProductInfo.platform,
-            col3: dayGroupProductInfo.product_name,
-            col4: dayGroupProductInfo.purchase_option,
-            col5: dayGroupProductInfo.shipping_type,
-            col6: dayGroupProductInfo.keyword,
-            col7: dayGroupProductInfo.product_price,
-            col8: dayGroupProductInfo.total_purchase_count,
-            col9: dayGroupProductInfo.daily_purchase_count,
-            col10: dayGroupProductInfo.courier_name,
-            col11: dayGroupProductInfo.courier_service_yn,
-            col12: dayGroupProductInfo.product_url,
-            col13: dayGroupProductInfo.notes,
-            col14: '📋',
-            col15: '', col16: '', col17: '', col18: '', col19: ''
-          });
-          isFirstDayGroup = false;
-        }
+        // 제품 데이터 행 (20개 컬럼) - 모든 day_group에 표시
+        data.push({
+          _rowType: ROW_TYPES.PRODUCT_DATA,
+          _itemId: parseInt(itemId),
+          _dayGroup: parseInt(dayGroup),
+          _item: item,
+          _isSuspended: isDayGroupSuspended,
+          _completionStatus: { total: totalSlots, completed: completedSlots, isAllCompleted },
+          col0: '',
+          col1: dayGroupProductInfo.date,
+          col2: dayGroupProductInfo.platform,
+          col3: dayGroupProductInfo.product_name,
+          col4: dayGroupProductInfo.purchase_option,
+          col5: dayGroupProductInfo.shipping_type,
+          col6: dayGroupProductInfo.keyword,
+          col7: dayGroupProductInfo.product_price,
+          col8: dayGroupProductInfo.total_purchase_count,
+          col9: dayGroupProductInfo.daily_purchase_count,
+          col10: dayGroupProductInfo.courier_name,
+          col11: dayGroupProductInfo.courier_service_yn,
+          col12: dayGroupProductInfo.product_url,
+          col13: dayGroupProductInfo.notes,
+          col14: '📋',
+          col15: '', col16: '', col17: '', col18: '', col19: ''
+        });
 
         // 업로드 링크 바 (항상 포함)
         data.push({
@@ -1065,6 +1060,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           });
         });
       }); // dayGroupKeys.forEach 끝
+      isFirstItem = false;
     }); // Object.entries(itemGroups).forEach 끝
 
     return { baseTableData: data };
@@ -1080,19 +1076,21 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     if (collapsedItems.size === 0) return [];
 
     const hidden = [];
-    let currentCollapsedItemId = null;
+    let currentCollapsedKey = null;
 
     baseTableData.forEach((row, index) => {
       const itemId = row._itemId;
+      const dayGroup = row._dayGroup;
+      const collapseKey = `${itemId}_${dayGroup}`;
 
       // 제품 데이터 행에서 접힘 상태 확인
       if (row._rowType === ROW_TYPES.PRODUCT_DATA) {
-        currentCollapsedItemId = collapsedItems.has(itemId) ? itemId : null;
+        currentCollapsedKey = collapsedItems.has(collapseKey) ? collapseKey : null;
       }
 
       // 접힌 품목의 업로드 링크, 구매자 헤더, 구매자 데이터 행은 숨김
-      if (currentCollapsedItemId !== null &&
-          row._itemId === currentCollapsedItemId &&
+      if (currentCollapsedKey !== null &&
+          `${row._itemId}_${row._dayGroup}` === currentCollapsedKey &&
           (row._rowType === ROW_TYPES.UPLOAD_LINK_BAR ||
            row._rowType === ROW_TYPES.BUYER_HEADER ||
            row._rowType === ROW_TYPES.BUYER_DATA)) {
@@ -1241,14 +1239,14 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
   // 개별 품목 접기/펼치기 토글
   // 성능 최적화: localStorage 저장을 디바운스하여 I/O 지연
-  const toggleItemCollapse = useCallback((itemId) => {
-    console.log('[DEBUG] setCollapsedItems from TOGGLE:', itemId);
+  const toggleItemCollapse = useCallback((collapseKey) => {
+    console.log('[DEBUG] setCollapsedItems from TOGGLE:', collapseKey);
     setCollapsedItems(prev => {
       const next = new Set(prev);
-      if (next.has(itemId)) {
-        next.delete(itemId);
+      if (next.has(collapseKey)) {
+        next.delete(collapseKey);
       } else {
-        next.add(itemId);
+        next.add(collapseKey);
       }
 
       // localStorage 저장 디바운스 (300ms)
@@ -1275,15 +1273,16 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
   // 모두 접기
   const collapseAll = useCallback(() => {
-    const allItemIds = slots
-      .map(s => s.item_id)
-      .filter((id, idx, arr) => arr.indexOf(id) === idx);
-    console.log('[DEBUG] setCollapsedItems from COLLAPSE_ALL:', allItemIds);
-    const allCollapsed = new Set(allItemIds);
-    setCollapsedItems(allCollapsed);
+    // itemId_dayGroup 형태의 모든 고유 키 수집
+    const allKeys = new Set();
+    slots.forEach(s => {
+      allKeys.add(`${s.item_id}_${s.day_group}`);
+    });
+    console.log('[DEBUG] setCollapsedItems from COLLAPSE_ALL:', [...allKeys]);
+    setCollapsedItems(allKeys);
     // 즉시 저장 (사용자 명시적 액션)
     if (saveCollapsedTimeoutRef.current) clearTimeout(saveCollapsedTimeoutRef.current);
-    saveCollapsedItems(allCollapsed);
+    saveCollapsedItems(allKeys);
   }, [slots, saveCollapsedItems]);
 
   // 11차 최적화: debouncedRestoreHiddenRows 완전 제거
@@ -2369,7 +2368,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
               // 제품 데이터 행의 col0(토글) 클릭 시 접기/펼치기
               if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
                 const itemId = rowData._itemId;
-                toggleItemCollapse(itemId);
+                const dayGroup = rowData._dayGroup;
+                toggleItemCollapse(`${itemId}_${dayGroup}`);
                 return;
               }
 

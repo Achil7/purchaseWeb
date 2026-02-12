@@ -288,6 +288,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   // 저장 중 상태 (성능 최적화: ref 사용으로 리렌더링 방지)
   const savingRef = useRef(false);
 
+  // 선택된 셀 개수 표시용 ref (DOM 직접 업데이트로 리렌더링 방지)
+  const selectedCellCountRef = useRef(null);
+
   // 이미지 갤러리 팝업 상태
   const [imagePopup, setImagePopup] = useState({
     open: false,
@@ -1398,6 +1401,21 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           <Box sx={{ fontSize: '0.75rem', opacity: 0.8 }}>
             드래그 복사, Ctrl+C/V 지원
           </Box>
+          {/* 선택된 셀 개수 표시 */}
+          <Box
+            component="span"
+            ref={selectedCellCountRef}
+            sx={{
+              display: 'none',
+              fontSize: '0.8rem',
+              fontWeight: 'bold',
+              color: '#fff',
+              bgcolor: 'rgba(255,255,255,0.2)',
+              px: 1,
+              py: 0.3,
+              borderRadius: 1
+            }}
+          />
         </Box>
 
         {/* 중앙 저장 안내 */}
@@ -1736,6 +1754,25 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
                 hotRef.current.hotInstance._isKeyboardNav = false;
               } else {
                 preventScrolling.value = true;
+              }
+
+              // 선택된 셀 개수 계산 및 DOM 직접 업데이트 (리렌더링 방지)
+              const rowCount = Math.abs(row2 - row) + 1;
+              const colCount = Math.abs(column2 - column) + 1;
+              const cellCount = rowCount * colCount;
+              if (selectedCellCountRef.current) {
+                if (cellCount > 1) {
+                  selectedCellCountRef.current.textContent = `선택: ${cellCount}셀 (${rowCount}행 × ${colCount}열)`;
+                  selectedCellCountRef.current.style.display = 'inline';
+                } else {
+                  selectedCellCountRef.current.style.display = 'none';
+                }
+              }
+            }}
+            afterDeselect={() => {
+              // 선택 해제 시 셀 개수 숨김
+              if (selectedCellCountRef.current) {
+                selectedCellCountRef.current.style.display = 'none';
               }
             }}
             beforeKeyDown={(event) => {
