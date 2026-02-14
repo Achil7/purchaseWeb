@@ -55,7 +55,8 @@
       "Bash(do echo \"=== $hash ===\")",
       "Bash(break)",
       "Bash(done)",
-      "Bash(docker compose build:*)"
+      "Bash(docker compose build:*)",
+      "Bash(npx react-scripts build:*)"
     ],
     "deny": [],
     "ask": []

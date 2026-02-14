@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import {
   Box, Typography, IconButton, Chip, Paper,
   List, ListItemButton, ListItemIcon, ListItemText, CircularProgress, Collapse, Tooltip,
-  TextField, InputAdornment
+  TextField, InputAdornment, Pagination
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
@@ -221,6 +221,10 @@ function OperatorSidebar({
   // 연월브랜드 검색 상태
   const [searchQuery, setSearchQuery] = useState('');
 
+  // 페이지네이션 상태
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
+
   // 디바운스용 ref
   const saveExpandedTimeoutRef = useRef(null);
 
@@ -290,6 +294,18 @@ function OperatorSidebar({
       return !isMbHidden;
     });
   }, [monthlyBrands, hiddenCampaignIdsSet, hiddenMonthlyBrandIdsSet, showHidden, searchQuery]);
+
+  // 페이지네이션 계산
+  const totalPages = Math.ceil(filteredMonthlyBrands.length / ITEMS_PER_PAGE);
+  const paginatedMonthlyBrands = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredMonthlyBrands.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredMonthlyBrands, currentPage]);
+
+  // 검색어 변경 시 페이지 초기화
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   // 캐싱된 통계 조회
   const getCampaignStats = useCallback((campaign) => {
@@ -572,7 +588,7 @@ function OperatorSidebar({
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
               <CircularProgress size={24} />
             </Box>
-          ) : filteredMonthlyBrands.length === 0 ? (
+          ) : paginatedMonthlyBrands.length === 0 ? (
             <Box sx={{ p: 3, textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
                 {showHidden
@@ -593,7 +609,7 @@ function OperatorSidebar({
                     ref={provided.innerRef}
                     {...provided.droppableProps}
                   >
-                    {filteredMonthlyBrands.map((monthlyBrand, index) => {
+                    {paginatedMonthlyBrands.map((monthlyBrand, index) => {
                       const isMbHidden = hiddenMonthlyBrandIdsSet.has(monthlyBrand.id);
                       if (!showHidden && isMbHidden) return null;
 
@@ -708,6 +724,20 @@ function OperatorSidebar({
                 )}
               </Droppable>
             </DragDropContext>
+          )}
+
+          {/* 페이지네이션 */}
+          {!loading && totalPages > 1 && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, borderTop: '1px solid #e0e0e0' }}>
+              <Pagination
+                count={totalPages}
+                page={currentPage}
+                onChange={(e, page) => setCurrentPage(page)}
+                color="primary"
+                size="small"
+                siblingCount={0}
+              />
+            </Box>
           )}
         </Box>
       )}

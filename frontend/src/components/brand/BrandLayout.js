@@ -4,7 +4,7 @@ import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar, Paper,
   Badge, Menu, MenuItem, ListItemText, Divider,
   List, ListItemButton, ListItemIcon, CircularProgress, Chip, Tooltip, Collapse,
-  TextField, InputAdornment
+  TextField, InputAdornment, Pagination
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
@@ -78,6 +78,10 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   // 연월브랜드 검색 쿼리
   const [searchQuery, setSearchQuery] = useState('');
 
+  // 페이지네이션 상태
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
+
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -110,6 +114,11 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       startWidth: sidebarWidth
     };
   }, [sidebarWidth]);
+
+  // 검색어 변경 시 페이지 초기화
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -659,6 +668,11 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 return !mb._isHidden;
               });
 
+              // 페이지네이션 계산
+              const brandTotalPages = Math.ceil(filteredMonthlyBrands.length / ITEMS_PER_PAGE);
+              const brandStartIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+              const paginatedMonthlyBrands = filteredMonthlyBrands.slice(brandStartIndex, brandStartIndex + ITEMS_PER_PAGE);
+
               if (filteredMonthlyBrands.length === 0) {
                 return (
                   <Box sx={{ p: 3, textAlign: 'center' }}>
@@ -675,6 +689,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               }
 
               return (
+                <>
                 <DragDropContext onDragEnd={handleDragEnd}>
                   <Droppable droppableId="monthly-brands-brand" isDropDisabled={showHidden}>
                     {(provided) => (
@@ -685,7 +700,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                         ref={provided.innerRef}
                         {...provided.droppableProps}
                       >
-                        {filteredMonthlyBrands.map((monthlyBrand, index) => {
+                        {paginatedMonthlyBrands.map((monthlyBrand, index) => {
                           const campaigns = monthlyBrand.campaigns || [];
                           return (
                             <Draggable
@@ -827,6 +842,19 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                     )}
                   </Droppable>
                 </DragDropContext>
+                {brandTotalPages > 1 && (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, borderTop: '1px solid #e0e0e0' }}>
+                    <Pagination
+                      count={brandTotalPages}
+                      page={currentPage}
+                      onChange={(e, page) => setCurrentPage(page)}
+                      color="primary"
+                      size="small"
+                      siblingCount={0}
+                    />
+                  </Box>
+                )}
+                </>
               );
             })()}
           </Box>
