@@ -137,8 +137,9 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const sheetRef = useRef(null);
   const saveExpandedTimeoutRef = useRef(null); // 연월브랜드 펼침 상태 저장 디바운스용
   const resizeRef = useRef(null); // 리사이즈 핸들러 ref
+  const sidebarRef = useRef(null); // 사이드바 DOM ref (리사이즈 시 직접 조작)
 
-  // 사이드바 리사이즈 핸들러
+  // 사이드바 리사이즈 핸들러 (DOM 직접 조작으로 리렌더 방지)
   const handleMouseDown = useCallback((e) => {
     e.preventDefault();
     setIsResizing(true);
@@ -156,17 +157,20 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   useEffect(() => {
     const handleMouseMove = (e) => {
       if (!isResizing || !resizeRef.current) return;
-
       const diff = e.clientX - resizeRef.current.startX;
       const newWidth = Math.min(MAX_DRAWER_WIDTH, Math.max(MIN_DRAWER_WIDTH, resizeRef.current.startWidth + diff));
-      setSidebarWidth(newWidth);
+      resizeRef.current.currentWidth = newWidth;
+      if (sidebarRef.current) {
+        sidebarRef.current.style.width = `${newWidth}px`;
+      }
     };
 
     const handleMouseUp = () => {
       if (isResizing) {
+        const finalWidth = resizeRef.current.currentWidth || resizeRef.current.startWidth;
         setIsResizing(false);
-        // localStorage에 저장
-        localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
+        setSidebarWidth(finalWidth);
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, finalWidth.toString());
       }
     };
 
@@ -183,7 +187,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [isResizing, sidebarWidth]);
+  }, [isResizing]);
 
   // 연월브랜드 데이터 로드
   const loadMonthlyBrands = useCallback(async (selectedCampaignId = null) => {
@@ -793,6 +797,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록 */}
       <Box sx={{ display: 'flex', flexShrink: 0, position: 'relative' }}>
         <Paper
+          ref={sidebarRef}
           sx={{
             width: sidebarCollapsed ? 40 : sidebarWidth,
             flexShrink: 0,

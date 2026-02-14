@@ -228,7 +228,9 @@ function OperatorSidebar({
   // 디바운스용 ref
   const saveExpandedTimeoutRef = useRef(null);
 
-  // ========== 리사이즈 핸들러 ==========
+  // ========== 리사이즈 핸들러 (DOM 직접 조작으로 리렌더 방지) ==========
+
+  const sidebarRef = useRef(null);
 
   const handleMouseDown = useCallback((e) => {
     e.preventDefault();
@@ -244,13 +246,18 @@ function OperatorSidebar({
       if (!isResizing) return;
       const delta = e.clientX - resizeRef.current.startX;
       const newWidth = Math.min(MAX_DRAWER_WIDTH, Math.max(MIN_DRAWER_WIDTH, resizeRef.current.startWidth + delta));
-      setSidebarWidth(newWidth);
+      resizeRef.current.currentWidth = newWidth;
+      if (sidebarRef.current) {
+        sidebarRef.current.style.width = `${newWidth}px`;
+      }
     };
 
     const handleMouseUp = () => {
       if (isResizing) {
+        const finalWidth = resizeRef.current.currentWidth || resizeRef.current.startWidth;
         setIsResizing(false);
-        localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
+        setSidebarWidth(finalWidth);
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, finalWidth.toString());
       }
     };
 
@@ -263,7 +270,7 @@ function OperatorSidebar({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isResizing, sidebarWidth]);
+  }, [isResizing]);
 
   // ========== 성능 최적화 ==========
 
@@ -492,6 +499,7 @@ function OperatorSidebar({
   return (
     <Box sx={{ display: 'flex', flexShrink: 0, position: 'relative' }}>
     <Paper
+      ref={sidebarRef}
       sx={{
         width: sidebarCollapsed ? 40 : sidebarWidth,
         flexShrink: 0,
