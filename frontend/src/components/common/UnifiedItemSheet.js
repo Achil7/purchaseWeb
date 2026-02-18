@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import { HotTable } from '@handsontable/react';
 import ImageSwipeViewer from './ImageSwipeViewer';
@@ -157,16 +157,16 @@ function UnifiedItemSheetInner({
 
   // 슬롯 데이터
   const [slots, setSlots] = useState([]);
+  const slotsRef = useRef(slots);
+  slotsRef.current = slots;
   const [loading, setLoading] = useState(false);
 
-  // 변경된 슬롯들 추적
-  const [changedSlots, setChangedSlots] = useState({});
-  const changedSlotsRef = useRef(changedSlots);
-  changedSlotsRef.current = changedSlots;
-  // 변경된 품목 추적 (판매단가, 택배단가 등 Item 테이블 필드)
-  const [changedItems, setChangedItems] = useState({});
-  const changedItemsRef = useRef(changedItems);
-  changedItemsRef.current = changedItems;
+  // 변경된 슬롯들 추적 (성능 최적화: ref만 사용, state 제거로 리렌더링 방지)
+  const changedSlotsRef = useRef({});
+  // 변경된 품목 추적 (판매단가, 택배단가 등 Item 테이블 필드, 성능 최적화: ref만 사용)
+  const changedItemsRef = useRef({});
+  // 미저장 변경사항 플래그 (성능 최적화: ref만 사용)
+  const hasUnsavedChangesRef = useRef(false);
 
   // 삭제 다이얼로그 상태
   const [deleteDialog, setDeleteDialog] = useState({
@@ -176,11 +176,14 @@ function UnifiedItemSheetInner({
     message: ''
   });
 
-  // 저장 중 상태
-  const [saving, setSaving] = useState(false);
+  // 저장 중 상태 (성능 최적화: ref 사용으로 리렌더링 방지)
+  const savingRef = useRef(false);
 
-  // 스낵바 상태
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  // 스낵바 ref (성능 최적화: state 대신 ref + DOM 직접 조작)
+  const snackbarRef = useRef(null);
+
+  // 한글 입력 조합 중 상태 추적 (성능 최적화)
+  const isComposingRef = useRef(false);
 
   // 이미지 스와이프 뷰어 상태
   const [imagePopup, setImagePopup] = useState({ open: false, images: [], currentIndex: 0, buyer: null });
@@ -234,8 +237,9 @@ function UnifiedItemSheetInner({
     if (!forceRefresh && slotsCache.has(cacheKey)) {
       const cached = slotsCache.get(cacheKey);
       setSlots(cached.slots);
-      setChangedSlots({});
-      setChangedItems({});
+      changedSlotsRef.current = {};
+      changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
       setLoading(false);
       return;
     }
@@ -254,8 +258,9 @@ function UnifiedItemSheetInner({
       if (response.success) {
         const newSlots = response.data || [];
         setSlots(newSlots);
-        setChangedSlots({});
-        setChangedItems({});
+        changedSlotsRef.current = {};
+        changedItemsRef.current = {};
+        hasUnsavedChangesRef.current = false;
 
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: newSlots, timestamp: Date.now() });
@@ -280,12 +285,27 @@ function UnifiedItemSheetInner({
     }
   }, [items.length]);
 
+  // 스낵바 표시 함수 (성능 최적화: DOM 직접 조작, CSS animation 사용)
+  const showSnackbar = useCallback((message) => {
+    const snackbarEl = snackbarRef.current;
+    if (!snackbarEl) return;
+
+    const messageEl = snackbarEl.querySelector('.snackbar-message');
+    if (messageEl) messageEl.textContent = message;
+
+    snackbarEl.style.animation = 'none';
+    void snackbarEl.offsetHeight;
+    snackbarEl.style.visibility = 'visible';
+    snackbarEl.style.opacity = '1';
+    snackbarEl.style.animation = 'snackbarFadeOut 0.3s 2s forwards';
+  }, []);
+
   // Ctrl+S 키보드 단축키로 저장
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        if (Object.keys(changedSlots).length > 0 || Object.keys(changedItems).length > 0) {
+        if (Object.keys(changedSlotsRef.current).length > 0 || Object.keys(changedItemsRef.current).length > 0) {
           handleSaveChanges();
         }
       }
@@ -293,7 +313,23 @@ function UnifiedItemSheetInner({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [changedSlots, changedItems]);
+  }, []);
+
+  // 한글 IME 조합 이벤트 리스너 (성능 최적화)
+  useEffect(() => {
+    const container = hotRef.current?.hotInstance?.rootElement;
+    if (!container) return;
+    const handleCompositionStart = () => { isComposingRef.current = true; };
+    const handleCompositionEnd = () => {
+      requestAnimationFrame(() => { isComposingRef.current = false; });
+    };
+    container.addEventListener('compositionstart', handleCompositionStart);
+    container.addEventListener('compositionend', handleCompositionEnd);
+    return () => {
+      container.removeEventListener('compositionstart', handleCompositionStart);
+      container.removeEventListener('compositionend', handleCompositionEnd);
+    };
+  }, [slots]);
 
   // Shift+휠 스크롤로 횡스크롤만 지원
   useEffect(() => {
@@ -423,6 +459,10 @@ function UnifiedItemSheetInner({
     return { tableData: data };
   }, [slots, items]);
 
+  // 성능 최적화: tableData를 ref로도 유지 (handleAfterChange 의존성에서 제거하기 위함)
+  const tableDataRef = useRef(tableData);
+  tableDataRef.current = tableData;
+
   // 상태 옵션
   const statusOptions = ['active', 'completed', 'cancelled'];
   const statusLabels = { active: '진행', completed: '완료', cancelled: '취소' };
@@ -432,7 +472,7 @@ function UnifiedItemSheetInner({
     if (!token) return;
     const uploadUrl = `${window.location.origin}/upload-slot/${token}`;
     navigator.clipboard.writeText(uploadUrl).then(() => {
-      setSnackbar({ open: true, message: '업로드 링크가 복사되었습니다', severity: 'success' });
+      showSnackbar('업로드 링크가 복사되었습니다');
     }).catch(err => {
       console.error('Failed to copy:', err);
     });
@@ -603,13 +643,16 @@ function UnifiedItemSheetInner({
   const handleAfterChange = useCallback((changes, source) => {
     if (!changes || source === 'loadData') return;
 
+    // 성능 최적화: ref에서 최신값 읽기 (의존성 배열에서 제거하여 함수 재생성 방지)
+    const currentTableData = tableDataRef.current;
+
     const slotUpdates = { ...changedSlotsRef.current };
     const itemUpdates = { ...changedItemsRef.current };
 
     changes.forEach(([row, prop, oldValue, newValue]) => {
       if (oldValue === newValue) return;
 
-      const rowData = tableData[row];
+      const rowData = currentTableData[row];
       if (!rowData) return;
 
       // 품목 구분선, 업로드 링크 바는 수정 불가
@@ -663,7 +706,7 @@ function UnifiedItemSheetInner({
           // 슬롯 필드 - 해당 day_group의 모든 슬롯에 적용해야 함
           // 여기서는 첫 번째 슬롯만 업데이트 (대표 슬롯)
           const dayGroup = rowData._dayGroup;
-          const slotsInGroup = slots.filter(s => s.item_id === itemId && s.day_group === dayGroup);
+          const slotsInGroup = slotsRef.current.filter(s => s.item_id === itemId && s.day_group === dayGroup);
           slotsInGroup.forEach(slot => {
             if (!slotUpdates[slot.id]) {
               slotUpdates[slot.id] = { id: slot.id };
@@ -715,29 +758,35 @@ function UnifiedItemSheetInner({
       }
     });
 
-    setChangedSlots(slotUpdates);
-    setChangedItems(itemUpdates);
-  }, [tableData, slots]);  // 성능 최적화: changedSlots, changedItems 제거 (ref로 대체)
+    // 성능 최적화: ref 직접 할당 (setState 제거로 리렌더링 방지)
+    changedSlotsRef.current = slotUpdates;
+    changedItemsRef.current = itemUpdates;
+    hasUnsavedChangesRef.current = true;
+  }, []); // 성능 최적화: 의존성 빈배열 (tableData/slots는 ref로 접근)
 
   // 변경사항 저장 - 새로고침 없이 로컬 상태만 업데이트
   const handleSaveChanges = async () => {
-    const hasSlotChanges = Object.keys(changedSlots).length > 0;
-    const hasItemChanges = Object.keys(changedItems).length > 0;
+    // ref에서 변경사항 읽기 (성능 최적화)
+    const currentChangedSlots = changedSlotsRef.current;
+    const currentChangedItems = changedItemsRef.current;
+    const hasSlotChanges = Object.keys(currentChangedSlots).length > 0;
+    const hasItemChanges = Object.keys(currentChangedItems).length > 0;
 
     if (!hasSlotChanges && !hasItemChanges) return;
 
-    setSaving(true);
+    if (savingRef.current) return;
+    savingRef.current = true;
 
     try {
       // 슬롯 데이터 저장
       if (hasSlotChanges) {
-        const slotsToUpdate = Object.values(changedSlots);
+        const slotsToUpdate = Object.values(currentChangedSlots);
         await itemSlotService.updateSlotsBulk(slotsToUpdate);
       }
 
       // 품목 데이터 저장
       if (hasItemChanges) {
-        const itemsToUpdate = Object.values(changedItems);
+        const itemsToUpdate = Object.values(currentChangedItems);
         await Promise.all(
           itemsToUpdate.map(item => itemService.updateItem(item.id, item))
         );
@@ -750,7 +799,7 @@ function UnifiedItemSheetInner({
             let updatedSlot = { ...slot };
 
             // 슬롯 변경사항 적용
-            const slotChange = changedSlots[slot.id];
+            const slotChange = currentChangedSlots[slot.id];
             if (slotChange) {
               // buyer 필드 업데이트
               const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'deposit_name', 'payment_confirmed', 'status'];
@@ -779,7 +828,7 @@ function UnifiedItemSheetInner({
             }
 
             // 제품 정보 변경사항 적용
-            const itemChange = changedItems[slot.item_id];
+            const itemChange = currentChangedItems[slot.item_id];
             if (itemChange && updatedSlot.item) {
               updatedSlot.item = { ...updatedSlot.item, ...itemChange };
             }
@@ -789,21 +838,22 @@ function UnifiedItemSheetInner({
         });
       }
 
-      // 상태 초기화
-      setChangedSlots({});
-      setChangedItems({});
+      // 상태 초기화 (성능 최적화: ref 직접 초기화)
+      changedSlotsRef.current = {};
+      changedItemsRef.current = {};
+      hasUnsavedChangesRef.current = false;
 
       // 캐시 무효화 (다음 로드 시 최신 데이터 가져오도록)
       const cacheKey = `unified_${campaignId}_${effectiveRole}_${viewAsUserId || ''}`;
       slotsCache.delete(cacheKey);
 
-      setSnackbar({ open: true, message: '저장되었습니다', severity: 'success' });
+      showSnackbar('저장되었습니다');
 
     } catch (error) {
       console.error('Failed to save changes:', error);
-      setSnackbar({ open: true, message: '저장 실패: ' + error.message, severity: 'error' });
+      showSnackbar('저장 실패: ' + error.message);
     } finally {
-      setSaving(false);
+      savingRef.current = false;
     }
   };
 
@@ -833,7 +883,7 @@ function UnifiedItemSheetInner({
       }
 
       closeDeleteDialog();
-      setSnackbar({ open: true, message: '삭제되었습니다', severity: 'success' });
+      showSnackbar('삭제되었습니다');
       setFilteredRows(null);
       setFilteredColumns(new Set());
       filterConditionsRef.current = null;
@@ -841,14 +891,14 @@ function UnifiedItemSheetInner({
       if (onRefresh) onRefresh();
     } catch (error) {
       console.error('Delete failed:', error);
-      setSnackbar({ open: true, message: '삭제 실패: ' + error.message, severity: 'error' });
+      showSnackbar('삭제 실패: ' + error.message);
     }
   };
 
   // 배송지연 토글 핸들러
   const handleToggleShippingDelayed = useCallback(async (buyerId, currentValue) => {
     if (!buyerId) {
-      setSnackbar({ open: true, message: '구매자 정보가 없습니다', severity: 'warning' });
+      showSnackbar('구매자 정보가 없습니다');
       return;
     }
 
@@ -868,14 +918,10 @@ function UnifiedItemSheetInner({
         });
       });
 
-      setSnackbar({
-        open: true,
-        message: newValue ? '배송지연으로 표시되었습니다' : '배송지연이 해제되었습니다',
-        severity: 'success'
-      });
+      showSnackbar(newValue ? '배송지연으로 표시되었습니다' : '배송지연이 해제되었습니다');
     } catch (error) {
       console.error('Failed to toggle shipping delayed:', error);
-      setSnackbar({ open: true, message: '배송지연 상태 변경에 실패했습니다', severity: 'error' });
+      showSnackbar('배송지연 상태 변경에 실패했습니다');
     }
   }, []);
 
@@ -930,9 +976,6 @@ function UnifiedItemSheetInner({
 
     return cellProperties;
   }, [tableData, uploadLinkBarRenderer, buyerDataRenderer]);
-
-  const hasChanges = Object.keys(changedSlots).length > 0 || Object.keys(changedItems).length > 0;
-  const totalChanges = Object.keys(changedSlots).length + Object.keys(changedItems).length;
 
   // 전체 구매자 건수 (원본 slots 기준 - 필터/접기와 무관하게 항상 전체 건수)
   const totalBuyerCount = useMemo(() => {
@@ -1004,23 +1047,16 @@ function UnifiedItemSheetInner({
             드래그 복사, Ctrl+C/V 지원 | 노란색=제품정보, 검정=업로드링크
           </Box>
         </Box>
-        {saving && (
-          <Box sx={{ fontSize: '0.85rem', fontWeight: 'bold' }}>
-            저장 중...
-          </Box>
-        )}
-        {hasChanges && !saving && (
-          <Button
-            variant="contained"
-            color="success"
-            size="small"
-            startIcon={<SaveIcon />}
-            onClick={handleSaveChanges}
-            sx={{ bgcolor: '#4caf50' }}
-          >
-            저장 ({totalChanges})
-          </Button>
-        )}
+        <Button
+          variant="contained"
+          color="success"
+          size="small"
+          startIcon={<SaveIcon />}
+          onClick={handleSaveChanges}
+          sx={{ bgcolor: '#4caf50' }}
+        >
+          저장
+        </Button>
       </Box>
 
       <Paper sx={{
@@ -1115,7 +1151,10 @@ function UnifiedItemSheetInner({
             }}
             copyPaste={true}
             fillHandle={true}
-            afterChange={handleAfterChange}
+            afterChange={(changes, source) => {
+              if (isComposingRef.current) return;
+              handleAfterChange(changes, source);
+            }}
             cells={cellsRenderer}
             afterOnCellMouseUp={(event, coords) => {
               const rowData = tableData[coords.row];
@@ -1320,17 +1359,32 @@ function UnifiedItemSheetInner({
         </DialogActions>
       </Dialog>
 
-      {/* 스낵바 */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      {/* 스낵바 (성능 최적화: ref 기반 DOM 직접 조작, CSS animation) */}
+      <div
+        ref={snackbarRef}
+        style={{
+          position: 'fixed',
+          bottom: '24px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: '#323232',
+          color: '#fff',
+          padding: '8px 24px',
+          borderRadius: '4px',
+          fontSize: '14px',
+          zIndex: 9999,
+          visibility: 'hidden',
+          opacity: 0,
+          transition: 'opacity 0.3s',
+        }}
       >
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        <span className="snackbar-message"></span>
+      </div>
+      <style>{`
+        @keyframes snackbarFadeOut {
+          to { opacity: 0; visibility: hidden; }
+        }
+      `}</style>
 
       {/* 이미지 스와이프 뷰어 */}
       <ImageSwipeViewer

@@ -815,6 +815,12 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     return { tableData: data, rowMeta: meta };
   }, [groupedSlots, collapsedItems]); // 성능 최적화: changedItems, changedSlots는 ref이므로 의존성에서 제거
 
+  // 성능 최적화: tableData/rowMeta를 ref로도 유지 (handleAfterChange 의존성에서 제거하기 위함)
+  const tableDataRef = useRef(tableData);
+  tableDataRef.current = tableData;
+  const rowMetaRef = useRef(rowMeta);
+  rowMetaRef.current = rowMeta;
+
   // 접기/펼치기 토글
   const toggleCollapse = useCallback((groupKey) => {
     setCollapsedItems(prev => {
@@ -982,13 +988,17 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   const handleAfterChange = useCallback((changes, source) => {
     if (!changes || source === 'loadData' || source === 'syncBuyerDate') return;
 
+    // 성능 최적화: ref에서 최신값 읽기 (의존성 배열에서 제거하여 함수 재생성 방지)
+    const currentRowMeta = rowMetaRef.current;
+    const currentTableData = tableDataRef.current;
+
     const slotUpdates = { ...changedSlotsRef.current };
     const itemUpdates = { ...changedItemsRef.current };
 
     for (const [row, prop, oldValue, newValue] of changes) {
       if (oldValue === newValue) continue;
 
-      const meta = rowMeta[row];
+      const meta = currentRowMeta[row];
       if (!meta) continue;
 
       const { type, slotId, itemId, dayGroup } = meta;
@@ -1027,8 +1037,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
               const groupKey = `${itemId}_${dayGroup}`;
               // 성능 최적화: 변경할 셀들을 배열로 모아서 한 번에 업데이트
               const cellsToUpdate = [];
-              tableData.forEach((buyerRow, buyerRowIndex) => {
-                const buyerMeta = rowMeta[buyerRowIndex];
+              currentTableData.forEach((buyerRow, buyerRowIndex) => {
+                const buyerMeta = currentRowMeta[buyerRowIndex];
                 if (buyerMeta?.type === ROW_TYPES.BUYER_DATA &&
                     `${buyerMeta.itemId}_${buyerMeta.dayGroup}` === groupKey) {
                   cellsToUpdate.push([buyerRowIndex, 2, newDate]);
@@ -1089,7 +1099,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     changedSlotsRef.current = slotUpdates;
     changedItemsRef.current = itemUpdates;
     hasUnsavedChangesRef.current = true;
-  }, [rowMeta, tableData]);
+  }, []); // 성능 최적화: 의존성 빈배열 (rowMeta/tableData는 ref로 접근)
 
   // 저장 핸들러 - 캠페인 시트와 동일하게 스크롤 위치 유지, 새로고침 없음
   const handleSave = useCallback(async () => {
