@@ -114,7 +114,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 20;
+  const ITEMS_PER_PAGE = 15;
 
   // 시트 탭 상태 (0: 기본 시트, 1: 날짜별 작업)
   const [sheetTab, setSheetTab] = useState(0);
@@ -973,13 +973,15 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                             >
                               {(provided, snapshot) => (
                                 <React.Fragment>
-                                  <ListItemButton
+                                  <div
                                     ref={provided.innerRef}
                                     {...provided.draggableProps}
+                                  >
+                                  <ListItemButton
                                     onClick={() => handleMonthlyBrandToggle(monthlyBrand.id)}
                                     sx={{
                                       bgcolor: snapshot.isDragging
-                                        ? '#c5cae9'
+                                        ? '#bbdefb'
                                         : monthlyBrand._isHidden
                                           ? '#fff3e0'
                                           : expandedMonthlyBrands[monthlyBrand.id]
@@ -999,23 +1001,20 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                           alignItems: 'center',
                                           mr: 0.5,
                                           cursor: 'grab',
-                                          color: 'text.disabled',
-                                          '&:hover': { color: 'text.secondary' }
+                                          '&:active': { cursor: 'grabbing' }
                                         }}
                                         onClick={(e) => e.stopPropagation()}
                                       >
-                                        <DragIndicatorIcon sx={{ fontSize: 18 }} />
+                                        <DragIndicatorIcon sx={{ fontSize: 18, color: '#9e9e9e' }} />
                                       </Box>
                                     )}
                                     <ListItemIcon sx={{ minWidth: 28 }}>
                                       <CalendarMonthIcon fontSize="small" color={monthlyBrand._isHidden ? 'warning' : 'primary'} />
                                     </ListItemIcon>
-                                    <ListItemText
-                                      primary={
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                          <Typography variant="body2" fontWeight="bold" noWrap sx={{ flex: 1, fontSize: '0.85rem', color: monthlyBrand._isHidden ? 'text.secondary' : 'inherit' }}>
-                                            {monthlyBrand.name}
-                                          </Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
+                                      <Typography variant="body2" fontWeight="bold" noWrap sx={{ flex: 1, fontSize: '0.85rem', color: monthlyBrand._isHidden ? 'text.secondary' : 'inherit' }}>
+                                        {monthlyBrand.name}
+                                      </Typography>
                                           {showHidden && monthlyBrand._isHidden ? (
                                             <>
                                               <Tooltip title="선택">
@@ -1061,9 +1060,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                             </>
                                           ) : null}
                                           <Chip label={filteredCampaigns.length} size="small" sx={{ height: 18, minWidth: 20, fontSize: '0.65rem' }} />
-                                        </Box>
-                                      }
-                                    />
+                                    </Box>
                                     {expandedMonthlyBrands[monthlyBrand.id] ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
                                   </ListItemButton>
 
@@ -1187,6 +1184,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                             )}
                                           </List>
                                         </Collapse>
+                                      </div>
                                       </React.Fragment>
                                     )}
                                   </Draggable>

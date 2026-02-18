@@ -80,7 +80,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 20;
+  const ITEMS_PER_PAGE = 15;
 
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -616,14 +616,9 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                   </Tooltip>
                 </Box>
               </Box>
-              <Typography variant="caption" color="text.secondary">
-                {showHidden ? '숨긴 연월브랜드/캠페인을 복구할 수 있습니다' : '캠페인 클릭 시 리뷰 현황이 표시됩니다'}
-              </Typography>
-            </Box>
 
-            {/* 연월브랜드 검색 입력 필드 */}
-            {!showHidden && (
-              <Box sx={{ px: 1.5, pb: 1 }}>
+              {/* 연월브랜드 검색 */}
+              {!showHidden && (
                 <TextField
                   size="small"
                   placeholder="연월브랜드 검색..."
@@ -631,6 +626,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                   onChange={(e) => setSearchQuery(e.target.value)}
                   fullWidth
                   sx={{
+                    mt: 1,
                     '& .MuiInputBase-root': { height: 28, fontSize: '0.75rem' },
                     '& .MuiInputBase-input': { py: 0.5 }
                   }}
@@ -649,8 +645,8 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                     )
                   }}
                 />
-              </Box>
-            )}
+              )}
+            </Box>
 
             {loading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>

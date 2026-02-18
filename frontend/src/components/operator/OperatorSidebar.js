@@ -223,7 +223,7 @@ function OperatorSidebar({
 
   // 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 20;
+  const ITEMS_PER_PAGE = 15;
 
   // 디바운스용 ref
   const saveExpandedTimeoutRef = useRef(null);

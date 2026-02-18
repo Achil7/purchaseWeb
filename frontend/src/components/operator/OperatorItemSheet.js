@@ -2000,11 +2000,10 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
           variant="contained"
           color="success"
           size="small"
-          startIcon={<SaveIcon />}
           onClick={handleSaveChanges}
-          sx={{ bgcolor: '#4caf50' }}
+          sx={{ bgcolor: '#4caf50', minWidth: 0, px: 1.5, py: 0.3, fontSize: '0.75rem' }}
         >
-          저장 (Ctrl+S)
+          저장
         </Button>
       </Box>
 
