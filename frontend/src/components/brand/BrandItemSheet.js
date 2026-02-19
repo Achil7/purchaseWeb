@@ -752,7 +752,7 @@ function BrandItemSheetInner({
         // day_group별 독립 제품 정보: 슬롯 값 > Item 값 (우선순위)
         const firstSlot = groupData.slots[0] || {};
         const dayGroupProductInfo = {
-          date: firstSlot.date || '',
+          date: firstSlot.date || mergedItem.date || '',
           product_name: firstSlot.product_name || mergedItem.product_name || '',
           platform: firstSlot.platform || mergedItem.platform || '-',
           shipping_type: firstSlot.shipping_type || mergedItem.shipping_type || '',

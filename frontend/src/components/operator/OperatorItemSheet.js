@@ -855,7 +855,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         const dayGroupKey = `${itemId}_${dayGroup}`;
         const localChanges = changedItemsRef.current[dayGroupKey] || {};
         const dayGroupProductInfo = {
-          date: localChanges.date ?? firstSlot.date ?? '',
+          date: localChanges.date ?? firstSlot.date ?? mergedItem.date ?? '',
           product_name: localChanges.product_name ?? firstSlot.product_name ?? mergedItem.product_name ?? '',
           platform: localChanges.platform ?? firstSlot.platform ?? mergedItem.platform ?? '-',
           shipping_type: localChanges.shipping_type ?? firstSlot.shipping_type ?? mergedItem.shipping_type ?? '',

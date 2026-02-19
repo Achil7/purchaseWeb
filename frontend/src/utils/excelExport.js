@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { saveAs } from 'file-saver';
 
 /**
@@ -9,6 +9,22 @@ import { saveAs } from 'file-saver';
  */
 export const downloadExcel = (data, fileName, sheetName = 'Sheet1', appendDate = true) => {
   const ws = XLSX.utils.aoa_to_sheet(data);
+
+  // 헤더 행(첫 번째 행)에 옅은 초록색 배경 + 볼드 적용
+  if (data.length > 0) {
+    const headerStyle = {
+      fill: { fgColor: { rgb: 'C6EFCE' } },
+      font: { bold: true },
+    };
+    const colCount = data[0].length;
+    for (let c = 0; c < colCount; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r: 0, c });
+      if (ws[cellRef]) {
+        ws[cellRef].s = headerStyle;
+      }
+    }
+  }
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
@@ -34,11 +50,13 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
   // 헤더 정의 - 시트의 모든 컬럼 포함
   // 제품 정보 + 구매자 정보 통합
   const headers = [
+    // 공통
+    '일차', '날짜', '순번',
     // 제품 정보 (day_group별)
-    '일차', '제품날짜', '플랫폼', '제품명', '옵션', '출고유형', '키워드',
+    '플랫폼', '제품명', '옵션', '출고유형', '키워드',
     '가격', '총건수', '일건수', '택배사', '택배대행', '상품URL', '특이사항',
     // 구매자 정보
-    '순번', '구매자날짜', '예상구매자', '주문번호', '구매자', '수취인',
+    '예상구매자', '주문번호', '구매자', '수취인',
     '아이디', '연락처', '주소', '계좌', '금액', '송장번호', '리뷰샷URL',
     '상태', '리뷰비', '입금명', '입금확인일', '배송지연'
   ];
@@ -83,7 +101,7 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
       const courierName = firstSlot.courier_name || item.courier_name || (courierServiceYn.toUpperCase().trim() === 'Y' ? '롯데택배' : '');
       const productUrl = firstSlot.product_url || item.product_url || '';
       const notes = firstSlot.notes || item.notes || '';
-      const productDate = item.date || '';
+      const productDate = firstSlot.date || item.date || '';
 
       groupSlots.forEach((slot, slotIndex) => {
         const buyer = slot.buyer || {};
@@ -98,9 +116,11 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
         const status = hasReviewImage ? '완료' : (hasBuyerData ? '진행' : '-');
 
         const row = [
-          // 제품 정보
+          // 공통
           dayGroup,                          // 일차
-          productDate,                       // 제품날짜
+          buyer.date || slot.date || productDate,  // 날짜
+          slotIndex + 1,                     // 순번
+          // 제품 정보
           platform,                          // 플랫폼
           productName,                       // 제품명
           purchaseOption,                    // 옵션
@@ -114,8 +134,6 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
           productUrl,                        // 상품URL
           notes,                             // 특이사항
           // 구매자 정보
-          slotIndex + 1,                     // 순번
-          slot.date || '',                   // 구매자날짜
           slot.expected_buyer || '',         // 예상구매자
           buyer.order_number || '',          // 주문번호
           buyer.buyer_name || '',            // 구매자
@@ -150,8 +168,10 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
 export const convertBrandSlotsToExcelData = (slots, items) => {
   // 브랜드사 시트에 표시되는 모든 컬럼 포함
   const headers = [
+    // 공통
+    '일차', '날짜', '순번',
     // 제품 정보
-    '일차', '날짜', '플랫폼', '제품명', '옵션', '출고유형', '키워드',
+    '플랫폼', '제품명', '옵션', '출고유형', '키워드',
     '가격', '총건수', '일건수', '택배사', '택배대행', '상품URL', '특이사항',
     // 구매자 정보 (브랜드사 허용 컬럼 - 연락처, 계좌 제외)
     '주문번호', '구매자', '수취인', '아이디', '주소', '금액', '송장번호', '리뷰샷URL'
@@ -196,8 +216,9 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
       const courierName = firstSlot.courier_name || item.courier_name || (courierServiceYn.toUpperCase().trim() === 'Y' ? '롯데택배' : '');
       const productUrl = firstSlot.product_url || item.product_url || '';
       const notes = firstSlot.notes || item.notes || '';
-      const productDate = item.date || '';
+      const productDate = firstSlot.date || item.date || '';
 
+      let slotIndex = 0;
       groupSlots.forEach((slot) => {
         const buyer = slot.buyer || {};
         const reviewImageUrl = buyer.images?.[0]?.s3_url || '';
@@ -205,10 +226,13 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
         // 임시 구매자 제외
         if (buyer.is_temporary) return;
 
+        slotIndex++;
         data.push([
-          // 제품 정보
+          // 공통
           dayGroup,                          // 일차
-          productDate,                       // 날짜
+          slot.date || productDate,          // 날짜
+          slotIndex,                         // 순번
+          // 제품 정보
           platform,                          // 플랫폼
           productName,                       // 제품명
           purchaseOption,                    // 옵션
