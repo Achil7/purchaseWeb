@@ -65,7 +65,7 @@ const dailyBuyerHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-const createDailyProductDataRenderer = (tableData, collapsedItems) => {
+const createDailyProductDataRenderer = (tableData, collapsedItemsRef) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
     td.className = 'product-data-row';
@@ -74,7 +74,7 @@ const createDailyProductDataRenderer = (tableData, collapsedItems) => {
 
     if (prop === 'col0') {
       const groupKey = rowData._groupKey;
-      const isCollapsed = collapsedItems.has(groupKey);
+      const isCollapsed = collapsedItemsRef.current.has(groupKey);
       td.innerHTML = `<span style="cursor: pointer; user-select: none; font-size: 14px; color: #666;">${isCollapsed ? '▶' : '▼'}</span>`;
       td.style.textAlign = 'center';
       td.style.cursor = 'pointer';
@@ -598,8 +598,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   // 상태 옵션
   const statusLabels = { active: '진행', completed: '완료', cancelled: '취소' };
 
-  // Handsontable 데이터 생성
-  const { tableData, rowMeta } = useMemo(() => {
+  // Handsontable 데이터 생성 (성능 최적화: collapsedItems 의존성 제거, hiddenRows 플러그인으로 접기/펼치기 처리)
+  const { baseTableData, baseRowMeta } = useMemo(() => {
     const data = [];
     const meta = [];
 
@@ -620,7 +620,6 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     sortedGroups.forEach((groupData, groupIndex) => {
       const { item, campaign, monthlyBrand, dayGroup, uploadLinkToken } = groupData;
       const groupKey = `${item.id}_${dayGroup}`;
-      const isCollapsed = collapsedItems.has(groupKey);
 
       // 연월브랜드-캠페인 표시 문자열
       const mbCampaignLabel = `${monthlyBrand?.name || '연월브랜드'} - ${campaign?.name || '캠페인'}`;
@@ -672,7 +671,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       });
       meta.push({ type: ROW_TYPES.PRODUCT_HEADER, itemId: item.id, dayGroup });
 
-      // 제품 정보 데이터 행 (22개 컬럼)
+      // 제품 정보 데이터 행 (22개 컬럼) - col0는 항상 '▼' (접기 상태는 hiddenRows 플러그인이 처리)
       data.push({
         _rowType: ROW_TYPES.PRODUCT_DATA,
         _itemId: item.id,
@@ -681,7 +680,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         _uploadToken: uploadLinkToken,
         _item: item,
         _productInfo: productInfo,
-        col0: isCollapsed ? '▶' : '▼',
+        col0: '▼',
         col1: mbCampaignLabel,
         col2: productInfo.date,
         col3: productInfo.platform,
@@ -701,125 +700,198 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       });
       meta.push({ type: ROW_TYPES.PRODUCT_DATA, itemId: item.id, dayGroup, uploadLinkToken, groupKey });
 
-      // 접힌 상태가 아니면 구매자 행 표시
-      if (!isCollapsed) {
-        // 업로드 링크 바 (22개 컬럼)
+      // 모든 구매자 행 항상 포함 (접기/펼치기는 hiddenRows 플러그인으로 처리)
+      // 업로드 링크 바 (22개 컬럼)
+      data.push({
+        _rowType: ROW_TYPES.UPLOAD_LINK_BAR,
+        _uploadToken: uploadLinkToken,
+        _groupKey: groupKey,
+        _isSuspended: isDayGroupSuspended,
+        col0: '', col1: '📷 업로드 링크 복사',
+        col2: '', col3: '', col4: '', col5: '', col6: '', col7: '', col8: '', col9: '',
+        col10: '', col11: '', col12: '', col13: '', col14: '', col15: '', col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
+      });
+      meta.push({ type: ROW_TYPES.UPLOAD_LINK_BAR, uploadLinkToken });
+
+      // 구매자 헤더 행 (23개 컬럼 - col6에 비고 추가)
+      data.push({
+        _rowType: ROW_TYPES.BUYER_HEADER,
+        _groupKey: groupKey,
+        _isSuspended: isDayGroupSuspended,
+        col0: '', col1: '', col2: '날짜', col3: '순번', col4: '제품명', col5: '옵션', col6: '비고', col7: '예상구매자',
+        col8: '주문번호', col9: '구매자', col10: '수취인', col11: '아이디', col12: '연락처', col13: '주소',
+        col14: '계좌', col15: '금액', col16: '송장번호', col17: '리뷰샷', col18: '상태', col19: '리뷰비',
+        col20: '입금명', col21: '입금여부'
+      });
+      meta.push({ type: ROW_TYPES.BUYER_HEADER, itemId: item.id, dayGroup });
+
+      // 구매자 데이터 행
+      groupData.slots.forEach((slot, slotIndex) => {
+        const buyer = slot.buyer || {};
+        const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
+
+        // changedSlotsRef에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
+        const slotChanges = changedSlotsRef.current[slot.id] || {};
+
+        // buyer 필드 (changedSlots > buyer 우선순위)
+        const mergedBuyer = {
+          order_number: slotChanges.order_number ?? buyer.order_number ?? '',
+          buyer_name: slotChanges.buyer_name ?? buyer.buyer_name ?? '',
+          recipient_name: slotChanges.recipient_name ?? buyer.recipient_name ?? '',
+          user_id: slotChanges.user_id ?? buyer.user_id ?? '',
+          contact: slotChanges.contact ?? buyer.contact ?? '',
+          address: slotChanges.address ?? buyer.address ?? '',
+          account_info: slotChanges.account_info ?? buyer.account_info ?? '',
+          amount: slotChanges.amount ?? buyer.amount ?? '',
+          tracking_number: slotChanges.tracking_number ?? buyer.tracking_number ?? '',
+          deposit_name: slotChanges.deposit_name ?? buyer.deposit_name ?? '',
+          date: slotChanges.date ?? buyer.date ?? ''
+        };
+
+        // slot 필드 (changedSlots > slot 우선순위)
+        const mergedSlot = {
+          product_name: slotChanges.product_name ?? slot.product_name ?? item.product_name ?? '',
+          purchase_option: slotChanges.purchase_option ?? slot.purchase_option ?? '',
+          buyer_notes: slotChanges.buyer_notes ?? slot.buyer_notes ?? '',
+          expected_buyer: slotChanges.expected_buyer ?? slot.expected_buyer ?? '',
+          review_cost: slotChanges.review_cost ?? slot.review_cost ?? '',
+          date: slotChanges.date ?? slot.date ?? ''
+        };
+
+        const hasBuyerData = mergedBuyer.order_number || mergedBuyer.buyer_name || mergedBuyer.recipient_name ||
+                             mergedBuyer.user_id || mergedBuyer.contact || mergedBuyer.address ||
+                             mergedBuyer.account_info || mergedBuyer.amount;
+        const hasReviewImage = reviewImage?.s3_url;
+        const calculatedStatus = hasReviewImage ? 'completed' : (hasBuyerData ? 'active' : '-');
+
         data.push({
-          _rowType: ROW_TYPES.UPLOAD_LINK_BAR,
-          _uploadToken: uploadLinkToken,
+          _rowType: ROW_TYPES.BUYER_DATA,
+          _slotId: slot.id,
+          _itemId: item.id,
+          _dayGroup: dayGroup,
+          _groupKey: groupKey,
+          _buyerId: buyer.id || null,
+          _buyer: buyer,
           _isSuspended: isDayGroupSuspended,
-          col0: '', col1: '📷 업로드 링크 복사',
-          col2: '', col3: '', col4: '', col5: '', col6: '', col7: '', col8: '', col9: '',
-          col10: '', col11: '', col12: '', col13: '', col14: '', col15: '', col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
+          _reviewImages: buyer.images || [],
+          _reviewImageUrl: reviewImage?.s3_url || '',
+          _hasBuyerData: !!hasBuyerData,
+          _calculatedStatus: calculatedStatus,
+          col0: '',
+          col1: '',
+          col2: mergedBuyer.date || mergedSlot.date || '',  // Buyer.date 우선, 없으면 slot.date
+          col3: slotIndex + 1,
+          col4: mergedSlot.product_name,
+          col5: mergedSlot.purchase_option,
+          col6: mergedSlot.buyer_notes,
+          col7: mergedSlot.expected_buyer,
+          col8: mergedBuyer.order_number,
+          col9: mergedBuyer.buyer_name,
+          col10: mergedBuyer.recipient_name,
+          col11: mergedBuyer.user_id,
+          col12: mergedBuyer.contact,
+          col13: mergedBuyer.address,
+          col14: mergedBuyer.account_info,
+          col15: mergedBuyer.amount,
+          col16: mergedBuyer.tracking_number,
+          col17: reviewImage?.s3_url || '',
+          col18: calculatedStatus,
+          col19: mergedSlot.review_cost,
+          col20: mergedBuyer.deposit_name,
+          col21: buyer.payment_confirmed_at || ''
         });
-        meta.push({ type: ROW_TYPES.UPLOAD_LINK_BAR, uploadLinkToken });
-
-        // 구매자 헤더 행 (23개 컬럼 - col6에 비고 추가)
-        data.push({
-          _rowType: ROW_TYPES.BUYER_HEADER,
-          _isSuspended: isDayGroupSuspended,
-          col0: '', col1: '', col2: '날짜', col3: '순번', col4: '제품명', col5: '옵션', col6: '비고', col7: '예상구매자',
-          col8: '주문번호', col9: '구매자', col10: '수취인', col11: '아이디', col12: '연락처', col13: '주소',
-          col14: '계좌', col15: '금액', col16: '송장번호', col17: '리뷰샷', col18: '상태', col19: '리뷰비',
-          col20: '입금명', col21: '입금여부'
+        meta.push({
+          type: ROW_TYPES.BUYER_DATA,
+          itemId: item.id,
+          dayGroup,
+          slotId: slot.id,
+          buyerId: buyer.id,
+          buyer,
+          slot
         });
-        meta.push({ type: ROW_TYPES.BUYER_HEADER, itemId: item.id, dayGroup });
-
-        // 구매자 데이터 행
-        groupData.slots.forEach((slot, slotIndex) => {
-          const buyer = slot.buyer || {};
-          const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
-
-          // changedSlotsRef에서 로컬 변경사항 가져오기 (저장 전 즉시 반영용)
-          const slotChanges = changedSlotsRef.current[slot.id] || {};
-
-          // buyer 필드 (changedSlots > buyer 우선순위)
-          const mergedBuyer = {
-            order_number: slotChanges.order_number ?? buyer.order_number ?? '',
-            buyer_name: slotChanges.buyer_name ?? buyer.buyer_name ?? '',
-            recipient_name: slotChanges.recipient_name ?? buyer.recipient_name ?? '',
-            user_id: slotChanges.user_id ?? buyer.user_id ?? '',
-            contact: slotChanges.contact ?? buyer.contact ?? '',
-            address: slotChanges.address ?? buyer.address ?? '',
-            account_info: slotChanges.account_info ?? buyer.account_info ?? '',
-            amount: slotChanges.amount ?? buyer.amount ?? '',
-            tracking_number: slotChanges.tracking_number ?? buyer.tracking_number ?? '',
-            deposit_name: slotChanges.deposit_name ?? buyer.deposit_name ?? '',
-            date: slotChanges.date ?? buyer.date ?? ''
-          };
-
-          // slot 필드 (changedSlots > slot 우선순위)
-          const mergedSlot = {
-            product_name: slotChanges.product_name ?? slot.product_name ?? item.product_name ?? '',
-            purchase_option: slotChanges.purchase_option ?? slot.purchase_option ?? '',
-            buyer_notes: slotChanges.buyer_notes ?? slot.buyer_notes ?? '',
-            expected_buyer: slotChanges.expected_buyer ?? slot.expected_buyer ?? '',
-            review_cost: slotChanges.review_cost ?? slot.review_cost ?? '',
-            date: slotChanges.date ?? slot.date ?? ''
-          };
-
-          const hasBuyerData = mergedBuyer.order_number || mergedBuyer.buyer_name || mergedBuyer.recipient_name ||
-                               mergedBuyer.user_id || mergedBuyer.contact || mergedBuyer.address ||
-                               mergedBuyer.account_info || mergedBuyer.amount;
-          const hasReviewImage = reviewImage?.s3_url;
-          const calculatedStatus = hasReviewImage ? 'completed' : (hasBuyerData ? 'active' : '-');
-
-          data.push({
-            _rowType: ROW_TYPES.BUYER_DATA,
-            _slotId: slot.id,
-            _itemId: item.id,
-            _dayGroup: dayGroup,
-            _buyerId: buyer.id || null,
-            _buyer: buyer,
-            _isSuspended: isDayGroupSuspended,
-            _reviewImages: buyer.images || [],
-            _reviewImageUrl: reviewImage?.s3_url || '',
-            _hasBuyerData: !!hasBuyerData,
-            _calculatedStatus: calculatedStatus,
-            col0: '',
-            col1: '',
-            col2: mergedBuyer.date || mergedSlot.date || '',  // Buyer.date 우선, 없으면 slot.date
-            col3: slotIndex + 1,
-            col4: mergedSlot.product_name,
-            col5: mergedSlot.purchase_option,
-            col6: mergedSlot.buyer_notes,
-            col7: mergedSlot.expected_buyer,
-            col8: mergedBuyer.order_number,
-            col9: mergedBuyer.buyer_name,
-            col10: mergedBuyer.recipient_name,
-            col11: mergedBuyer.user_id,
-            col12: mergedBuyer.contact,
-            col13: mergedBuyer.address,
-            col14: mergedBuyer.account_info,
-            col15: mergedBuyer.amount,
-            col16: mergedBuyer.tracking_number,
-            col17: reviewImage?.s3_url || '',
-            col18: calculatedStatus,
-            col19: mergedSlot.review_cost,
-            col20: mergedBuyer.deposit_name,
-            col21: buyer.payment_confirmed_at || ''
-          });
-          meta.push({
-            type: ROW_TYPES.BUYER_DATA,
-            itemId: item.id,
-            dayGroup,
-            slotId: slot.id,
-            buyerId: buyer.id,
-            buyer,
-            slot
-          });
-        });
-      }
+      });
     });
 
     return { tableData: data, rowMeta: meta };
-  }, [groupedSlots, collapsedItems]); // 성능 최적화: changedItems, changedSlots는 ref이므로 의존성에서 제거
+  }, [groupedSlots]); // 성능 최적화: collapsedItems 의존성 제거 (hiddenRows 플러그인으로 처리)
+
+  // 성능 최적화: baseTableData를 tableData로 alias (OperatorItemSheet와 동일 패턴)
+  const tableData = baseTableData;
+  const rowMeta = baseRowMeta;
 
   // 성능 최적화: tableData/rowMeta를 ref로도 유지 (handleAfterChange 의존성에서 제거하기 위함)
   const tableDataRef = useRef(tableData);
   tableDataRef.current = tableData;
   const rowMetaRef = useRef(rowMeta);
   rowMetaRef.current = rowMeta;
+
+  // hiddenRows 플러그인용 숨길 행 인덱스 계산 (OperatorItemSheet와 동일 패턴)
+  const hiddenRowIndices = useMemo(() => {
+    if (collapsedItems.size === 0) return [];
+
+    const hidden = [];
+    let currentCollapsedKey = null;
+
+    baseTableData.forEach((row, index) => {
+      const collapseKey = row._groupKey;
+
+      // 제품 데이터 행에서 접힘 상태 확인
+      if (row._rowType === ROW_TYPES.PRODUCT_DATA) {
+        currentCollapsedKey = collapsedItems.has(collapseKey) ? collapseKey : null;
+      }
+
+      // 접힌 품목의 업로드 링크, 구매자 헤더, 구매자 데이터 행은 숨김
+      if (currentCollapsedKey !== null &&
+          row._groupKey === currentCollapsedKey &&
+          (row._rowType === ROW_TYPES.UPLOAD_LINK_BAR ||
+           row._rowType === ROW_TYPES.BUYER_HEADER ||
+           row._rowType === ROW_TYPES.BUYER_DATA)) {
+        hidden.push(index);
+      }
+    });
+
+    return hidden;
+  }, [baseTableData, collapsedItems]);
+
+  // hiddenRowIndices를 ref로 유지 (afterLoadData에서 사용)
+  const hiddenRowIndicesRef = useRef(hiddenRowIndices);
+  hiddenRowIndicesRef.current = hiddenRowIndices;
+
+  // collapsedItems 변경 시 hiddenRows 플러그인 수동 업데이트
+  useEffect(() => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) return;
+
+    // 현재 숨겨진 행과 새로 숨길 행 비교
+    const currentHidden = new Set(hiddenRowsPlugin.getHiddenRows());
+    const newHidden = new Set(hiddenRowIndices);
+
+    // 변경이 없으면 스킵
+    if (currentHidden.size === newHidden.size &&
+        [...currentHidden].every(r => newHidden.has(r))) {
+      return;
+    }
+
+    // 차이점만 업데이트 (batch로 묶어서 한 번에 렌더링)
+    hot.batch(() => {
+      const rowsToShow = [...currentHidden].filter(r => !newHidden.has(r));
+      const rowsToHide = [...newHidden].filter(r => !currentHidden.has(r));
+
+      if (rowsToShow.length > 0) {
+        hiddenRowsPlugin.showRows(rowsToShow);
+      }
+      if (rowsToHide.length > 0) {
+        hiddenRowsPlugin.hideRows(rowsToHide);
+      }
+    });
+  }, [hiddenRowIndices]);
+
+  // collapsedItemsRef (렌더러에서 ref로 접근하기 위함)
+  const collapsedItemsRef = useRef(collapsedItems);
+  collapsedItemsRef.current = collapsedItems;
 
   // 접기/펼치기 토글
   const toggleCollapse = useCallback((groupKey) => {
@@ -898,9 +970,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   }, [slots, userRole, selectedDate]);
 
   // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
+  // collapsedItemsRef를 전달하여 collapsedItems 변경 시 렌더러 재생성 방지
   const productDataRenderer = useMemo(() =>
-    createDailyProductDataRenderer(tableData, collapsedItems),
-    [tableData, collapsedItems]
+    createDailyProductDataRenderer(tableData, collapsedItemsRef),
+    [tableData]
   );
 
   const uploadLinkBarRenderer = useMemo(() =>
@@ -1573,10 +1646,40 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             disableVisualSelection={false}
             imeFastEdit={true}
             minSpareRows={0}
+            hiddenRows={{
+              rows: hiddenRowIndices,
+              indicators: false
+            }}
             cells={cellsRenderer}
             afterChange={(changes, source) => {
               if (isComposingRef.current) return;  // IME 조합 중에는 건너뛰기
               handleAfterChange(changes, source);
+            }}
+            afterLoadData={(sourceData, initialLoad) => {
+              // 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
+              const hot = hotRef.current?.hotInstance;
+              if (!hot) return;
+
+              const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+              if (!hiddenRowsPlugin) return;
+
+              const indices = hiddenRowIndicesRef.current;
+              const currentHidden = new Set(hiddenRowsPlugin.getHiddenRows());
+              const newHidden = new Set(indices);
+
+              const rowsToShow = [...currentHidden].filter(r => !newHidden.has(r));
+              const rowsToHide = [...newHidden].filter(r => !currentHidden.has(r));
+
+              if (rowsToShow.length > 0 || rowsToHide.length > 0) {
+                hot.batch(() => {
+                  if (rowsToShow.length > 0) {
+                    hiddenRowsPlugin.showRows(rowsToShow);
+                  }
+                  if (rowsToHide.length > 0) {
+                    hiddenRowsPlugin.hideRows(rowsToHide);
+                  }
+                });
+              }
             }}
             afterOnCellMouseUp={(event, coords) => {
               const rowData = tableData[coords.row];
