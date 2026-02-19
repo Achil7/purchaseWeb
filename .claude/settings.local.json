@@ -59,7 +59,9 @@
       "Bash(npx react-scripts build:*)",
       "Bash(cmd /c \"cd /d c:\\\\Users\\\\achil\\\\Desktop\\\\purchaseweb\\\\frontend && npm run build\")",
       "Bash(cmd /c:*)",
-      "Bash(powershell -Command \"Set-Location 'c:\\\\Users\\\\achil\\\\Desktop\\\\purchaseweb\\\\frontend'; npm run build:*)"
+      "Bash(powershell -Command \"Set-Location 'c:\\\\Users\\\\achil\\\\Desktop\\\\purchaseweb\\\\frontend'; npm run build:*)",
+      "Bash(git revert:*)",
+      "Bash(git reset:*)"
     ],
     "deny": [],
     "ask": []

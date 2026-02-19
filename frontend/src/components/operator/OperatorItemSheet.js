@@ -53,6 +53,15 @@ const ROW_TYPES = {
   BUYER_DATA: 'buyer_data',              // 구매자 데이터 행
 };
 
+// ========== 성능 최적화: 상수 (컴포넌트 외부 정의) ==========
+const STATUS_OPTIONS = ['active', 'completed', 'resubmitted', 'cancelled'];
+const STATUS_LABELS = {
+  active: '진행',
+  completed: '완료',
+  resubmitted: '재제출완료',
+  cancelled: '취소'
+};
+
 // ========== 성능 최적화: 셀 렌더러 함수 (컴포넌트 외부 정의) ==========
 // 매 렌더링마다 새 함수 생성을 방지하여 성능 향상
 
@@ -198,7 +207,7 @@ const createUploadLinkBarRenderer = (tableData) => {
   };
 };
 
-const createBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNumbers, columnAlignments) => {
+const createBuyerDataRenderer = (tableData, duplicateOrderNumbers, columnAlignments) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
     const dayGroup = rowData._dayGroup || 1;
@@ -259,7 +268,7 @@ const createBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNumbers,
     } else if (prop === 'col17') {
       // col17: 상태 (calculatedStatus)
       const displayStatus = value || '-';
-      const label = statusLabels[displayStatus] || displayStatus;
+      const label = STATUS_LABELS[displayStatus] || displayStatus;
 
       if (displayStatus === '-') {
         td.innerHTML = '<span style="color: #999;">-</span>';
@@ -1120,14 +1129,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   const tableDataRef = useRef(tableData);
   tableDataRef.current = tableData;
 
-  // 상태 옵션
-  const statusOptions = ['active', 'completed', 'resubmitted', 'cancelled'];
-  const statusLabels = {
-    active: '진행',
-    completed: '완료',
-    resubmitted: '재제출완료',
-    cancelled: '취소'
-  };
+  // 상태 옵션은 컴포넌트 외부 상수 STATUS_OPTIONS, STATUS_LABELS 사용
 
   // 중복 주문번호 감지 (빈 문자열 제외) - col7이 주문번호
   const duplicateOrderNumbers = useMemo(() => {
@@ -1751,8 +1753,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   );
 
   const buyerDataRenderer = useMemo(() =>
-    createBuyerDataRenderer(tableData, statusLabels, duplicateOrderNumbers, columnAlignments),
-    [tableData, statusLabels, duplicateOrderNumbers, columnAlignments]
+    createBuyerDataRenderer(tableData, duplicateOrderNumbers, columnAlignments),
+    [tableData, duplicateOrderNumbers, columnAlignments]
   );
 
   const buyerHeaderRenderer = useMemo(() =>
@@ -1825,7 +1827,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         if (col === 17) {
           // col17: 상태 (드롭다운)
           cellProperties.type = 'dropdown';
-          cellProperties.source = statusOptions;
+          cellProperties.source = STATUS_OPTIONS;
         }
 
         cellProperties.renderer = buyerDataRenderer;
@@ -1836,7 +1838,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     }
 
     return cellProperties;
-  }, [tableData, statusOptions, productDataRenderer, uploadLinkBarRenderer, buyerDataRenderer]);
+  }, [tableData, productDataRenderer, uploadLinkBarRenderer, buyerDataRenderer]);
 
   // 12차 최적화: 저장 버튼 항상 표시 - state 기반 조건부 렌더링 제거
   // hasChanges는 더 이상 사용하지 않음 (저장 버튼 항상 표시)

@@ -35,6 +35,9 @@ const ROW_TYPES = {
   BUYER_DATA: 'buyer_data',
 };
 
+// ========== 성능 최적화: 상수 (컴포넌트 외부 정의) ==========
+const STATUS_LABELS = { active: '진행', completed: '완료', cancelled: '취소' };
+
 // ========== 성능 최적화: 셀 렌더러 함수 (컴포넌트 외부 정의) ==========
 const dailyItemSeparatorRenderer = (instance, td) => {
   td.className = 'item-separator-row';
@@ -130,7 +133,7 @@ const createDailyUploadLinkBarRenderer = () => {
   };
 };
 
-const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers, statusLabels) => {
+const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
     const dayGroup = rowData._dayGroup || 1;
@@ -182,7 +185,7 @@ const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers, statusLa
     } else if (prop === 'col18') {
       // col18: 상태 (col17 -> col18로 시프트)
       const status = rowData._calculatedStatus;
-      const label = statusLabels[status] || status;
+      const label = STATUS_LABELS[status] || status;
 
       if (status === '-') {
         td.innerHTML = '<span style="color: #999;">-</span>';
@@ -595,8 +598,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     return new Set(Object.keys(counts).filter(num => counts[num] >= 2));
   }, [slots]);
 
-  // 상태 옵션
-  const statusLabels = { active: '진행', completed: '완료', cancelled: '취소' };
+  // 상태 옵션은 컴포넌트 외부 상수 STATUS_LABELS 사용
 
   // Handsontable 데이터 생성 (성능 최적화: collapsedItems 의존성 제거, hiddenRows 플러그인으로 접기/펼치기 처리)
   const { baseTableData, baseRowMeta } = useMemo(() => {
@@ -982,8 +984,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   );
 
   const buyerDataRenderer = useMemo(() =>
-    createDailyBuyerDataRenderer(tableData, duplicateOrderNumbers, statusLabels),
-    [tableData, duplicateOrderNumbers, statusLabels]
+    createDailyBuyerDataRenderer(tableData, duplicateOrderNumbers),
+    [tableData, duplicateOrderNumbers]
   );
 
   // cellsRenderer - 최적화: 외부 정의 렌더러 사용

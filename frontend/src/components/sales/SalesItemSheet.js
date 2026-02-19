@@ -52,6 +52,15 @@ const ROW_TYPES = {
   BUYER_DATA: 'buyer_data',              // 구매자 데이터 행
 };
 
+// ========== 성능 최적화: 상수 (컴포넌트 외부 정의) ==========
+const STATUS_OPTIONS = ['active', 'completed', 'resubmitted', 'cancelled'];
+const STATUS_LABELS = {
+  active: '진행',
+  completed: '완료',
+  resubmitted: '재제출완료',
+  cancelled: '취소'
+};
+
 // ========== 성능 최적화: 셀 렌더러 함수 (컴포넌트 외부 정의) ==========
 const itemSeparatorRenderer = (instance, td) => {
   td.className = 'item-separator-row';
@@ -193,7 +202,7 @@ const createSalesUploadLinkBarRenderer = (tableData) => {
   };
 };
 
-const createSalesBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNumbers, columnAlignments) => {
+const createSalesBuyerDataRenderer = (tableData, duplicateOrderNumbers, columnAlignments) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
     const isSuspended = rowData._isSuspended;
@@ -248,7 +257,7 @@ const createSalesBuyerDataRenderer = (tableData, statusLabels, duplicateOrderNum
     } else if (prop === 'col17') {
       // col17: 상태 (col16 -> col17로 시프트)
       const displayStatus = value || '-';
-      const label = statusLabels[displayStatus] || displayStatus;
+      const label = STATUS_LABELS[displayStatus] || displayStatus;
 
       if (displayStatus === '-') {
         td.innerHTML = '<span style="color: #999;">-</span>';
@@ -1153,14 +1162,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   const tableDataRef = useRef(tableData);
   tableDataRef.current = tableData;
 
-  // 상태 옵션 및 라벨 (드롭다운 + 조회용)
-  const statusOptions = ['active', 'completed', 'resubmitted', 'cancelled'];
-  const statusLabels = {
-    active: '진행',
-    completed: '완료',
-    resubmitted: '재제출완료',
-    cancelled: '취소'
-  };
+  // 상태 옵션은 컴포넌트 외부 상수 STATUS_OPTIONS, STATUS_LABELS 사용
 
   // 중복 주문번호 감지 (빈 문자열 제외) - col7로 시프트
   const duplicateOrderNumbers = useMemo(() => {
@@ -1578,8 +1580,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   );
 
   const buyerDataRenderer = useMemo(() =>
-    createSalesBuyerDataRenderer(tableData, statusLabels, duplicateOrderNumbers, columnAlignments),
-    [tableData, statusLabels, duplicateOrderNumbers, columnAlignments]
+    createSalesBuyerDataRenderer(tableData, duplicateOrderNumbers, columnAlignments),
+    [tableData, duplicateOrderNumbers, columnAlignments]
   );
 
   const buyerHeaderRenderer = useMemo(() =>
@@ -1649,7 +1651,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         // col17: 상태 (dropdown)
         if (col === 17) {
           cellProperties.type = 'dropdown';
-          cellProperties.source = statusOptions;
+          cellProperties.source = STATUS_OPTIONS;
         }
 
         cellProperties.renderer = buyerDataRenderer;
@@ -1660,7 +1662,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     }
 
     return cellProperties;
-  }, [tableData, statusOptions, productDataRenderer, uploadLinkBarRenderer, buyerDataRenderer]);
+  }, [tableData, productDataRenderer, uploadLinkBarRenderer, buyerDataRenderer]);
 
 
   // 전체 데이터 건수 (원본 slots 기준 - 필터/접기와 무관하게 항상 전체 건수)

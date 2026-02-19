@@ -15,6 +15,10 @@ registerAllModules();
 // 슬롯 데이터 캐시 (캠페인 전환 최적화)
 const slotsCache = new Map();
 
+// ========== 성능 최적화: 상수 (컴포넌트 외부 정의) ==========
+const STATUS_OPTIONS = ['active', 'completed', 'cancelled'];
+const STATUS_LABELS = { active: '진행', completed: '완료', cancelled: '취소' };
+
 // ========== 성능 최적화: 셀 렌더러 함수 (컴포넌트 외부 정의) ==========
 const unifiedItemSeparatorRenderer = (instance, td) => {
   td.className = 'item-separator-row';
@@ -64,7 +68,7 @@ const unifiedProductHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-const createUnifiedBuyerDataRenderer = (tableData, statusLabels) => {
+const createUnifiedBuyerDataRenderer = (tableData) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
     const dayGroup = rowData._dayGroup || 1;
@@ -107,7 +111,7 @@ const createUnifiedBuyerDataRenderer = (tableData, statusLabels) => {
     if (c === 13) {
       const hasReviewImage = rowData._reviewImageUrl;
       const displayStatus = hasReviewImage ? 'completed' : (value || 'active');
-      const label = statusLabels[displayStatus] || displayStatus;
+      const label = STATUS_LABELS[displayStatus] || displayStatus;
       const colors = {
         active: { bg: '#e3f2fd', color: '#1976d2' },
         completed: { bg: '#e8f5e9', color: '#388e3c' },
@@ -463,9 +467,7 @@ function UnifiedItemSheetInner({
   const tableDataRef = useRef(tableData);
   tableDataRef.current = tableData;
 
-  // 상태 옵션
-  const statusOptions = ['active', 'completed', 'cancelled'];
-  const statusLabels = { active: '진행', completed: '완료', cancelled: '취소' };
+  // 상태 옵션은 컴포넌트 외부 상수 STATUS_OPTIONS, STATUS_LABELS 사용
 
   // 업로드 링크 복사 핸들러
   const handleCopyUploadLink = useCallback((token) => {
@@ -545,7 +547,7 @@ function UnifiedItemSheetInner({
       { data: 'col10', type: 'text', width: savedWidths?.[10] || defaultColumnWidths[10] },
       { data: 'col11', type: 'text', width: savedWidths?.[11] || defaultColumnWidths[11] },
       { data: 'col12', type: 'text', width: savedWidths?.[12] || defaultColumnWidths[12] },
-      { data: 'col13', type: 'dropdown', source: statusOptions, width: savedWidths?.[13] || defaultColumnWidths[13] },
+      { data: 'col13', type: 'dropdown', source: STATUS_OPTIONS, width: savedWidths?.[13] || defaultColumnWidths[13] },
       { data: 'col14', type: 'text', width: savedWidths?.[14] || defaultColumnWidths[14] },
       { data: 'col15', type: 'text', width: savedWidths?.[15] || defaultColumnWidths[15] },
       // 맨 오른쪽에 여백 컬럼 추가 (컬럼 너비 조절 용이하게)
@@ -932,8 +934,8 @@ function UnifiedItemSheetInner({
   );
 
   const buyerDataRenderer = useMemo(() =>
-    createUnifiedBuyerDataRenderer(tableData, statusLabels),
-    [tableData, statusLabels]
+    createUnifiedBuyerDataRenderer(tableData),
+    [tableData]
   );
 
   // 셀 렌더러 - 최적화: 외부 정의 렌더러 사용
