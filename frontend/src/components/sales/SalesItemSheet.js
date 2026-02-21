@@ -82,9 +82,9 @@ const productHeaderRenderer = (instance, td, r, c, prop, value) => {
 };
 
 // tableData를 받아서 중단된 경우 빨간 배경 적용
-const createBuyerHeaderRenderer = (tableData) => {
+const createBuyerHeaderRenderer = (tableDataRef) => {
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     const isSuspended = rowData?._isSuspended;
 
     td.className = 'buyer-header-row';
@@ -106,9 +106,9 @@ const createBuyerHeaderRenderer = (tableData) => {
 };
 
 // collapsedItemsRef를 사용하여 최신 접기 상태 참조 (렌더러 재생성 방지)
-const createSalesProductDataRenderer = (tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments) => {
+const createSalesProductDataRenderer = (tableDataRef, collapsedItemsRef, toggleItemCollapse, columnAlignmentsRef) => {
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     const isSuspended = rowData._isSuspended;
     td.className = 'product-data-row';
     // 중단된 경우 빨간 배경, 아닌 경우 기본 노란 배경
@@ -172,17 +172,17 @@ const createSalesProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
       td.textContent = value ?? '';
     }
 
-    if (columnAlignments[c] && !td.style.textAlign) {
-      td.style.textAlign = columnAlignments[c];
+    if (columnAlignmentsRef.current[c] && !td.style.textAlign) {
+      td.style.textAlign = columnAlignmentsRef.current[c];
     }
 
     return td;
   };
 };
 
-const createSalesUploadLinkBarRenderer = (tableData) => {
+const createSalesUploadLinkBarRenderer = (tableDataRef) => {
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     const isSuspended = rowData._isSuspended;
     td.className = 'upload-link-bar';
     // 중단된 경우 빨간 배경
@@ -202,9 +202,9 @@ const createSalesUploadLinkBarRenderer = (tableData) => {
   };
 };
 
-const createSalesBuyerDataRenderer = (tableData, duplicateOrderNumbers, columnAlignments) => {
+const createSalesBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, columnAlignmentsRef) => {
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     const isSuspended = rowData._isSuspended;
     const dayGroup = rowData._dayGroup || 1;
     const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
@@ -293,15 +293,15 @@ const createSalesBuyerDataRenderer = (tableData, duplicateOrderNumbers, columnAl
     } else if (prop === 'col7') {
       // col7: 주문번호 (col6 -> col7로 시프트)
       td.textContent = value ?? '';
-      if (value && duplicateOrderNumbers.has(value)) {
+      if (value && duplicateOrderNumbersRef.current.has(value)) {
         td.classList.add('duplicate-order');
       }
     } else {
       td.textContent = value ?? '';
     }
 
-    if (columnAlignments[c] && !td.style.textAlign) {
-      td.style.textAlign = columnAlignments[c];
+    if (columnAlignmentsRef.current[c] && !td.style.textAlign) {
+      td.style.textAlign = columnAlignmentsRef.current[c];
     }
 
     return td;
@@ -310,6 +310,15 @@ const createSalesBuyerDataRenderer = (tableData, duplicateOrderNumbers, columnAl
 
 // 기본 컬럼 너비 - 20개 컬럼 (비고 컬럼 추가)
 const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 80, 60, 60, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 80, 80];
+
+// 컬럼 헤더 (빈 문자열 배열) - 컴포넌트 외부 정의로 안정화
+const COL_HEADERS = Array(21).fill('');
+
+// HotTable 고정 prop 상수 - 컴포넌트 외부 정의로 안정화
+const ENTER_MOVES = { row: 1, col: 0 };
+const TAB_MOVES = { row: 0, col: 1 };
+const HOT_STYLE = { fontSize: '13px' };
+const DROPDOWN_MENU = ['filter_by_condition', 'filter_by_value', 'filter_action_bar'];
 
 /**
  * 품목별 시트 컴포넌트 (Handsontable - 진짜 엑셀)
@@ -1156,6 +1165,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         hiddenRowsPlugin.hideRows(rowsToHide);
       }
     });
+    hot.render(); // 20차: 토글 아이콘(▶/▼) 업데이트를 위해 렌더링 트리거
   }, [hiddenRowIndices]);
 
   // 성능 최적화: tableData를 ref로 참조하여 handleAfterChange 재생성 방지
@@ -1178,6 +1188,12 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     // 2개 이상인 주문번호만 반환
     return new Set(Object.keys(counts).filter(num => counts[num] >= 2));
   }, [tableData]);
+
+  // 렌더러용 ref (의존성 체인 끊기)
+  const duplicateOrderNumbersRef = useRef(duplicateOrderNumbers);
+  duplicateOrderNumbersRef.current = duplicateOrderNumbers;
+  const columnAlignmentsRef = useRef(columnAlignments);
+  columnAlignmentsRef.current = columnAlignments;
 
   // 업로드 링크 복사 핸들러
   const handleCopyUploadLink = useCallback((token) => {
@@ -1562,43 +1578,52 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     return baseColumns;
   }, [columnWidths]); // columnWidths 변경 시 컬럼 재생성
 
-  // 컬럼 헤더는 빈 배열 (manualColumnResize를 위해 헤더 행 필요)
-  // 빈 문자열 배열이면 헤더는 비어있지만 리사이즈 핸들 동작
-  const colHeaders = Array(21).fill('');
+  // 컬럼 헤더는 COL_HEADERS (컴포넌트 외부 상수) 사용
 
 
   // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
-  // collapsedItemsRef를 사용하여 접기 상태 변경 시 렌더러 재생성 방지
+  // 19차 최적화: 렌더러 팩토리에 ref 전달 → 의존성 [] → cellsRenderer 안정화 → IME 깨짐 방지
   const productDataRenderer = useMemo(() =>
-    createSalesProductDataRenderer(tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments),
-    [tableData, toggleItemCollapse, columnAlignments]
+    createSalesProductDataRenderer(tableDataRef, collapsedItemsRef, toggleItemCollapse, columnAlignmentsRef),
+    [toggleItemCollapse]
   );
 
   const uploadLinkBarRenderer = useMemo(() =>
-    createSalesUploadLinkBarRenderer(tableData),
-    [tableData]
+    createSalesUploadLinkBarRenderer(tableDataRef),
+    []
   );
 
   const buyerDataRenderer = useMemo(() =>
-    createSalesBuyerDataRenderer(tableData, duplicateOrderNumbers, columnAlignments),
-    [tableData, duplicateOrderNumbers, columnAlignments]
+    createSalesBuyerDataRenderer(tableDataRef, duplicateOrderNumbersRef, columnAlignmentsRef),
+    []
   );
 
   const buyerHeaderRenderer = useMemo(() =>
-    createBuyerHeaderRenderer(tableData),
-    [tableData]
+    createBuyerHeaderRenderer(tableDataRef),
+    []
   );
 
-  // 셀 렌더러 - 행 타입별 분기 (최적화: 외부 정의 렌더러 사용)
+  // 렌더러를 ref로 유지 (cellsRenderer 의존성 제거)
+  const productDataRendererRef = useRef(productDataRenderer);
+  productDataRendererRef.current = productDataRenderer;
+  const uploadLinkBarRendererRef = useRef(uploadLinkBarRenderer);
+  uploadLinkBarRendererRef.current = uploadLinkBarRenderer;
+  const buyerDataRendererRef = useRef(buyerDataRenderer);
+  buyerDataRendererRef.current = buyerDataRenderer;
+  const buyerHeaderRendererRef = useRef(buyerHeaderRenderer);
+  buyerHeaderRendererRef.current = buyerHeaderRenderer;
+
+  // 셀 렌더러 - 행 타입별 분기 (19차: 의존성 완전 제거)
   const cellsRenderer = useCallback((row, col, prop) => {
     const cellProperties = {};
+    const currentTableData = tableDataRef.current;
 
-    if (row >= tableData.length) {
+    if (row >= currentTableData.length) {
       cellProperties.className = 'spare-row-cell';
       return cellProperties;
     }
 
-    const rowData = tableData[row];
+    const rowData = currentTableData[row];
     const rowType = rowData?._rowType;
 
     switch (rowType) {
@@ -1614,12 +1639,12 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
       case ROW_TYPES.PRODUCT_DATA:
         cellProperties.readOnly = (col === 0 || col === 14);  // col0=토글, col14=상세보기
-        cellProperties.renderer = productDataRenderer;
+        cellProperties.renderer = productDataRendererRef.current;
         break;
 
       case ROW_TYPES.UPLOAD_LINK_BAR:
         cellProperties.readOnly = true;
-        cellProperties.renderer = uploadLinkBarRenderer;
+        cellProperties.renderer = uploadLinkBarRendererRef.current;
         // 중단 상태면 suspended 클래스 추가
         if (rowData._isSuspended) {
           cellProperties.className = 'suspended-row';
@@ -1628,7 +1653,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
       case ROW_TYPES.BUYER_HEADER:
         cellProperties.readOnly = true;
-        cellProperties.renderer = buyerHeaderRenderer;
+        cellProperties.renderer = buyerHeaderRendererRef.current;
         // 중단 상태면 suspended 클래스 추가
         if (rowData._isSuspended) {
           cellProperties.className = 'suspended-row';
@@ -1654,7 +1679,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           cellProperties.source = STATUS_OPTIONS;
         }
 
-        cellProperties.renderer = buyerDataRenderer;
+        cellProperties.renderer = buyerDataRendererRef.current;
         break;
 
       default:
@@ -1662,8 +1687,13 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     }
 
     return cellProperties;
-  }, [tableData, productDataRenderer, uploadLinkBarRenderer, buyerDataRenderer]);
+  }, []);  // 19차: 의존성 완전 제거
 
+  // 19차: hiddenRows prop 안정화
+  const hiddenRowsConfig = useMemo(() => ({
+    rows: hiddenRowIndices,
+    indicators: false
+  }), [hiddenRowIndices]);
 
   // 전체 데이터 건수 (원본 slots 기준 - 필터/접기와 무관하게 항상 전체 건수)
   const totalDataCount = useMemo(() => {
@@ -1707,6 +1737,651 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       return sum + parseAmount(row.col14);
     }, 0);
   }, [filteredRows, tableData, totalAmount, parseAmount]);
+
+  // ========== HotTable prop 안정화: 인라인 콜백에서 사용하는 값들의 ref ==========
+  // React setState 함수(setSlots, setFilteredRows 등)는 안정적이므로 ref 불필요
+  const slotsRef = useRef(slots);
+  slotsRef.current = slots;
+  const handleCopyUploadLinkRef = useRef(handleCopyUploadLink);
+  handleCopyUploadLinkRef.current = handleCopyUploadLink;
+  const showSnackbarRef = useRef(showSnackbar);
+  showSnackbarRef.current = showSnackbar;
+  const loadSlotsRef = useRef(loadSlots);
+  loadSlotsRef.current = loadSlots;
+  const openDeleteDialogRef = useRef(openDeleteDialog);
+  openDeleteDialogRef.current = openDeleteDialog;
+  const handleAlignmentChangeRef = useRef(handleAlignmentChange);
+  handleAlignmentChangeRef.current = handleAlignmentChange;
+  const toggleItemCollapseRef = useRef(toggleItemCollapse);
+  toggleItemCollapseRef.current = toggleItemCollapse;
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+  const campaignIdRef = useRef(campaignId);
+  campaignIdRef.current = campaignId;
+  const handleAfterChangeRef = useRef(handleAfterChange);
+  handleAfterChangeRef.current = handleAfterChange;
+
+  // ========== HotTable prop 안정화: contextMenu useMemo ==========
+  const contextMenuConfig = useMemo(() => ({
+    items: {
+      copy: { name: '복사' },
+      cut: { name: '잘라내기' },
+      paste: { name: '붙여넣기' },
+      sp1: { name: '---------' },
+      add_row: {
+        name: '➕ 행 추가',
+        callback: async function(key, selection) {
+          const row = selection[0]?.start?.row;
+          if (row === undefined) return;
+
+          const rowData = tableDataRef.current[row];
+          if (!rowData || (rowData._rowType !== ROW_TYPES.BUYER_DATA && rowData._rowType !== ROW_TYPES.BUYER_HEADER)) {
+            alert('구매자 행에서 우클릭하여 행을 추가해주세요.');
+            return;
+          }
+
+          const itemId = rowData._itemId;
+          const dayGroup = rowData._dayGroup;
+
+          try {
+            const response = await itemSlotService.createSlot(itemId, dayGroup);
+            const newSlot = response.data;
+
+            // 로컬 상태에 새 슬롯만 추가 (전체 리로드 대신)
+            setSlots(prevSlots => [...prevSlots, newSlot]);
+
+            // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
+            slotsCache.delete(`sales_${campaignIdRef.current}`);
+
+            showSnackbarRef.current('행이 추가되었습니다');
+          } catch (error) {
+            console.error('Failed to add row:', error);
+            alert('행 추가 실패: ' + (error.response?.data?.message || error.message));
+          }
+        }
+      },
+      delete_rows: {
+        name: '🗑️ 선택한 행 삭제',
+        callback: async function(key, selection) {
+          if (!selection || selection.length === 0) return;
+
+          // 선택된 모든 행의 슬롯 ID 수집
+          const slotIds = [];
+          const rowIndices = [];
+
+          for (const sel of selection) {
+            for (let r = sel.start.row; r <= sel.end.row; r++) {
+              if (rowIndices.includes(r)) continue;
+              rowIndices.push(r);
+
+              const rowData = tableDataRef.current[r];
+              if (rowData?._rowType === ROW_TYPES.BUYER_DATA && rowData._slotId) {
+                slotIds.push(rowData._slotId);
+              }
+            }
+          }
+
+          if (slotIds.length === 0) {
+            alert('삭제할 구매자 행을 선택해주세요.\n(구매자 데이터 행만 삭제 가능합니다)');
+            return;
+          }
+
+          const confirmMsg = `선택한 ${slotIds.length}개의 행을 삭제하시겠습니까?\n\n⚠️ 해당 행의 구매자 정보와 업로드된 이미지가 모두 삭제됩니다.`;
+          if (!window.confirm(confirmMsg)) return;
+
+          try {
+            await itemSlotService.deleteSlotsBulk(slotIds);
+
+            // 로컬 상태에서 삭제된 슬롯만 제거 (전체 리로드 대신)
+            setSlots(prevSlots => prevSlots.filter(s => !slotIds.includes(s.id)));
+
+            // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
+            slotsCache.delete(`sales_${campaignIdRef.current}`);
+
+            showSnackbarRef.current(`${slotIds.length}개 행이 삭제되었습니다`);
+          } catch (error) {
+            console.error('Failed to delete rows:', error);
+            alert('행 삭제 실패: ' + (error.response?.data?.message || error.message));
+          }
+        }
+      },
+      sp2: { name: '---------' },
+      split_day_group: {
+        name: '📅 일 마감 (다음 행부터 새 일차)',
+        callback: async function(key, selection) {
+          const row = selection[0]?.start?.row;
+          if (row === undefined) return;
+
+          const rowData = tableDataRef.current[row];
+          if (!rowData || rowData._rowType !== ROW_TYPES.BUYER_DATA) {
+            alert('구매자 행에서만 일 마감을 사용할 수 있습니다.');
+            return;
+          }
+
+          const slotId = rowData._slotId;
+          if (!slotId) {
+            alert('슬롯 정보를 찾을 수 없습니다.');
+            return;
+          }
+
+          const slotNumber = rowData._slotNumber || rowData.col0;
+          const dayGroup = rowData._dayGroup;
+          const confirmMsg = `${dayGroup}일차의 ${slotNumber}번째 행 이후로 일 마감하시겠습니까?\n\n현재 행까지 ${dayGroup}일차로 유지되고,\n다음 행부터 새로운 일차로 분할됩니다.`;
+
+          if (!window.confirm(confirmMsg)) return;
+
+          try {
+            const result = await itemSlotService.splitDayGroup(slotId);
+            showSnackbarRef.current(result.message);
+            // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
+            loadSlotsRef.current(campaignIdRef.current, true, true, true);
+          } catch (error) {
+            console.error('Failed to split day group:', error);
+            alert('일 마감 실패: ' + (error.response?.data?.message || error.message));
+          }
+        }
+      },
+      sp3: { name: '---------' },
+      delete_day_group: {
+        name: '🗑️ 이 날짜 그룹 삭제',
+        callback: function(key, selection) {
+          const row = selection[0]?.start?.row;
+          if (row === undefined) return;
+
+          const currentTableData = tableDataRef.current;
+          const rowData = currentTableData[row];
+          if (!rowData) return;
+
+          // 품목 ID와 day_group 찾기 (제품 행 또는 구매자 행에서)
+          let itemId = null;
+          let dayGroup = null;
+          let productName = '';
+
+          if (rowData._rowType === ROW_TYPES.PRODUCT_HEADER || rowData._rowType === ROW_TYPES.PRODUCT_DATA) {
+            itemId = rowData._itemId;
+            dayGroup = rowData._dayGroup;
+            productName = rowData.col3 || '';  // col3이 제품명 (col0은 토글, col1은 날짜, col2는 순번)
+          } else if (rowData._rowType === ROW_TYPES.BUYER_DATA || rowData._rowType === ROW_TYPES.BUYER_HEADER || rowData._rowType === ROW_TYPES.UPLOAD_LINK_BAR) {
+            itemId = rowData._itemId;
+            dayGroup = rowData._dayGroup;
+            // 제품명 찾기
+            const productDataRow = currentTableData.find(r => r._rowType === ROW_TYPES.PRODUCT_DATA && r._itemId === itemId && r._dayGroup === dayGroup);
+            productName = productDataRow?.col3 || '';  // col3이 제품명 (col0은 토글, col1은 날짜, col2는 순번)
+          }
+
+          if (!itemId || dayGroup === null || dayGroup === undefined) {
+            alert('삭제할 날짜 그룹을 선택해주세요.');
+            return;
+          }
+
+          // 해당 day_group의 슬롯 수 계산
+          const groupSlotCount = slotsRef.current.filter(s => s.item_id === itemId && s.day_group === dayGroup).length;
+
+          openDeleteDialogRef.current('group', { itemId, dayGroup }, `"${productName}" 의 ${dayGroup + 1}일차 그룹을 삭제하시겠습니까?\n\n⚠️ ${groupSlotCount}개 행의 구매자 정보와 이미지가 함께 삭제됩니다.`);
+        }
+      },
+      delete_item: {
+        name: '🗑️ 이 품목 전체 삭제',
+        callback: function(key, selection) {
+          const row = selection[0]?.start?.row;
+          if (row === undefined) return;
+
+          const currentTableData = tableDataRef.current;
+          const rowData = currentTableData[row];
+          if (!rowData) return;
+
+          // 품목 ID 찾기 (제품 행 또는 구매자 행에서)
+          let itemId = null;
+          let productName = '';
+
+          if (rowData._rowType === ROW_TYPES.PRODUCT_HEADER || rowData._rowType === ROW_TYPES.PRODUCT_DATA) {
+            itemId = rowData._itemId;
+            productName = rowData.col3 || '';
+          } else if (rowData._rowType === ROW_TYPES.BUYER_DATA || rowData._rowType === ROW_TYPES.BUYER_HEADER || rowData._rowType === ROW_TYPES.UPLOAD_LINK_BAR) {
+            itemId = rowData._itemId;
+            const productDataRow = currentTableData.find(r => r._rowType === ROW_TYPES.PRODUCT_DATA && r._itemId === itemId);
+            productName = productDataRow?.col3 || '';
+          }
+
+          if (!itemId) {
+            alert('삭제할 품목을 선택해주세요.');
+            return;
+          }
+
+          // 해당 품목의 모든 슬롯 수 계산
+          const currentSlots = slotsRef.current;
+          const itemSlotCount = currentSlots.filter(s => s.item_id === itemId).length;
+          // 해당 품목의 day_group 개수 계산
+          const dayGroups = new Set(currentSlots.filter(s => s.item_id === itemId).map(s => s.day_group));
+          const dayGroupCount = dayGroups.size;
+
+          openDeleteDialogRef.current('item', { itemId }, `"${productName}" 품목 전체를 삭제하시겠습니까?\n\n⚠️ ${dayGroupCount}개 일차, 총 ${itemSlotCount}개 행의 구매자 정보와 이미지가 함께 삭제됩니다.`);
+        }
+      },
+      sp4: { name: '---------' },
+      align_left: {
+        name: '⬅️ 왼쪽 정렬',
+        callback: function(key, selection) {
+          const col = selection[0]?.start?.col;
+          if (col !== undefined) {
+            handleAlignmentChangeRef.current(col, 'left');
+          }
+        }
+      },
+      align_center: {
+        name: '↔️ 가운데 정렬',
+        callback: function(key, selection) {
+          const col = selection[0]?.start?.col;
+          if (col !== undefined) {
+            handleAlignmentChangeRef.current(col, 'center');
+          }
+        }
+      },
+      align_right: {
+        name: '➡️ 오른쪽 정렬',
+        callback: function(key, selection) {
+          const col = selection[0]?.start?.col;
+          if (col !== undefined) {
+            handleAlignmentChangeRef.current(col, 'right');
+          }
+        }
+      }
+    }
+  }), []);
+
+  // ========== HotTable prop 안정화: beforeCopy useCallback ==========
+  const handleBeforeCopy = useCallback((data, coords) => {
+    // URL 형식의 데이터 복사 시 하이퍼링크 형식으로 변환
+    // col11 뿐 아니라 모든 셀에서 URL 패턴을 감지하여 처리
+    const urlPattern = /^(https?:\/\/|www\.|[a-zA-Z0-9-]+\.(com|co\.kr|kr|net|org|io|shop|store))/i;
+
+    for (let i = 0; i < data.length; i++) {
+      for (let j = 0; j < data[i].length; j++) {
+        const value = data[i][j];
+        if (value && typeof value === 'string' && value.trim()) {
+          if (urlPattern.test(value.trim())) {
+            const url = value.startsWith('http') ? value : `https://${value}`;
+            data[i][j] = url;
+          }
+        }
+      }
+    }
+  }, []);
+
+  // ========== HotTable prop 안정화: beforePaste useCallback ==========
+  const handleBeforePaste = useCallback((data, coords) => {
+    // 붙여넣기 슬래시 파싱 적용
+
+    // 주문번호 컬럼(col7, 인덱스 7)에서만 슬래시 파싱 적용 (비고 컬럼 추가로 인해 col6 -> col7로 시프트)
+    // 슬래시 구분: 주문번호/구매자/수취인/아이디/연락처/주소/계좌/금액 → col7~col14
+    const startCol = coords[0].startCol;
+    if (startCol !== 7) return; // 다른 컬럼이면 기본 동작
+
+    // 붙여넣기 대상 행이 구매자 데이터 행인지 확인
+    const startRow = coords[0].startRow;
+    const targetRowData = tableDataRef.current[startRow];
+    if (!targetRowData || targetRowData._rowType !== ROW_TYPES.BUYER_DATA) return;
+
+    // 첫 번째 셀에 슬래시가 있는지 확인
+    const firstCell = data[0]?.[0];
+    if (!firstCell || typeof firstCell !== 'string' || !firstCell.includes('/')) return;
+
+    // 모든 행을 처리
+    const newData = [];
+
+    for (const row of data) {
+      const cellValue = row[0];
+      if (!cellValue || typeof cellValue !== 'string') continue;
+
+      // 셀 내에 줄바꿈이 있으면 분리 (Windows: \r\n, Unix: \n)
+      const lines = cellValue.split(/\r?\n/).filter(line => line.trim());
+
+      for (const line of lines) {
+        if (!line.includes('/')) continue;
+
+        const parts = line.split('/');
+        newData.push([
+          parts[0]?.trim() || '',  // col7: 주문번호
+          parts[1]?.trim() || '',  // col8: 구매자
+          parts[2]?.trim() || '',  // col9: 수취인
+          parts[3]?.trim() || '',  // col10: 아이디
+          parts[4]?.trim() || '',  // col11: 연락처
+          parts[5]?.trim() || '',  // col12: 주소
+          parts[6]?.trim() || '',  // col13: 계좌
+          parts[7]?.trim() || ''   // col14: 금액
+        ]);
+      }
+    }
+
+    if (newData.length === 0) return;
+
+    // 원본 data 배열 수정 (Handsontable이 이 데이터로 붙여넣기)
+    data.length = 0;
+    newData.forEach(row => data.push(row));
+  }, []);
+
+  // ========== HotTable prop 안정화: afterChange useCallback ==========
+  const handleAfterChangeWrapper = useCallback((changes, source) => {
+    // 8차 최적화: IME 조합 중이면 무시 (한글 입력 깨짐 방지)
+    // DOM 이벤트 리스너로 isComposingRef 상태 관리 (useEffect에서 설정)
+    if (isComposingRef.current) return;
+    handleAfterChangeRef.current(changes, source);
+  }, []);
+
+  // ========== HotTable prop 안정화: afterLoadData useCallback ==========
+  const handleAfterLoadData = useCallback((sourceData, initialLoad) => {
+    console.log('[DEBUG] afterLoadData called - initialLoad:', initialLoad);
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) {
+      console.log('[DEBUG] afterLoadData - hot instance not found');
+      return;
+    }
+
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) {
+      console.log('[DEBUG] afterLoadData - hiddenRowsPlugin not found');
+      return;
+    }
+
+    const indices = hiddenRowIndicesRef.current;
+    console.log('[DEBUG] afterLoadData - indices length:', indices.length);
+    if (indices.length === 0) {
+      console.log('[DEBUG] afterLoadData - no indices to hide, returning');
+      return;
+    }
+
+    // 데이터 로드 후 hiddenRows 강제 재적용 (Handsontable이 리셋할 수 있음)
+    const currentHiddenBefore = hiddenRowsPlugin.getHiddenRows();
+    console.log('[DEBUG] afterLoadData - currentHidden BEFORE batch:', currentHiddenBefore.length);
+
+    hot.batch(() => {
+      // 먼저 모든 행 표시
+      const currentHidden = hiddenRowsPlugin.getHiddenRows();
+      if (currentHidden.length > 0) {
+        hiddenRowsPlugin.showRows(currentHidden);
+      }
+      // 숨겨야 할 행 숨기기
+      hiddenRowsPlugin.hideRows(indices);
+      console.log('[DEBUG] afterLoadData - hideRows called with', indices.length, 'indices');
+    });
+
+    const currentHiddenAfter = hiddenRowsPlugin.getHiddenRows();
+    console.log('[DEBUG] afterLoadData - currentHidden AFTER batch:', currentHiddenAfter.length);
+  }, []);
+
+  // ========== HotTable prop 안정화: afterSelection useCallback ==========
+  const handleAfterSelection = useCallback((row, column, row2, column2, preventScrolling) => {
+    // 마우스 클릭 시에는 스크롤 방지, 키보드 이동 시에는 스크롤 허용
+    if (hotRef.current?.hotInstance?._isKeyboardNav) {
+      preventScrolling.value = false;
+      hotRef.current.hotInstance._isKeyboardNav = false;
+    } else {
+      preventScrolling.value = true;
+    }
+
+    // 선택된 셀 개수 계산 및 DOM 직접 업데이트 (리렌더링 방지)
+    const rowCount = Math.abs(row2 - row) + 1;
+    const colCount = Math.abs(column2 - column) + 1;
+    const cellCount = rowCount * colCount;
+    if (selectedCellCountRef.current) {
+      if (cellCount > 1) {
+        selectedCellCountRef.current.textContent = `선택: ${cellCount}셀 (${rowCount}행 × ${colCount}열)`;
+        selectedCellCountRef.current.style.display = 'inline';
+      } else {
+        selectedCellCountRef.current.style.display = 'none';
+      }
+    }
+  }, []);
+
+  // ========== HotTable prop 안정화: afterDeselect useCallback ==========
+  const handleAfterDeselect = useCallback(() => {
+    // 선택 해제 시 셀 개수 숨김
+    if (selectedCellCountRef.current) {
+      selectedCellCountRef.current.style.display = 'none';
+    }
+  }, []);
+
+  // ========== HotTable prop 안정화: beforeKeyDown useCallback ==========
+  const handleBeforeKeyDown = useCallback((event) => {
+    // 방향키 입력 시 플래그 설정
+    const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
+    if (arrowKeys.includes(event.key)) {
+      if (hotRef.current?.hotInstance) {
+        hotRef.current.hotInstance._isKeyboardNav = true;
+      }
+    }
+  }, []);
+
+  // ========== HotTable prop 안정화: beforeOnCellMouseDown useCallback ==========
+  const handleBeforeOnCellMouseDown = useCallback((event, coords, TD) => {
+    // 토글 셀(제품 데이터 행의 col0) 클릭 시 기본 동작 방지
+    const rowData = tableDataRef.current[coords.row];
+    if (rowData?._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
+      event.stopImmediatePropagation();
+    }
+  }, []);
+
+  // ========== HotTable prop 안정화: afterRender useCallback ==========
+  const handleAfterRender = useCallback(() => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) return;
+
+    const indices = hiddenRowIndicesRef.current;
+    if (indices.length === 0) return;
+
+    // 현재 숨겨진 행 확인
+    const currentHidden = hiddenRowsPlugin.getHiddenRows();
+    const currentSet = new Set(currentHidden);
+    const targetSet = new Set(indices);
+
+    // 이미 올바르게 숨겨져 있으면 스킵 (무한 루프 방지)
+    if (currentSet.size === targetSet.size &&
+        [...currentSet].every(r => targetSet.has(r))) {
+      return;
+    }
+
+    console.log('[DEBUG] afterRender - restoring hiddenRows, current:', currentHidden.length, 'target:', indices.length);
+
+    // hiddenRows 복원
+    hot.batch(() => {
+      if (currentHidden.length > 0) {
+        hiddenRowsPlugin.showRows(currentHidden);
+      }
+      hiddenRowsPlugin.hideRows(indices);
+    });
+  }, []);
+
+  // ========== HotTable prop 안정화: afterOnCellMouseUp useCallback ==========
+  const handleAfterOnCellMouseUp = useCallback((event, coords) => {
+    const currentTableData = tableDataRef.current;
+    const rowData = currentTableData[coords.row];
+    if (!rowData) return;
+
+    // 제품 데이터 행의 col0(토글) 클릭 시 접기/펼치기
+    if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
+      const itemId = rowData._itemId;
+      const dayGroup = rowData._dayGroup;
+      toggleItemCollapseRef.current(`${itemId}_${dayGroup}`);
+      return;
+    }
+
+    // 업로드 링크 바 클릭 시 링크 복사
+    if (rowData._rowType === ROW_TYPES.UPLOAD_LINK_BAR) {
+      const token = rowData._uploadToken;
+      if (token) {
+        handleCopyUploadLinkRef.current(token);
+      }
+      return;
+    }
+
+    // 제품 데이터 행의 col14(상세보기) 클릭 시 팝업
+    if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
+      const item = rowData._item;
+      const itemId = rowData._itemId;
+      const dayGroup = rowData._dayGroup;
+      if (item) {
+        // slots에서 해당 day_group의 첫 번째 슬롯 찾기
+        const dayGroupSlots = slotsRef.current.filter(s => s.item_id === itemId && s.day_group === dayGroup);
+        const firstSlot = dayGroupSlots[0];
+        // changedItems에서 로컬 수정 내용 가져와서 병합
+        const dayGroupKey = `${itemId}_${dayGroup}`;
+        const localChanges = changedItemsRef.current[dayGroupKey] || {};
+        // slot과 localChanges를 병합한 객체 생성
+        const mergedSlot = firstSlot ? { ...firstSlot, ...localChanges } : localChanges;
+        setProductDetailPopup({
+          open: true,
+          item: item,
+          slot: mergedSlot,
+          dayGroup: dayGroup
+        });
+      }
+      return;
+    }
+
+    // 리뷰 보기 링크 클릭 시 갤러리 팝업
+    const target = event.target;
+    if (target.tagName === 'A' && target.classList.contains('review-link')) {
+      event.preventDefault();
+      const rowDataForReview = currentTableData[coords.row];
+      const images = rowDataForReview?._reviewImages || [];
+      if (images.length > 0) {
+        setImagePopup({
+          open: true,
+          images: images,
+          currentIndex: 0,
+          buyer: rowDataForReview?._buyer || null
+        });
+      }
+    }
+  }, []);
+
+  // ========== HotTable prop 안정화: afterFilter useCallback ==========
+  const handleAfterFilter = useCallback((conditionsStack) => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    // 필터 조건 저장
+    filterConditionsRef.current = conditionsStack && conditionsStack.length > 0 ? [...conditionsStack] : null;
+
+    // 필터링된 컬럼 추적
+    const filteredCols = new Set();
+    if (conditionsStack && conditionsStack.length > 0) {
+      conditionsStack.forEach(condition => {
+        if (condition.column !== undefined) {
+          filteredCols.add(condition.column);
+        }
+      });
+    }
+    setFilteredColumns(filteredCols);
+
+    // hiddenRows 플러그인 가져오기
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) {
+      return;
+    }
+
+    // 먼저 모든 hiddenRows 초기화
+    const currentHidden = hiddenRowsPlugin.getHiddenRows();
+    if (currentHidden.length > 0) {
+      hiddenRowsPlugin.showRows(currentHidden);
+    }
+
+    const currentTableData = tableDataRef.current;
+
+    // 필터 조건이 없으면 전체 표시
+    if (!conditionsStack || conditionsStack.length === 0) {
+      setFilteredRows(null);
+      hot.render();
+      return;
+    }
+
+    // 조건에 따라 직접 필터링
+    const visibleRows = [];
+    const hiddenRows = [];
+    const dataRowCount = currentTableData.length;
+    const currentColumns = columnsRef.current;
+
+    for (let physicalRow = 0; physicalRow < dataRowCount; physicalRow++) {
+      const rowData = currentTableData[physicalRow];
+
+      // 구매자 데이터 행만 필터링 대상, 나머지는 숨기기
+      if (rowData?._rowType !== ROW_TYPES.BUYER_DATA) {
+        hiddenRows.push(physicalRow);
+        continue;
+      }
+
+      // 필터 조건 확인 - 각 컬럼별 조건 체크
+      let passesFilter = true;
+      conditionsStack.forEach(condition => {
+        if (!passesFilter) return;
+
+        const col = condition.column;
+        const colName = currentColumns[col]?.data; // col0, col1, ...
+        const cellValue = colName ? rowData[colName] : null;
+
+        // 필터 조건 타입에 따라 체크
+        if (condition.conditions && condition.conditions.length > 0) {
+          condition.conditions.forEach(cond => {
+            if (!passesFilter) return;
+
+            const { name, args } = cond;
+            const filterValue = args && args[0];
+
+            // by_value 필터 체크
+            if (name === 'by_value' && args) {
+              const allowedValues = args[0];
+              if (Array.isArray(allowedValues)) {
+                const cellStr = String(cellValue ?? '');
+                if (!allowedValues.includes(cellStr)) {
+                  passesFilter = false;
+                }
+              }
+            }
+            // 조건 필터 체크
+            else if (name === 'eq' && filterValue !== undefined) {
+              if (String(cellValue) !== String(filterValue)) {
+                passesFilter = false;
+              }
+            } else if (name === 'contains' && filterValue) {
+              if (!String(cellValue ?? '').includes(String(filterValue))) {
+                passesFilter = false;
+              }
+            } else if (name === 'not_contains' && filterValue) {
+              if (String(cellValue ?? '').includes(String(filterValue))) {
+                passesFilter = false;
+              }
+            } else if (name === 'empty') {
+              if (cellValue !== null && cellValue !== undefined && cellValue !== '') {
+                passesFilter = false;
+              }
+            } else if (name === 'not_empty') {
+              if (cellValue === null || cellValue === undefined || cellValue === '') {
+                passesFilter = false;
+              }
+            }
+          });
+        }
+      });
+
+      if (passesFilter) {
+        visibleRows.push(physicalRow);
+      } else {
+        hiddenRows.push(physicalRow);
+      }
+    }
+
+    // 필터링된 행 숨기기 (hiddenRows 플러그인 사용)
+    if (hiddenRows.length > 0) {
+      hiddenRowsPlugin.hideRows(hiddenRows);
+    }
+
+    hot.render();
+
+    setFilteredRows(visibleRows.length > 0 && visibleRows.length < dataRowCount ? visibleRows : null);
+  }, []);
 
   if (loading) {
     return (
@@ -1917,7 +2592,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             ref={hotRef}
             data={tableData}
             columns={columns}
-            colHeaders={colHeaders}
+            colHeaders={COL_HEADERS}
             colWidths={columnWidths.length > 0 ? columnWidths : undefined}
             rowHeaders={false}
             width="100%"
@@ -1932,621 +2607,36 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             disableVisualSelection={false}
             imeFastEdit={true}
             minSpareRows={0}
-            hiddenRows={{
-              rows: hiddenRowIndices,  // prop으로 직접 전달하여 data 변경 시에도 유지
-              indicators: false
-            }}
-            contextMenu={{
-              items: {
-                copy: { name: '복사' },
-                cut: { name: '잘라내기' },
-                paste: { name: '붙여넣기' },
-                sp1: { name: '---------' },
-                add_row: {
-                  name: '➕ 행 추가',
-                  callback: async function(key, selection) {
-                    const row = selection[0]?.start?.row;
-                    if (row === undefined) return;
-
-                    const rowData = tableData[row];
-                    if (!rowData || (rowData._rowType !== ROW_TYPES.BUYER_DATA && rowData._rowType !== ROW_TYPES.BUYER_HEADER)) {
-                      alert('구매자 행에서 우클릭하여 행을 추가해주세요.');
-                      return;
-                    }
-
-                    const itemId = rowData._itemId;
-                    const dayGroup = rowData._dayGroup;
-
-                    try {
-                      const response = await itemSlotService.createSlot(itemId, dayGroup);
-                      const newSlot = response.data;
-
-                      // 로컬 상태에 새 슬롯만 추가 (전체 리로드 대신)
-                      setSlots(prevSlots => [...prevSlots, newSlot]);
-
-                      // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
-                      slotsCache.delete(`sales_${campaignId}`);
-
-                      showSnackbar('행이 추가되었습니다');
-                    } catch (error) {
-                      console.error('Failed to add row:', error);
-                      alert('행 추가 실패: ' + (error.response?.data?.message || error.message));
-                    }
-                  }
-                },
-                delete_rows: {
-                  name: '🗑️ 선택한 행 삭제',
-                  callback: async function(key, selection) {
-                    if (!selection || selection.length === 0) return;
-
-                    // 선택된 모든 행의 슬롯 ID 수집
-                    const slotIds = [];
-                    const rowIndices = [];
-
-                    for (const sel of selection) {
-                      for (let r = sel.start.row; r <= sel.end.row; r++) {
-                        if (rowIndices.includes(r)) continue;
-                        rowIndices.push(r);
-
-                        const rowData = tableData[r];
-                        if (rowData?._rowType === ROW_TYPES.BUYER_DATA && rowData._slotId) {
-                          slotIds.push(rowData._slotId);
-                        }
-                      }
-                    }
-
-                    if (slotIds.length === 0) {
-                      alert('삭제할 구매자 행을 선택해주세요.\n(구매자 데이터 행만 삭제 가능합니다)');
-                      return;
-                    }
-
-                    const confirmMsg = `선택한 ${slotIds.length}개의 행을 삭제하시겠습니까?\n\n⚠️ 해당 행의 구매자 정보와 업로드된 이미지가 모두 삭제됩니다.`;
-                    if (!window.confirm(confirmMsg)) return;
-
-                    try {
-                      await itemSlotService.deleteSlotsBulk(slotIds);
-
-                      // 로컬 상태에서 삭제된 슬롯만 제거 (전체 리로드 대신)
-                      setSlots(prevSlots => prevSlots.filter(s => !slotIds.includes(s.id)));
-
-                      // 캐시 무효화 (다음 캠페인 전환 시 최신 데이터 로드)
-                      slotsCache.delete(`sales_${campaignId}`);
-
-                      showSnackbar(`${slotIds.length}개 행이 삭제되었습니다`);
-                    } catch (error) {
-                      console.error('Failed to delete rows:', error);
-                      alert('행 삭제 실패: ' + (error.response?.data?.message || error.message));
-                    }
-                  }
-                },
-                sp2: { name: '---------' },
-                split_day_group: {
-                  name: '📅 일 마감 (다음 행부터 새 일차)',
-                  callback: async function(key, selection) {
-                    const row = selection[0]?.start?.row;
-                    if (row === undefined) return;
-
-                    const rowData = tableData[row];
-                    if (!rowData || rowData._rowType !== ROW_TYPES.BUYER_DATA) {
-                      alert('구매자 행에서만 일 마감을 사용할 수 있습니다.');
-                      return;
-                    }
-
-                    const slotId = rowData._slotId;
-                    if (!slotId) {
-                      alert('슬롯 정보를 찾을 수 없습니다.');
-                      return;
-                    }
-
-                    const slotNumber = rowData._slotNumber || rowData.col0;
-                    const dayGroup = rowData._dayGroup;
-                    const confirmMsg = `${dayGroup}일차의 ${slotNumber}번째 행 이후로 일 마감하시겠습니까?\n\n현재 행까지 ${dayGroup}일차로 유지되고,\n다음 행부터 새로운 일차로 분할됩니다.`;
-
-                    if (!window.confirm(confirmMsg)) return;
-
-                    try {
-                      const result = await itemSlotService.splitDayGroup(slotId);
-                      showSnackbar(result.message);
-                      // forceRefresh=true, preserveCollapsedState=true, skipLoading=true
-                      loadSlots(campaignId, true, true, true);
-                    } catch (error) {
-                      console.error('Failed to split day group:', error);
-                      alert('일 마감 실패: ' + (error.response?.data?.message || error.message));
-                    }
-                  }
-                },
-                sp3: { name: '---------' },
-                delete_day_group: {
-                  name: '🗑️ 이 날짜 그룹 삭제',
-                  callback: function(key, selection) {
-                    const row = selection[0]?.start?.row;
-                    if (row === undefined) return;
-
-                    const rowData = tableData[row];
-                    if (!rowData) return;
-
-                    // 품목 ID와 day_group 찾기 (제품 행 또는 구매자 행에서)
-                    let itemId = null;
-                    let dayGroup = null;
-                    let productName = '';
-
-                    if (rowData._rowType === ROW_TYPES.PRODUCT_HEADER || rowData._rowType === ROW_TYPES.PRODUCT_DATA) {
-                      itemId = rowData._itemId;
-                      dayGroup = rowData._dayGroup;
-                      productName = rowData.col3 || '';  // col3이 제품명 (col0은 토글, col1은 날짜, col2는 순번)
-                    } else if (rowData._rowType === ROW_TYPES.BUYER_DATA || rowData._rowType === ROW_TYPES.BUYER_HEADER || rowData._rowType === ROW_TYPES.UPLOAD_LINK_BAR) {
-                      itemId = rowData._itemId;
-                      dayGroup = rowData._dayGroup;
-                      // 제품명 찾기
-                      const productDataRow = tableData.find(r => r._rowType === ROW_TYPES.PRODUCT_DATA && r._itemId === itemId && r._dayGroup === dayGroup);
-                      productName = productDataRow?.col3 || '';  // col3이 제품명 (col0은 토글, col1은 날짜, col2는 순번)
-                    }
-
-                    if (!itemId || dayGroup === null || dayGroup === undefined) {
-                      alert('삭제할 날짜 그룹을 선택해주세요.');
-                      return;
-                    }
-
-                    // 해당 day_group의 슬롯 수 계산
-                    const groupSlotCount = slots.filter(s => s.item_id === itemId && s.day_group === dayGroup).length;
-
-                    openDeleteDialog('group', { itemId, dayGroup }, `"${productName}" 의 ${dayGroup + 1}일차 그룹을 삭제하시겠습니까?\n\n⚠️ ${groupSlotCount}개 행의 구매자 정보와 이미지가 함께 삭제됩니다.`);
-                  }
-                },
-                delete_item: {
-                  name: '🗑️ 이 품목 전체 삭제',
-                  callback: function(key, selection) {
-                    const row = selection[0]?.start?.row;
-                    if (row === undefined) return;
-
-                    const rowData = tableData[row];
-                    if (!rowData) return;
-
-                    // 품목 ID 찾기 (제품 행 또는 구매자 행에서)
-                    let itemId = null;
-                    let productName = '';
-
-                    if (rowData._rowType === ROW_TYPES.PRODUCT_HEADER || rowData._rowType === ROW_TYPES.PRODUCT_DATA) {
-                      itemId = rowData._itemId;
-                      productName = rowData.col3 || '';
-                    } else if (rowData._rowType === ROW_TYPES.BUYER_DATA || rowData._rowType === ROW_TYPES.BUYER_HEADER || rowData._rowType === ROW_TYPES.UPLOAD_LINK_BAR) {
-                      itemId = rowData._itemId;
-                      const productDataRow = tableData.find(r => r._rowType === ROW_TYPES.PRODUCT_DATA && r._itemId === itemId);
-                      productName = productDataRow?.col3 || '';
-                    }
-
-                    if (!itemId) {
-                      alert('삭제할 품목을 선택해주세요.');
-                      return;
-                    }
-
-                    // 해당 품목의 모든 슬롯 수 계산
-                    const itemSlotCount = slots.filter(s => s.item_id === itemId).length;
-                    // 해당 품목의 day_group 개수 계산
-                    const dayGroups = new Set(slots.filter(s => s.item_id === itemId).map(s => s.day_group));
-                    const dayGroupCount = dayGroups.size;
-
-                    openDeleteDialog('item', { itemId }, `"${productName}" 품목 전체를 삭제하시겠습니까?\n\n⚠️ ${dayGroupCount}개 일차, 총 ${itemSlotCount}개 행의 구매자 정보와 이미지가 함께 삭제됩니다.`);
-                  }
-                },
-                sp4: { name: '---------' },
-                align_left: {
-                  name: '⬅️ 왼쪽 정렬',
-                  callback: function(key, selection) {
-                    const col = selection[0]?.start?.col;
-                    if (col !== undefined) {
-                      handleAlignmentChange(col, 'left');
-                    }
-                  }
-                },
-                align_center: {
-                  name: '↔️ 가운데 정렬',
-                  callback: function(key, selection) {
-                    const col = selection[0]?.start?.col;
-                    if (col !== undefined) {
-                      handleAlignmentChange(col, 'center');
-                    }
-                  }
-                },
-                align_right: {
-                  name: '➡️ 오른쪽 정렬',
-                  callback: function(key, selection) {
-                    const col = selection[0]?.start?.col;
-                    if (col !== undefined) {
-                      handleAlignmentChange(col, 'right');
-                    }
-                  }
-                }
-              }
-            }}
+            hiddenRows={hiddenRowsConfig}
+            contextMenu={contextMenuConfig}
             copyPaste={true}
             fillHandle={true}
             cells={cellsRenderer}
-            beforeCopy={(data, coords) => {
-              // URL 형식의 데이터 복사 시 하이퍼링크 형식으로 변환
-              // col11 뿐 아니라 모든 셀에서 URL 패턴을 감지하여 처리
-              const urlPattern = /^(https?:\/\/|www\.|[a-zA-Z0-9-]+\.(com|co\.kr|kr|net|org|io|shop|store))/i;
-
-              for (let i = 0; i < data.length; i++) {
-                for (let j = 0; j < data[i].length; j++) {
-                  const value = data[i][j];
-                  if (value && typeof value === 'string' && value.trim()) {
-                    if (urlPattern.test(value.trim())) {
-                      const url = value.startsWith('http') ? value : `https://${value}`;
-                      data[i][j] = url;
-                    }
-                  }
-                }
-              }
-            }}
+            beforeCopy={handleBeforeCopy}
             className="htCenter"
             autoWrapRow={false}
             autoWrapCol={false}
             selectionMode="multiple"
             outsideClickDeselects={true}
             enterBeginsEditing={true}
-            enterMoves={{ row: 1, col: 0 }}
-            tabMoves={{ row: 0, col: 1 }}
-            style={{ fontSize: '13px' }}
+            enterMoves={ENTER_MOVES}
+            tabMoves={TAB_MOVES}
+            style={HOT_STYLE}
             afterColumnResize={handleColumnResize}
-            beforePaste={(data, coords) => {
-              // 붙여넣기 슬래시 파싱 적용
-
-              // 주문번호 컬럼(col7, 인덱스 7)에서만 슬래시 파싱 적용 (비고 컬럼 추가로 인해 col6 -> col7로 시프트)
-              // 슬래시 구분: 주문번호/구매자/수취인/아이디/연락처/주소/계좌/금액 → col7~col14
-              const startCol = coords[0].startCol;
-              if (startCol !== 7) return; // 다른 컬럼이면 기본 동작
-
-              // 붙여넣기 대상 행이 구매자 데이터 행인지 확인
-              const startRow = coords[0].startRow;
-              const targetRowData = tableData[startRow];
-              if (!targetRowData || targetRowData._rowType !== ROW_TYPES.BUYER_DATA) return;
-
-              // 첫 번째 셀에 슬래시가 있는지 확인
-              const firstCell = data[0]?.[0];
-              if (!firstCell || typeof firstCell !== 'string' || !firstCell.includes('/')) return;
-
-              // 모든 행을 처리
-              const newData = [];
-
-              for (const row of data) {
-                const cellValue = row[0];
-                if (!cellValue || typeof cellValue !== 'string') continue;
-
-                // 셀 내에 줄바꿈이 있으면 분리 (Windows: \r\n, Unix: \n)
-                const lines = cellValue.split(/\r?\n/).filter(line => line.trim());
-
-                for (const line of lines) {
-                  if (!line.includes('/')) continue;
-
-                  const parts = line.split('/');
-                  newData.push([
-                    parts[0]?.trim() || '',  // col7: 주문번호
-                    parts[1]?.trim() || '',  // col8: 구매자
-                    parts[2]?.trim() || '',  // col9: 수취인
-                    parts[3]?.trim() || '',  // col10: 아이디
-                    parts[4]?.trim() || '',  // col11: 연락처
-                    parts[5]?.trim() || '',  // col12: 주소
-                    parts[6]?.trim() || '',  // col13: 계좌
-                    parts[7]?.trim() || ''   // col14: 금액
-                  ]);
-                }
-              }
-
-              if (newData.length === 0) return;
-
-              // 원본 data 배열 수정 (Handsontable이 이 데이터로 붙여넣기)
-              data.length = 0;
-              newData.forEach(row => data.push(row));
-            }}
-            afterChange={(changes, source) => {
-              // 8차 최적화: IME 조합 중이면 무시 (한글 입력 깨짐 방지)
-              // DOM 이벤트 리스너로 isComposingRef 상태 관리 (useEffect에서 설정)
-              if (isComposingRef.current) return;
-              handleAfterChange(changes, source);
-            }}
-            // 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
-            // 중요: showRows() 먼저 호출하면 모든 행이 순간적으로 표시되어 깜빡임 발생
-            // 차분(diff) 방식으로 필요한 행만 숨기거나 표시
-            afterLoadData={(sourceData, initialLoad) => {
-              console.log('[DEBUG] afterLoadData called - initialLoad:', initialLoad);
-              const hot = hotRef.current?.hotInstance;
-              if (!hot) {
-                console.log('[DEBUG] afterLoadData - hot instance not found');
-                return;
-              }
-
-              const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-              if (!hiddenRowsPlugin) {
-                console.log('[DEBUG] afterLoadData - hiddenRowsPlugin not found');
-                return;
-              }
-
-              const indices = hiddenRowIndicesRef.current;
-              console.log('[DEBUG] afterLoadData - indices length:', indices.length);
-              if (indices.length === 0) {
-                console.log('[DEBUG] afterLoadData - no indices to hide, returning');
-                return;
-              }
-
-              // 데이터 로드 후 hiddenRows 강제 재적용 (Handsontable이 리셋할 수 있음)
-              const currentHiddenBefore = hiddenRowsPlugin.getHiddenRows();
-              console.log('[DEBUG] afterLoadData - currentHidden BEFORE batch:', currentHiddenBefore.length);
-
-              hot.batch(() => {
-                // 먼저 모든 행 표시
-                const currentHidden = hiddenRowsPlugin.getHiddenRows();
-                if (currentHidden.length > 0) {
-                  hiddenRowsPlugin.showRows(currentHidden);
-                }
-                // 숨겨야 할 행 숨기기
-                hiddenRowsPlugin.hideRows(indices);
-                console.log('[DEBUG] afterLoadData - hideRows called with', indices.length, 'indices');
-              });
-
-              const currentHiddenAfter = hiddenRowsPlugin.getHiddenRows();
-              console.log('[DEBUG] afterLoadData - currentHidden AFTER batch:', currentHiddenAfter.length);
-            }}
-            afterSelection={(row, column, row2, column2, preventScrolling) => {
-              // 마우스 클릭 시에는 스크롤 방지, 키보드 이동 시에는 스크롤 허용
-              if (hotRef.current?.hotInstance?._isKeyboardNav) {
-                preventScrolling.value = false;
-                hotRef.current.hotInstance._isKeyboardNav = false;
-              } else {
-                preventScrolling.value = true;
-              }
-
-              // 선택된 셀 개수 계산 및 DOM 직접 업데이트 (리렌더링 방지)
-              const rowCount = Math.abs(row2 - row) + 1;
-              const colCount = Math.abs(column2 - column) + 1;
-              const cellCount = rowCount * colCount;
-              if (selectedCellCountRef.current) {
-                if (cellCount > 1) {
-                  selectedCellCountRef.current.textContent = `선택: ${cellCount}셀 (${rowCount}행 × ${colCount}열)`;
-                  selectedCellCountRef.current.style.display = 'inline';
-                } else {
-                  selectedCellCountRef.current.style.display = 'none';
-                }
-              }
-            }}
-            afterDeselect={() => {
-              // 선택 해제 시 셀 개수 숨김
-              if (selectedCellCountRef.current) {
-                selectedCellCountRef.current.style.display = 'none';
-              }
-            }}
-            beforeKeyDown={(event) => {
-              // 방향키 입력 시 플래그 설정
-              const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
-              if (arrowKeys.includes(event.key)) {
-                if (hotRef.current?.hotInstance) {
-                  hotRef.current.hotInstance._isKeyboardNav = true;
-                }
-              }
-            }}
-            beforeOnCellMouseDown={(event, coords, TD) => {
-              // 토글 셀(제품 데이터 행의 col0) 클릭 시 기본 동작 방지
-              const rowData = tableData[coords.row];
-              if (rowData?._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
-                event.stopImmediatePropagation();
-              }
-            }}
-            afterRender={() => {
-              const hot = hotRef.current?.hotInstance;
-              if (!hot) return;
-
-              const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-              if (!hiddenRowsPlugin) return;
-
-              const indices = hiddenRowIndicesRef.current;
-              if (indices.length === 0) return;
-
-              // 현재 숨겨진 행 확인
-              const currentHidden = hiddenRowsPlugin.getHiddenRows();
-              const currentSet = new Set(currentHidden);
-              const targetSet = new Set(indices);
-
-              // 이미 올바르게 숨겨져 있으면 스킵 (무한 루프 방지)
-              if (currentSet.size === targetSet.size &&
-                  [...currentSet].every(r => targetSet.has(r))) {
-                return;
-              }
-
-              console.log('[DEBUG] afterRender - restoring hiddenRows, current:', currentHidden.length, 'target:', indices.length);
-
-              // hiddenRows 복원
-              hot.batch(() => {
-                if (currentHidden.length > 0) {
-                  hiddenRowsPlugin.showRows(currentHidden);
-                }
-                hiddenRowsPlugin.hideRows(indices);
-              });
-            }}
-            afterOnCellMouseUp={(event, coords) => {
-              const rowData = tableData[coords.row];
-              if (!rowData) return;
-
-              // 제품 데이터 행의 col0(토글) 클릭 시 접기/펼치기
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
-                const itemId = rowData._itemId;
-                const dayGroup = rowData._dayGroup;
-                toggleItemCollapse(`${itemId}_${dayGroup}`);
-                return;
-              }
-
-              // 업로드 링크 바 클릭 시 링크 복사
-              if (rowData._rowType === ROW_TYPES.UPLOAD_LINK_BAR) {
-                const token = rowData._uploadToken;
-                if (token) {
-                  handleCopyUploadLink(token);
-                }
-                return;
-              }
-
-              // 제품 데이터 행의 col14(상세보기) 클릭 시 팝업
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
-                const item = rowData._item;
-                const itemId = rowData._itemId;
-                const dayGroup = rowData._dayGroup;
-                if (item) {
-                  // slots에서 해당 day_group의 첫 번째 슬롯 찾기
-                  const dayGroupSlots = slots.filter(s => s.item_id === itemId && s.day_group === dayGroup);
-                  const firstSlot = dayGroupSlots[0];
-                  // changedItems에서 로컬 수정 내용 가져와서 병합
-                  const dayGroupKey = `${itemId}_${dayGroup}`;
-                  const localChanges = changedItemsRef.current[dayGroupKey] || {};
-                  // slot과 localChanges를 병합한 객체 생성
-                  const mergedSlot = firstSlot ? { ...firstSlot, ...localChanges } : localChanges;
-                  setProductDetailPopup({
-                    open: true,
-                    item: item,
-                    slot: mergedSlot,
-                    dayGroup: dayGroup
-                  });
-                }
-                return;
-              }
-
-              // 리뷰 보기 링크 클릭 시 갤러리 팝업
-              const target = event.target;
-              if (target.tagName === 'A' && target.classList.contains('review-link')) {
-                event.preventDefault();
-                const rowData = tableData[coords.row];
-                const images = rowData?._reviewImages || [];
-                if (images.length > 0) {
-                  setImagePopup({
-                    open: true,
-                    images: images,
-                    currentIndex: 0,
-                    buyer: rowData?._buyer || null
-                  });
-                }
-              }
-            }}
+            beforePaste={handleBeforePaste}
+            afterChange={handleAfterChangeWrapper}
+            afterLoadData={handleAfterLoadData}
+            afterSelection={handleAfterSelection}
+            afterDeselect={handleAfterDeselect}
+            beforeKeyDown={handleBeforeKeyDown}
+            beforeOnCellMouseDown={handleBeforeOnCellMouseDown}
+            afterRender={handleAfterRender}
+            afterOnCellMouseUp={handleAfterOnCellMouseUp}
             rowHeights={23}
             autoScrollOnSelection={false}
             filters={true}
-            dropdownMenu={['filter_by_condition', 'filter_by_value', 'filter_action_bar']}
-            afterFilter={(conditionsStack) => {
-              const hot = hotRef.current?.hotInstance;
-              if (!hot) return;
-
-              // 필터 조건 저장
-              filterConditionsRef.current = conditionsStack && conditionsStack.length > 0 ? [...conditionsStack] : null;
-
-              // 필터링된 컬럼 추적
-              const filteredCols = new Set();
-              if (conditionsStack && conditionsStack.length > 0) {
-                conditionsStack.forEach(condition => {
-                  if (condition.column !== undefined) {
-                    filteredCols.add(condition.column);
-                  }
-                });
-              }
-              setFilteredColumns(filteredCols);
-
-              // hiddenRows 플러그인 가져오기
-              const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-              if (!hiddenRowsPlugin) {
-                return;
-              }
-
-              // 먼저 모든 hiddenRows 초기화
-              const currentHidden = hiddenRowsPlugin.getHiddenRows();
-              if (currentHidden.length > 0) {
-                hiddenRowsPlugin.showRows(currentHidden);
-              }
-
-              // 필터 조건이 없으면 전체 표시
-              if (!conditionsStack || conditionsStack.length === 0) {
-                setFilteredRows(null);
-                hot.render();
-                return;
-              }
-
-              // 조건에 따라 직접 필터링
-              const visibleRows = [];
-              const hiddenRows = [];
-              const dataRowCount = tableData.length;
-
-              for (let physicalRow = 0; physicalRow < dataRowCount; physicalRow++) {
-                const rowData = tableData[physicalRow];
-
-                // 구매자 데이터 행만 필터링 대상, 나머지는 숨기기
-                if (rowData?._rowType !== ROW_TYPES.BUYER_DATA) {
-                  hiddenRows.push(physicalRow);
-                  continue;
-                }
-
-                // 필터 조건 확인 - 각 컬럼별 조건 체크
-                let passesFilter = true;
-                conditionsStack.forEach(condition => {
-                  if (!passesFilter) return;
-
-                  const col = condition.column;
-                  const colName = columns[col]?.data; // col0, col1, ...
-                  const cellValue = colName ? rowData[colName] : null;
-
-                  // 필터 조건 타입에 따라 체크
-                  if (condition.conditions && condition.conditions.length > 0) {
-                    condition.conditions.forEach(cond => {
-                      if (!passesFilter) return;
-
-                      const { name, args } = cond;
-                      const filterValue = args && args[0];
-
-                      // by_value 필터 체크
-                      if (name === 'by_value' && args) {
-                        const allowedValues = args[0];
-                        if (Array.isArray(allowedValues)) {
-                          const cellStr = String(cellValue ?? '');
-                          if (!allowedValues.includes(cellStr)) {
-                            passesFilter = false;
-                          }
-                        }
-                      }
-                      // 조건 필터 체크
-                      else if (name === 'eq' && filterValue !== undefined) {
-                        if (String(cellValue) !== String(filterValue)) {
-                          passesFilter = false;
-                        }
-                      } else if (name === 'contains' && filterValue) {
-                        if (!String(cellValue ?? '').includes(String(filterValue))) {
-                          passesFilter = false;
-                        }
-                      } else if (name === 'not_contains' && filterValue) {
-                        if (String(cellValue ?? '').includes(String(filterValue))) {
-                          passesFilter = false;
-                        }
-                      } else if (name === 'empty') {
-                        if (cellValue !== null && cellValue !== undefined && cellValue !== '') {
-                          passesFilter = false;
-                        }
-                      } else if (name === 'not_empty') {
-                        if (cellValue === null || cellValue === undefined || cellValue === '') {
-                          passesFilter = false;
-                        }
-                      }
-                    });
-                  }
-                });
-
-                if (passesFilter) {
-                  visibleRows.push(physicalRow);
-                } else {
-                  hiddenRows.push(physicalRow);
-                }
-              }
-
-              // 필터링된 행 숨기기 (hiddenRows 플러그인 사용)
-              if (hiddenRows.length > 0) {
-                hiddenRowsPlugin.hideRows(hiddenRows);
-              }
-
-              hot.render();
-
-              setFilteredRows(visibleRows.length > 0 && visibleRows.length < dataRowCount ? visibleRows : null);
-            }}
+            dropdownMenu={DROPDOWN_MENU}
+            afterFilter={handleAfterFilter}
           />
         ) : (
           <Box sx={{

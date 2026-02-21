@@ -1234,6 +1234,190 @@ const handleCompositionEnd = () => {
 - [ ] 엔터 후 다음 셀 입력 시 딜레이 감소
 - [ ] DailyWorkSheet(날짜별 작업) 동일하게 개선됨
 
+**테스트 결과 (2026-02-11):**
+- ✅ 캠페인 시트 (OperatorItemSheet, SalesItemSheet): 한글 "홍길동" 10회 모두 정상!
+- ✅ 딜레이 대폭 감소
+- ❌ 날짜별 작업 시트 (DailyWorkSheet): 한글 입력 깨짐 여전히 발생 ("ㅣㄹ동", "ghdrlㄹ동" 등)
+- ❌ DailyWorkSheet Ctrl+S 직후 약간의 딜레이 존재
+
+**결론:** △ 캠페인 시트 성공, DailyWorkSheet 미해결
+
+---
+
+### 14차 최적화 (2026-02-11) - DailyWorkSheet saving→ref + isComposing + 저장버튼 항상표시
+
+**적용 내용:**
+1. DailyWorkSheet에 13차까지 캠페인 시트에 적용한 모든 최적화 동일 적용
+   - `saving` state → `savingRef` ref
+   - `isComposingRef` + compositionstart/end DOM 이벤트 리스너
+   - 저장 버튼 항상 표시
+   - Snackbar CSS animation 방식
+
+**수정 파일:**
+- `DailyWorkSheet.js`
+
+**테스트 결과 (2026-02-11):**
+- ❌ 한글 깨짐 여전히 발생 (ㅇ길동h, ㅗㅇ길동, ㅗ익ㄹ동 등)
+- ❌ 엔터 후 딜레이 존재
+
+**결론:** ❌ DailyWorkSheet는 별도 원인 존재
+
+---
+
+### 15차 최적화 (2026-02-11) - DailyWorkSheet changedSlots/changedItems state→ref
+
+**적용 내용:**
+1. `changedSlots`/`changedItems` state 제거 → ref만 사용
+2. `handleAfterChange` 내 `setChangedSlots`/`setChangedItems` → `changedSlotsRef.current` 직접 할당
+3. useMemo 의존성에서 `changedSlots`/`changedItems` 제거
+4. `setDataAtCell` 비동기화 (requestAnimationFrame)
+
+**수정 파일:**
+- `DailyWorkSheet.js`
+
+**테스트 결과 (2026-02-12):**
+- ❌ 여전히 한글 깨짐 (gㅗㅇ길동, ㅗㅇ길동 등)
+- 원인: handleAfterChange 의존성에 `[rowMeta, tableData]`가 남아있음
+
+**결론:** ❌ 의존성 체인 미해결
+
+---
+
+### 16차 최적화 (2026-02-12) - DailyWorkSheet tableDataRef/rowMetaRef + UnifiedItemSheet 전체 최적화
+
+**적용 내용:**
+1. **DailyWorkSheet**: `tableDataRef`, `rowMetaRef` 추가, handleAfterChange 내부에서 ref로 접근, 의존성 `[]`
+2. **UnifiedItemSheet**: changedSlots/changedItems state→ref, saving→ref, isComposing+compositionstart/end, Snackbar DOM 직접 조작
+
+**수정 파일:**
+- `DailyWorkSheet.js`
+- `UnifiedItemSheet.js`
+
+**테스트 결과 (2026-02-12):**
+- ❌ DailyWorkSheet 한글 깨짐 여전히 (첫 글자 "ㅎ" 사라짐, "ㅗㅇ길동" 등)
+- ✅ OperatorItemSheet/SalesItemSheet 정상
+
+**결론:** ❌ DailyWorkSheet는 data 구조 자체의 문제
+
+---
+
+### 17차 최적화 (2026-02-12) - DailyWorkSheet hiddenRows 플러그인 전환
+
+**적용 내용:**
+1. DailyWorkSheet의 접기/펼치기 방식을 **tableData 필터링 → hiddenRows 플러그인**으로 전환
+   - useMemo에서 `collapsedItems` 의존성 제거
+   - 모든 행을 포함한 baseTableData 생성
+   - `hiddenRowIndices` useMemo 추가
+   - useEffect로 hiddenRows 플러그인 수동 업데이트
+   - HotTable에 `hiddenRows` prop 추가
+2. `productDataRenderer` 의존성에서 `collapsedItems` 제거 (ref 사용)
+
+**수정 파일:**
+- `DailyWorkSheet.js`
+
+**테스트 결과 (2026-02-12):**
+- ❌ 한글 깨짐 여전히 발생 (모든 시트에서)
+- "홍길동" → "ㅗㅇ길동", "gㅗㅇ길동" 등
+
+**결론:** ❌ data 안정화만으로 부족, 다른 원인 존재
+
+---
+
+### 18차 최적화 (2026-02-12) - statusLabels/statusOptions 외부 상수 이동
+
+**적용 내용:**
+1. `statusLabels`, `statusOptions` 객체를 컴포넌트 내부 → **컴포넌트 외부 상수**로 이동
+2. 모든 시트에 적용 (OperatorItemSheet, SalesItemSheet, DailyWorkSheet, UnifiedItemSheet)
+3. useMemo/useCallback 의존성에서 제거
+
+**수정 파일:**
+- `OperatorItemSheet.js`, `SalesItemSheet.js`, `DailyWorkSheet.js`, `UnifiedItemSheet.js`
+
+**테스트 결과 (2026-02-12):**
+- ❌ 한글 깨짐 여전히 발생: gㅗㅇ길동 (5회 연속 동일)
+- ❌ 접기 상태 안됨
+
+**결론:** ❌ statusLabels/statusOptions는 근본 원인이 아님
+
+---
+
+### 19차 최적화 (2026-02-12) - 렌더러/cellsRenderer 의존성 체인 완전 제거
+
+**적용 내용:**
+1. 모든 렌더러 팩토리(createProductDataRenderer, createBuyerDataRenderer 등)에서 `tableData` → `tableDataRef`로 전환
+2. `cellsRenderer` useCallback 의존성 `[]`로 완전 제거
+3. `hiddenRows` prop을 useMemo로 안정화
+4. `duplicateOrderNumbers`, `columnAlignments`도 ref 전환
+
+**수정 파일:**
+- `OperatorItemSheet.js`, `SalesItemSheet.js`, `DailyWorkSheet.js`, `UnifiedItemSheet.js`
+
+**테스트 결과 (2026-02-12):**
+- ❌ 접기/펼치기 완전 사라짐 (▶/▼ 아이콘 업데이트 안됨)
+- ❌ 한글 IME 여전히 깨짐 (15회 중 3회만 정상)
+  - 결과: 홍길동, ㅣㄹ동r, 길동, ㄹ동rl, 길동d, 길동d, 길동d, ㅣㄹ동, gㅗㅇ길동, ㅗ길동, ㅇ길동, 길동d, ㅇ길동h, 길동hd, gㅗㅇ길동, gㅗㅇ길동
+
+**원인 분석:**
+1. 접기 문제: 렌더러 의존성 `[]`로 만들면서 Handsontable이 셀을 다시 그리지 않음 → `hot.render()` 누락
+2. IME 문제: 렌더러/cellsRenderer는 안정화했지만 **HotTable 인라인 prop들**이 여전히 매 렌더마다 새 참조 생성
+   - `contextMenu={{ ... }}` - 매 렌더마다 새 객체
+   - `afterChange={(c,s) => {...}}` - 매 렌더마다 새 함수
+   - `afterSelection`, `beforeKeyDown`, `afterOnCellMouseUp` 등 모든 인라인 함수
+   - `colHeaders={Array(22).fill('')}` - 매 렌더마다 새 배열
+   - 이 중 하나라도 참조가 변하면 → Handsontable `updateSettings()` → IME 상태 초기화
+
+**결론:** ❌ 렌더러 안정화만으로 부족, HotTable 인라인 prop 전체 안정화 필요
+
+---
+
+### 20차 최적화 (2026-02-12) - 모든 HotTable 인라인 prop 안정화 + 접기 복원
+
+**적용 내용:**
+
+#### 1. hiddenRows useEffect에 `hot.render()` 추가 (접기/펼치기 복원)
+- OperatorItemSheet, SalesItemSheet, DailyWorkSheet
+- hiddenRows 플러그인 업데이트 후 `hot.render()` 호출 → ▶/▼ 아이콘 업데이트
+
+#### 2. 모든 HotTable 인라인 prop → useCallback/useMemo `[]` 전환
+| prop | 변환 | 비고 |
+|------|------|------|
+| contextMenu | useMemo `[]` | 내부 콜백에서 tableDataRef, slotsRef 등 ref 사용 |
+| afterChange | useCallback `[]` | isComposingRef + handleAfterChangeRef |
+| afterSelection | useCallback `[]` | hotRef, selectedCellCountRef 사용 |
+| beforeKeyDown | useCallback `[]` | hotRef 사용 |
+| afterOnCellMouseUp | useCallback `[]` | tableDataRef, toggleItemCollapseRef 등 ref |
+| afterLoadData | useCallback `[]` | hotRef, hiddenRowIndicesRef 사용 |
+| afterRender | useCallback `[]` | hotRef, hiddenRowIndicesRef 사용 |
+| afterFilter | useCallback `[]` | tableDataRef, filterConditionsRef 사용 |
+| beforeCopy | useCallback `[]` | URL 패턴 처리만 |
+| beforePaste | useCallback `[]` | tableDataRef 사용 |
+| beforeOnCellMouseDown | useCallback `[]` | tableDataRef 사용 |
+| afterDeselect | useCallback `[]` | selectedCellCountRef 사용 |
+| colHeaders | 컴포넌트 외부 상수 | `Array(N).fill('')` |
+| enterMoves/tabMoves | useMemo `[]` | `{ row: 1, col: 0 }` 등 |
+| dropdownMenu | useMemo `[]` | 배열 상수 |
+
+#### 3. 추가 ref 추가
+- `handleAfterChangeRef`, `toggleItemCollapseRef`, `handleCopyUploadLinkRef`, `handleAlignmentChangeRef`, `showSnackbarRef`, `loadSlotsRef`, `openDeleteDialogRef`, `slotsRef`, `slotIndexMapRef` 등
+
+#### 4. DailyWorkSheet baseTableData 구조 분해 불일치 수정
+- useMemo가 `{ tableData, rowMeta }` 반환 → `{ baseTableData, baseRowMeta }` destructuring 불일치 → undefined 버그 수정
+
+**수정 파일:**
+- `OperatorItemSheet.js` ✅
+- `SalesItemSheet.js` ✅
+- `DailyWorkSheet.js` ✅
+- `UnifiedItemSheet.js` ✅
+
+**빌드:** ✅ 성공 (경고만, 에러 없음)
+
+**테스트 항목:**
+- [ ] 모든 시트에서 "홍길동" 10회 연속 입력 + 엔터 → 글자 깨짐 없음
+- [ ] 접기/펼치기 (개별 + 모두) 정상 동작
+- [ ] Ctrl+S 저장 정상
+- [ ] 우클릭 컨텍스트 메뉴 정상 동작
+- [ ] 날짜별 작업 시트 데이터 표시 확인
+
 **결론:** ⏳ 테스트 대기
 
 ---

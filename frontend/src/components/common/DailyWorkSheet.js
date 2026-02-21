@@ -68,9 +68,9 @@ const dailyBuyerHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-const createDailyProductDataRenderer = (tableData, collapsedItemsRef) => {
+const createDailyProductDataRenderer = (tableDataRef, collapsedItemsRef) => {
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     td.className = 'product-data-row';
     td.style.backgroundColor = '#fff8e1';
     td.style.fontSize = '11px';
@@ -133,9 +133,9 @@ const createDailyUploadLinkBarRenderer = () => {
   };
 };
 
-const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers) => {
+const createDailyBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef) => {
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     const dayGroup = rowData._dayGroup || 1;
     const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
     td.className = dayClass;
@@ -158,7 +158,7 @@ const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers) => {
     } else if (prop === 'col8') {
       // col8: 주문번호 (col7 -> col8로 시프트)
       td.textContent = value ?? '';
-      if (value && duplicateOrderNumbers.has(value)) {
+      if (value && duplicateOrderNumbersRef.current.has(value)) {
         td.classList.add('duplicate-order');
         td.style.backgroundColor = '#ffcdd2';
       }
@@ -224,6 +224,9 @@ const createDailyBuyerDataRenderer = (tableData, duplicateOrderNumbers) => {
 
 // 기본 컬럼 너비 - 23개 컬럼 (col22 여백 컬럼 포함, 비고 컬럼 추가)
 const DEFAULT_COLUMN_WIDTHS = [30, 180, 70, 60, 120, 80, 80, 50, 80, 60, 50, 50, 50, 80, 30, 80, 100, 80, 50, 60, 70, 70, 50];
+
+// ========== 성능 최적화: colHeaders 배열 (컴포넌트 외부 정의) ==========
+const COL_HEADERS = Array(23).fill('');
 
 /**
  * 날짜별 작업 시트 컴포넌트
@@ -598,6 +601,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     return new Set(Object.keys(counts).filter(num => counts[num] >= 2));
   }, [slots]);
 
+  // 렌더러용 ref (의존성 체인 끊기)
+  const duplicateOrderNumbersRef = useRef(duplicateOrderNumbers);
+  duplicateOrderNumbersRef.current = duplicateOrderNumbers;
+
   // 상태 옵션은 컴포넌트 외부 상수 STATUS_LABELS 사용
 
   // Handsontable 데이터 생성 (성능 최적화: collapsedItems 의존성 제거, hiddenRows 플러그인으로 접기/펼치기 처리)
@@ -814,7 +821,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       });
     });
 
-    return { tableData: data, rowMeta: meta };
+    return { baseTableData: data, baseRowMeta: meta };
   }, [groupedSlots]); // 성능 최적화: collapsedItems 의존성 제거 (hiddenRows 플러그인으로 처리)
 
   // 성능 최적화: baseTableData를 tableData로 alias (OperatorItemSheet와 동일 패턴)
@@ -889,6 +896,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         hiddenRowsPlugin.hideRows(rowsToHide);
       }
     });
+    hot.render(); // 20차: 토글 아이콘(▶/▼) 업데이트를 위해 렌더링 트리거
   }, [hiddenRowIndices]);
 
   // collapsedItemsRef (렌더러에서 ref로 접근하기 위함)
@@ -971,11 +979,10 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     showSnackbar('엑셀 파일이 다운로드되었습니다');
   }, [slots, userRole, selectedDate]);
 
-  // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
-  // collapsedItemsRef를 전달하여 collapsedItems 변경 시 렌더러 재생성 방지
+  // 19차 최적화: 렌더러 팩토리에 ref 전달 → 의존성 [] → cellsRenderer 안정화 → IME 깨짐 방지
   const productDataRenderer = useMemo(() =>
-    createDailyProductDataRenderer(tableData, collapsedItemsRef),
-    [tableData]
+    createDailyProductDataRenderer(tableDataRef, collapsedItemsRef),
+    []
   );
 
   const uploadLinkBarRenderer = useMemo(() =>
@@ -984,19 +991,28 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   );
 
   const buyerDataRenderer = useMemo(() =>
-    createDailyBuyerDataRenderer(tableData, duplicateOrderNumbers),
-    [tableData, duplicateOrderNumbers]
+    createDailyBuyerDataRenderer(tableDataRef, duplicateOrderNumbersRef),
+    []
   );
 
-  // cellsRenderer - 최적화: 외부 정의 렌더러 사용
+  // 렌더러를 ref로 유지 (cellsRenderer 의존성 제거)
+  const productDataRendererRef = useRef(productDataRenderer);
+  productDataRendererRef.current = productDataRenderer;
+  const uploadLinkBarRendererRef = useRef(uploadLinkBarRenderer);
+  uploadLinkBarRendererRef.current = uploadLinkBarRenderer;
+  const buyerDataRendererRef = useRef(buyerDataRenderer);
+  buyerDataRendererRef.current = buyerDataRenderer;
+
+  // cellsRenderer - 19차: 의존성 완전 제거
   const cellsRenderer = useCallback((row, col, prop) => {
     const cellProperties = {};
+    const currentTableData = tableDataRef.current;
 
-    if (row >= tableData.length) {
+    if (row >= currentTableData.length) {
       return cellProperties;
     }
 
-    const rowData = tableData[row];
+    const rowData = currentTableData[row];
     const rowType = rowData?._rowType;
 
     switch (rowType) {
@@ -1015,12 +1031,12 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         if (col === 1) {
           cellProperties.disableVisualSelection = true;
         }
-        cellProperties.renderer = productDataRenderer;
+        cellProperties.renderer = productDataRendererRef.current;
         break;
 
       case ROW_TYPES.UPLOAD_LINK_BAR:
         cellProperties.readOnly = true;
-        cellProperties.renderer = uploadLinkBarRenderer;
+        cellProperties.renderer = uploadLinkBarRendererRef.current;
         // 중단 상태면 suspended 클래스 추가
         if (rowData._isSuspended) {
           cellProperties.className = 'suspended-row';
@@ -1049,7 +1065,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           cellProperties.readOnly = false;
         }
 
-        cellProperties.renderer = buyerDataRenderer;
+        cellProperties.renderer = buyerDataRendererRef.current;
         break;
 
       default:
@@ -1057,7 +1073,13 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     }
 
     return cellProperties;
-  }, [tableData, productDataRenderer, uploadLinkBarRenderer, buyerDataRenderer]);
+  }, []);  // 19차: 의존성 완전 제거
+
+  // 19차: hiddenRows prop 안정화
+  const hiddenRowsConfig = useMemo(() => ({
+    rows: hiddenRowIndices,
+    indicators: false
+  }), [hiddenRowIndices]);
 
   // 셀 변경 핸들러
   const handleAfterChange = useCallback((changes, source) => {
@@ -1175,6 +1197,22 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     changedItemsRef.current = itemUpdates;
     hasUnsavedChangesRef.current = true;
   }, []); // 성능 최적화: 의존성 빈배열 (rowMeta/tableData는 ref로 접근)
+
+  // ========== 성능 최적화: HotTable inline 콜백용 ref (updateSettings 방지) ==========
+  const toggleCollapseRef = useRef(toggleCollapse);
+  toggleCollapseRef.current = toggleCollapse;
+  const handleCopyUploadLinkRef = useRef(handleCopyUploadLink);
+  handleCopyUploadLinkRef.current = handleCopyUploadLink;
+  const handleAfterChangeRef = useRef(handleAfterChange);
+  handleAfterChangeRef.current = handleAfterChange;
+  const saveColumnWidthsRef = useRef(saveColumnWidths);
+  saveColumnWidthsRef.current = saveColumnWidths;
+  const showSnackbarRef = useRef(showSnackbar);
+  showSnackbarRef.current = showSnackbar;
+  const searchDateRef = useRef(searchDate);
+  searchDateRef.current = searchDate;
+  const viewAsUserIdRef = useRef(viewAsUserId);
+  viewAsUserIdRef.current = viewAsUserId;
 
   // 저장 핸들러 - 캠페인 시트와 동일하게 스크롤 위치 유지, 새로고침 없음
   const handleSave = useCallback(async () => {
@@ -1372,6 +1410,307 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     });
     return uniqueItems.size;
   }, [slots]);
+
+  // ========== 성능 최적화: HotTable inline props → useCallback/useMemo (updateSettings 방지, IME 깨짐 방지) ==========
+
+  // colWidths - 안정화
+  const stableColWidths = useMemo(() => {
+    return columnWidths.length > 0 ? columnWidths : undefined;
+  }, [columnWidths]);
+
+  // afterChange - IME 조합 중 건너뛰기 래퍼
+  const stableAfterChange = useCallback((changes, source) => {
+    if (isComposingRef.current) return;  // IME 조합 중에는 건너뛰기
+    handleAfterChangeRef.current(changes, source);
+  }, []);
+
+  // afterLoadData - 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
+  const stableAfterLoadData = useCallback((sourceData, initialLoad) => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) return;
+
+    const indices = hiddenRowIndicesRef.current;
+    const currentHidden = new Set(hiddenRowsPlugin.getHiddenRows());
+    const newHidden = new Set(indices);
+
+    const rowsToShow = [...currentHidden].filter(r => !newHidden.has(r));
+    const rowsToHide = [...newHidden].filter(r => !currentHidden.has(r));
+
+    if (rowsToShow.length > 0 || rowsToHide.length > 0) {
+      hot.batch(() => {
+        if (rowsToShow.length > 0) {
+          hiddenRowsPlugin.showRows(rowsToShow);
+        }
+        if (rowsToHide.length > 0) {
+          hiddenRowsPlugin.hideRows(rowsToHide);
+        }
+      });
+    }
+  }, []);
+
+  // afterOnCellMouseUp - 셀 클릭 이벤트 핸들러
+  const stableAfterOnCellMouseUp = useCallback((event, coords) => {
+    const rowData = tableDataRef.current[coords.row];
+    if (!rowData) return;
+
+    // 제품 데이터 행 col0 클릭 - 접기/펼치기
+    if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
+      const groupKey = rowData._groupKey;
+      if (groupKey) {
+        toggleCollapseRef.current(groupKey);
+      }
+      return;
+    }
+
+    // 제품 데이터 행 col15 클릭 - 상세보기 팝업
+    if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 15) {
+      setProductDetailPopup({
+        open: true,
+        item: rowData._item,
+        productInfo: rowData._productInfo,
+        dayGroup: rowData._dayGroup
+      });
+      return;
+    }
+
+    // 업로드 링크 바 클릭
+    if (rowData._rowType === ROW_TYPES.UPLOAD_LINK_BAR) {
+      const token = rowData._uploadToken;
+      if (token) {
+        handleCopyUploadLinkRef.current(token);
+      }
+      return;
+    }
+
+    // 리뷰 보기 링크 클릭
+    const target = event.target;
+    if (target.tagName === 'A' && target.classList.contains('review-link')) {
+      event.preventDefault();
+      const images = rowData._reviewImages || [];
+      if (images.length > 0) {
+        setImagePopup({
+          open: true,
+          images: images,
+          currentIndex: 0,
+          buyer: rowData._buyer || null
+        });
+      }
+    }
+
+    // 리뷰 삭제 링크 클릭
+    if (target.tagName === 'A' && target.classList.contains('review-delete-link')) {
+      event.preventDefault();
+      const images = rowData._reviewImages || [];
+      if (images.length > 0) {
+        setDeleteReviewPopup({
+          open: true,
+          images: images,
+          buyer: rowData._buyer || null,
+          rowIndex: coords.row
+        });
+      }
+    }
+  }, []);
+
+  // afterColumnResize - 컬럼 너비 변경 시 localStorage 저장
+  const stableAfterColumnResize = useCallback((currentColumn, newSize) => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+    const widths = [];
+    for (let i = 0; i < hot.countCols(); i++) {
+      widths.push(hot.getColWidth(i));
+    }
+    saveColumnWidthsRef.current(widths);
+  }, []);
+
+  // beforePaste - 슬래시 파싱 붙여넣기
+  const stableBeforePaste = useCallback((data, coords) => {
+    // DailyWorkSheet에서 주문번호 컬럼은 col8 (col7 -> col8로 시프트됨)
+    const startCol = coords[0].startCol;
+    if (startCol !== 8) return; // 다른 컬럼이면 기본 동작
+
+    // 붙여넣기 대상 행이 구매자 데이터 행인지 확인
+    const startRow = coords[0].startRow;
+    const currentTableData = tableDataRef.current;
+    const targetRowData = currentTableData[startRow];
+    if (!targetRowData || targetRowData._rowType !== ROW_TYPES.BUYER_DATA) return;
+
+    // 첫 번째 셀에 슬래시가 있는지 확인
+    const firstCell = data[0]?.[0];
+    if (!firstCell || typeof firstCell !== 'string' || !firstCell.includes('/')) return;
+
+    // 모든 행을 처리
+    const newData = [];
+
+    for (const row of data) {
+      const cellValue = row[0];
+      if (!cellValue || typeof cellValue !== 'string') continue;
+
+      // 셀 내에 줄바꿈이 있으면 분리 (Windows: \r\n, Unix: \n)
+      const lines = cellValue.split(/\r?\n/).filter(line => line.trim());
+
+      for (const line of lines) {
+        if (!line.includes('/')) continue;
+
+        const parts = line.split('/');
+        // DailyWorkSheet 컬럼 매핑: col8~col15 (col6에 비고 추가로 +1 시프트)
+        // col8: 주문번호, col9: 구매자, col10: 수취인, col11: 아이디,
+        // col12: 연락처, col13: 주소, col14: 계좌, col15: 금액
+        newData.push([
+          parts[0]?.trim() || '',  // col8: 주문번호
+          parts[1]?.trim() || '',  // col9: 구매자
+          parts[2]?.trim() || '',  // col10: 수취인
+          parts[3]?.trim() || '',  // col11: 아이디
+          parts[4]?.trim() || '',  // col12: 연락처
+          parts[5]?.trim() || '',  // col13: 주소
+          parts[6]?.trim() || '',  // col14: 계좌
+          parts[7]?.trim() || ''   // col15: 금액
+        ]);
+      }
+    }
+
+    if (newData.length === 0) return;
+
+    // 원본 data 배열 수정 (Handsontable이 이 데이터로 붙여넣기)
+    data.length = 0;
+    newData.forEach(row => data.push(row));
+  }, []);
+
+  // contextMenu - 우클릭 메뉴 설정
+  const stableContextMenu = useMemo(() => ({
+    items: {
+      copy: { name: '복사' },
+      cut: { name: '잘라내기' },
+      paste: { name: '붙여넣기' },
+      sp1: { name: '---------' },
+      add_row: {
+        name: '➕ 행 추가',
+        callback: async function(key, selection) {
+          const row = selection[0]?.start?.row;
+          if (row === undefined) return;
+
+          const meta = rowMetaRef.current[row];
+          // 구매자 데이터 행이나 구매자 헤더 행이 아니면 무시
+          if (!meta || (meta.type !== ROW_TYPES.BUYER_DATA && meta.type !== ROW_TYPES.BUYER_HEADER)) {
+            alert('구매자 행에서 우클릭하여 행을 추가해주세요.');
+            return;
+          }
+
+          const itemId = meta.itemId;
+          const dayGroup = meta.dayGroup;
+
+          try {
+            const response = await itemSlotService.createSlot(itemId, dayGroup);
+            const newSlot = response.data;
+
+            // 로컬 상태에 새 슬롯 추가
+            setSlots(prevSlots => [...prevSlots, newSlot]);
+
+            // 캐시 무효화
+            const formattedDate = format(searchDateRef.current, 'yyyy-MM-dd');
+            const cacheKey = `daily_${formattedDate}_${viewAsUserIdRef.current || ''}`;
+            slotsCache.delete(cacheKey);
+
+            showSnackbarRef.current('행이 추가되었습니다');
+          } catch (error) {
+            console.error('Failed to add row:', error);
+            showSnackbarRef.current('행 추가 실패: ' + (error.response?.data?.message || error.message));
+          }
+        }
+      },
+      delete_rows: {
+        name: '🗑️ 선택한 행 삭제',
+        callback: async function(key, selection) {
+          const selectedRows = new Set();
+          selection.forEach(sel => {
+            for (let r = sel.start.row; r <= sel.end.row; r++) {
+              selectedRows.add(r);
+            }
+          });
+
+          const slotIds = [];
+          selectedRows.forEach(row => {
+            const meta = rowMetaRef.current[row];
+            if (meta?.type === ROW_TYPES.BUYER_DATA && meta.slotId) {
+              slotIds.push(meta.slotId);
+            }
+          });
+
+          if (slotIds.length === 0) {
+            alert('삭제할 구매자 행을 선택해주세요.');
+            return;
+          }
+
+          if (!window.confirm(`선택한 ${slotIds.length}개 행을 삭제하시겠습니까?\n\n⚠️ 해당 행의 구매자 정보가 삭제됩니다.`)) {
+            return;
+          }
+
+          try {
+            await itemSlotService.deleteSlotsBulk(slotIds);
+
+            // 로컬 상태에서 삭제된 슬롯 제거
+            setSlots(prevSlots => prevSlots.filter(s => !slotIds.includes(s.id)));
+
+            // 캐시 무효화
+            const formattedDate = format(searchDateRef.current, 'yyyy-MM-dd');
+            const cacheKey = `daily_${formattedDate}_${viewAsUserIdRef.current || ''}`;
+            slotsCache.delete(cacheKey);
+
+            showSnackbarRef.current(`${slotIds.length}개 행이 삭제되었습니다`);
+          } catch (error) {
+            console.error('Failed to delete rows:', error);
+            showSnackbarRef.current('행 삭제 실패: ' + (error.response?.data?.message || error.message));
+          }
+        }
+      }
+    }
+  }), []);
+
+  // afterSelection - 선택 영역 이벤트
+  const stableAfterSelection = useCallback((row, column, row2, column2, preventScrolling) => {
+    // 마우스 클릭 시에는 스크롤 방지, 키보드 이동 시에는 스크롤 허용
+    if (hotRef.current?.hotInstance?._isKeyboardNav) {
+      preventScrolling.value = false;
+      hotRef.current.hotInstance._isKeyboardNav = false;
+    } else {
+      preventScrolling.value = true;
+    }
+
+    // 선택된 셀 개수 계산 및 DOM 직접 업데이트 (리렌더링 방지)
+    const rowCount = Math.abs(row2 - row) + 1;
+    const colCount = Math.abs(column2 - column) + 1;
+    const cellCount = rowCount * colCount;
+    if (selectedCellCountRef.current) {
+      if (cellCount > 1) {
+        selectedCellCountRef.current.textContent = `선택: ${cellCount}셀 (${rowCount}행 × ${colCount}열)`;
+        selectedCellCountRef.current.style.display = 'inline';
+      } else {
+        selectedCellCountRef.current.style.display = 'none';
+      }
+    }
+  }, []);
+
+  // afterDeselect - 선택 해제 이벤트
+  const stableAfterDeselect = useCallback(() => {
+    // 선택 해제 시 셀 개수 숨김
+    if (selectedCellCountRef.current) {
+      selectedCellCountRef.current.style.display = 'none';
+    }
+  }, []);
+
+  // beforeKeyDown - 키보드 이벤트
+  const stableBeforeKeyDown = useCallback((event) => {
+    // 방향키 입력 시 플래그 설정
+    const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
+    if (arrowKeys.includes(event.key)) {
+      if (hotRef.current?.hotInstance) {
+        hotRef.current.hotInstance._isKeyboardNav = true;
+      }
+    }
+  }, []);
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -1633,8 +1972,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             ref={hotRef}
             data={tableData}
             columns={columns}
-            colHeaders={Array(23).fill('')}
-            colWidths={columnWidths.length > 0 ? columnWidths : undefined}
+            colHeaders={COL_HEADERS}
+            colWidths={stableColWidths}
             rowHeaders={false}
             width="100%"
             height="calc(100vh - 210px)"
@@ -1648,293 +1987,22 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             disableVisualSelection={false}
             imeFastEdit={true}
             minSpareRows={0}
-            hiddenRows={{
-              rows: hiddenRowIndices,
-              indicators: false
-            }}
+            hiddenRows={hiddenRowsConfig}
             cells={cellsRenderer}
-            afterChange={(changes, source) => {
-              if (isComposingRef.current) return;  // IME 조합 중에는 건너뛰기
-              handleAfterChange(changes, source);
-            }}
-            afterLoadData={(sourceData, initialLoad) => {
-              // 데이터 로드 직후 hiddenRows 즉시 적용 (깜빡임 방지)
-              const hot = hotRef.current?.hotInstance;
-              if (!hot) return;
-
-              const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-              if (!hiddenRowsPlugin) return;
-
-              const indices = hiddenRowIndicesRef.current;
-              const currentHidden = new Set(hiddenRowsPlugin.getHiddenRows());
-              const newHidden = new Set(indices);
-
-              const rowsToShow = [...currentHidden].filter(r => !newHidden.has(r));
-              const rowsToHide = [...newHidden].filter(r => !currentHidden.has(r));
-
-              if (rowsToShow.length > 0 || rowsToHide.length > 0) {
-                hot.batch(() => {
-                  if (rowsToShow.length > 0) {
-                    hiddenRowsPlugin.showRows(rowsToShow);
-                  }
-                  if (rowsToHide.length > 0) {
-                    hiddenRowsPlugin.hideRows(rowsToHide);
-                  }
-                });
-              }
-            }}
-            afterOnCellMouseUp={(event, coords) => {
-              const rowData = tableData[coords.row];
-              if (!rowData) return;
-
-              // 제품 데이터 행 col0 클릭 - 접기/펼치기
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
-                const groupKey = rowData._groupKey;
-                if (groupKey) {
-                  toggleCollapse(groupKey);
-                }
-                return;
-              }
-
-              // 제품 데이터 행 col15 클릭 - 상세보기 팝업
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 15) {
-                setProductDetailPopup({
-                  open: true,
-                  item: rowData._item,
-                  productInfo: rowData._productInfo,
-                  dayGroup: rowData._dayGroup
-                });
-                return;
-              }
-
-              // 업로드 링크 바 클릭
-              if (rowData._rowType === ROW_TYPES.UPLOAD_LINK_BAR) {
-                const token = rowData._uploadToken;
-                if (token) {
-                  handleCopyUploadLink(token);
-                }
-                return;
-              }
-
-              // 리뷰 보기 링크 클릭
-              const target = event.target;
-              if (target.tagName === 'A' && target.classList.contains('review-link')) {
-                event.preventDefault();
-                const images = rowData._reviewImages || [];
-                if (images.length > 0) {
-                  setImagePopup({
-                    open: true,
-                    images: images,
-                    currentIndex: 0,
-                    buyer: rowData._buyer || null
-                  });
-                }
-              }
-
-              // 리뷰 삭제 링크 클릭
-              if (target.tagName === 'A' && target.classList.contains('review-delete-link')) {
-                event.preventDefault();
-                const images = rowData._reviewImages || [];
-                if (images.length > 0) {
-                  setDeleteReviewPopup({
-                    open: true,
-                    images: images,
-                    buyer: rowData._buyer || null,
-                    rowIndex: coords.row
-                  });
-                }
-              }
-            }}
-            afterColumnResize={(currentColumn, newSize) => {
-              // localStorage에만 저장 (setColumnWidths 호출 시 리렌더링으로 스크롤 점프 발생)
-              const hot = hotRef.current?.hotInstance;
-              if (!hot) return;
-              const widths = [];
-              for (let i = 0; i < hot.countCols(); i++) {
-                widths.push(hot.getColWidth(i));
-              }
-              saveColumnWidths(widths);
-            }}
-            beforePaste={(data, coords) => {
-              // DailyWorkSheet에서 주문번호 컬럼은 col8 (col7 -> col8로 시프트됨)
-              const startCol = coords[0].startCol;
-              if (startCol !== 8) return; // 다른 컬럼이면 기본 동작
-
-              // 붙여넣기 대상 행이 구매자 데이터 행인지 확인
-              const startRow = coords[0].startRow;
-              const targetRowData = tableData[startRow];
-              if (!targetRowData || targetRowData._rowType !== ROW_TYPES.BUYER_DATA) return;
-
-              // 첫 번째 셀에 슬래시가 있는지 확인
-              const firstCell = data[0]?.[0];
-              if (!firstCell || typeof firstCell !== 'string' || !firstCell.includes('/')) return;
-
-              // 모든 행을 처리
-              const newData = [];
-
-              for (const row of data) {
-                const cellValue = row[0];
-                if (!cellValue || typeof cellValue !== 'string') continue;
-
-                // 셀 내에 줄바꿈이 있으면 분리 (Windows: \r\n, Unix: \n)
-                const lines = cellValue.split(/\r?\n/).filter(line => line.trim());
-
-                for (const line of lines) {
-                  if (!line.includes('/')) continue;
-
-                  const parts = line.split('/');
-                  // DailyWorkSheet 컬럼 매핑: col8~col15 (col6에 비고 추가로 +1 시프트)
-                  // col8: 주문번호, col9: 구매자, col10: 수취인, col11: 아이디,
-                  // col12: 연락처, col13: 주소, col14: 계좌, col15: 금액
-                  newData.push([
-                    parts[0]?.trim() || '',  // col8: 주문번호
-                    parts[1]?.trim() || '',  // col9: 구매자
-                    parts[2]?.trim() || '',  // col10: 수취인
-                    parts[3]?.trim() || '',  // col11: 아이디
-                    parts[4]?.trim() || '',  // col12: 연락처
-                    parts[5]?.trim() || '',  // col13: 주소
-                    parts[6]?.trim() || '',  // col14: 계좌
-                    parts[7]?.trim() || ''   // col15: 금액
-                  ]);
-                }
-              }
-
-              if (newData.length === 0) return;
-
-              // 원본 data 배열 수정 (Handsontable이 이 데이터로 붙여넣기)
-              data.length = 0;
-              newData.forEach(row => data.push(row));
-            }}
-            contextMenu={{
-              items: {
-                copy: { name: '복사' },
-                cut: { name: '잘라내기' },
-                paste: { name: '붙여넣기' },
-                sp1: { name: '---------' },
-                add_row: {
-                  name: '➕ 행 추가',
-                  callback: async function(key, selection) {
-                    const row = selection[0]?.start?.row;
-                    if (row === undefined) return;
-
-                    const meta = rowMeta[row];
-                    // 구매자 데이터 행이나 구매자 헤더 행이 아니면 무시
-                    if (!meta || (meta.type !== ROW_TYPES.BUYER_DATA && meta.type !== ROW_TYPES.BUYER_HEADER)) {
-                      alert('구매자 행에서 우클릭하여 행을 추가해주세요.');
-                      return;
-                    }
-
-                    const itemId = meta.itemId;
-                    const dayGroup = meta.dayGroup;
-
-                    try {
-                      const response = await itemSlotService.createSlot(itemId, dayGroup);
-                      const newSlot = response.data;
-
-                      // 로컬 상태에 새 슬롯 추가
-                      setSlots(prevSlots => [...prevSlots, newSlot]);
-
-                      // 캐시 무효화
-                      const formattedDate = format(searchDate, 'yyyy-MM-dd');
-                      const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
-                      slotsCache.delete(cacheKey);
-
-                      showSnackbar('행이 추가되었습니다');
-                    } catch (error) {
-                      console.error('Failed to add row:', error);
-                      showSnackbar('행 추가 실패: ' + (error.response?.data?.message || error.message));
-                    }
-                  }
-                },
-                delete_rows: {
-                  name: '🗑️ 선택한 행 삭제',
-                  callback: async function(key, selection) {
-                    const selectedRows = new Set();
-                    selection.forEach(sel => {
-                      for (let r = sel.start.row; r <= sel.end.row; r++) {
-                        selectedRows.add(r);
-                      }
-                    });
-
-                    const slotIds = [];
-                    selectedRows.forEach(row => {
-                      const meta = rowMeta[row];
-                      if (meta?.type === ROW_TYPES.BUYER_DATA && meta.slotId) {
-                        slotIds.push(meta.slotId);
-                      }
-                    });
-
-                    if (slotIds.length === 0) {
-                      alert('삭제할 구매자 행을 선택해주세요.');
-                      return;
-                    }
-
-                    if (!window.confirm(`선택한 ${slotIds.length}개 행을 삭제하시겠습니까?\n\n⚠️ 해당 행의 구매자 정보가 삭제됩니다.`)) {
-                      return;
-                    }
-
-                    try {
-                      await itemSlotService.deleteSlotsBulk(slotIds);
-
-                      // 로컬 상태에서 삭제된 슬롯 제거
-                      setSlots(prevSlots => prevSlots.filter(s => !slotIds.includes(s.id)));
-
-                      // 캐시 무효화
-                      const formattedDate = format(searchDate, 'yyyy-MM-dd');
-                      const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
-                      slotsCache.delete(cacheKey);
-
-                      showSnackbar(`${slotIds.length}개 행이 삭제되었습니다`);
-                    } catch (error) {
-                      console.error('Failed to delete rows:', error);
-                      showSnackbar('행 삭제 실패: ' + (error.response?.data?.message || error.message));
-                    }
-                  }
-                }
-              }
-            }}
+            afterChange={stableAfterChange}
+            afterLoadData={stableAfterLoadData}
+            afterOnCellMouseUp={stableAfterOnCellMouseUp}
+            afterColumnResize={stableAfterColumnResize}
+            beforePaste={stableBeforePaste}
+            contextMenu={stableContextMenu}
             copyPaste={true}
             undo={true}
             outsideClickDeselects={false}
             rowHeights={23}
             autoScrollOnSelection={false}
-            afterSelection={(row, column, row2, column2, preventScrolling) => {
-              // 마우스 클릭 시에는 스크롤 방지, 키보드 이동 시에는 스크롤 허용
-              if (hotRef.current?.hotInstance?._isKeyboardNav) {
-                preventScrolling.value = false;
-                hotRef.current.hotInstance._isKeyboardNav = false;
-              } else {
-                preventScrolling.value = true;
-              }
-
-              // 선택된 셀 개수 계산 및 DOM 직접 업데이트 (리렌더링 방지)
-              const rowCount = Math.abs(row2 - row) + 1;
-              const colCount = Math.abs(column2 - column) + 1;
-              const cellCount = rowCount * colCount;
-              if (selectedCellCountRef.current) {
-                if (cellCount > 1) {
-                  selectedCellCountRef.current.textContent = `선택: ${cellCount}셀 (${rowCount}행 × ${colCount}열)`;
-                  selectedCellCountRef.current.style.display = 'inline';
-                } else {
-                  selectedCellCountRef.current.style.display = 'none';
-                }
-              }
-            }}
-            afterDeselect={() => {
-              // 선택 해제 시 셀 개수 숨김
-              if (selectedCellCountRef.current) {
-                selectedCellCountRef.current.style.display = 'none';
-              }
-            }}
-            beforeKeyDown={(event) => {
-              // 방향키 입력 시 플래그 설정
-              const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
-              if (arrowKeys.includes(event.key)) {
-                if (hotRef.current?.hotInstance) {
-                  hotRef.current.hotInstance._isKeyboardNav = true;
-                }
-              }
-            }}
+            afterSelection={stableAfterSelection}
+            afterDeselect={stableAfterDeselect}
+            beforeKeyDown={stableBeforeKeyDown}
           />
         )}
       </Paper>

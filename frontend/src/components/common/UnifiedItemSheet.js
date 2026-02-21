@@ -29,9 +29,9 @@ const unifiedItemSeparatorRenderer = (instance, td) => {
   return td;
 };
 
-const createUnifiedUploadLinkBarRenderer = (tableData) => {
+const createUnifiedUploadLinkBarRenderer = (tableDataRef) => {
   return (instance, td, r, c) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     td.className = 'upload-link-bar';
     td.style.backgroundColor = '#424242';
     td.style.color = 'white';
@@ -68,9 +68,9 @@ const unifiedProductHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-const createUnifiedBuyerDataRenderer = (tableData) => {
+const createUnifiedBuyerDataRenderer = (tableDataRef) => {
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     const dayGroup = rowData._dayGroup || 1;
     const bgClass = dayGroup % 2 === 0 ? 'buyer-row-even' : 'buyer-row-odd';
     td.className = bgClass;
@@ -927,21 +927,28 @@ function UnifiedItemSheetInner({
     }
   }, []);
 
-  // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
+  // 19차 최적화: 렌더러 팩토리에 ref 전달 → 의존성 [] → cellsRenderer 안정화 → IME 깨짐 방지
   const uploadLinkBarRenderer = useMemo(() =>
-    createUnifiedUploadLinkBarRenderer(tableData),
-    [tableData]
+    createUnifiedUploadLinkBarRenderer(tableDataRef),
+    []
   );
 
   const buyerDataRenderer = useMemo(() =>
-    createUnifiedBuyerDataRenderer(tableData),
-    [tableData]
+    createUnifiedBuyerDataRenderer(tableDataRef),
+    []
   );
 
-  // 셀 렌더러 - 최적화: 외부 정의 렌더러 사용
+  // 렌더러를 ref로 유지 (cellsRenderer 의존성 제거)
+  const uploadLinkBarRendererRef = useRef(uploadLinkBarRenderer);
+  uploadLinkBarRendererRef.current = uploadLinkBarRenderer;
+  const buyerDataRendererRef = useRef(buyerDataRenderer);
+  buyerDataRendererRef.current = buyerDataRenderer;
+
+  // 셀 렌더러 - 19차: 의존성 완전 제거
   const cellsRenderer = useCallback((row, col, prop) => {
     const cellProperties = {};
-    const rowData = tableData[row];
+    const currentTableData = tableDataRef.current;
+    const rowData = currentTableData[row];
 
     if (!rowData) return cellProperties;
 
@@ -957,7 +964,7 @@ function UnifiedItemSheetInner({
     if (rowData._isUploadLinkBar) {
       cellProperties.readOnly = true;
       cellProperties.className = 'upload-link-bar';
-      cellProperties.renderer = uploadLinkBarRenderer;
+      cellProperties.renderer = uploadLinkBarRendererRef.current;
       return cellProperties;
     }
 
@@ -973,11 +980,250 @@ function UnifiedItemSheetInner({
       const dayGroup = rowData._dayGroup || 1;
       const bgClass = dayGroup % 2 === 0 ? 'buyer-row-even' : 'buyer-row-odd';
       cellProperties.className = bgClass;
-      cellProperties.renderer = buyerDataRenderer;
+      cellProperties.renderer = buyerDataRendererRef.current;
     }
 
     return cellProperties;
-  }, [tableData, uploadLinkBarRenderer, buyerDataRenderer]);
+  }, []);  // 19차: 의존성 완전 제거
+
+  // 19차: hiddenRows prop 안정화 (매 렌더마다 새 객체 생성 방지)
+  const hiddenRowsConfig = useMemo(() => ({
+    rows: [],
+    indicators: false
+  }), []);
+
+  // 20차: 인라인 콜백에서 사용하는 함수들을 ref로 유지
+  const handleAfterChangeRef = useRef(handleAfterChange);
+  handleAfterChangeRef.current = handleAfterChange;
+  const handleCopyUploadLinkRef = useRef(handleCopyUploadLink);
+  handleCopyUploadLinkRef.current = handleCopyUploadLink;
+  const handleToggleShippingDelayedRef = useRef(handleToggleShippingDelayed);
+  handleToggleShippingDelayedRef.current = handleToggleShippingDelayed;
+  const openDeleteDialogRef = useRef(openDeleteDialog);
+  openDeleteDialogRef.current = openDeleteDialog;
+  const displayDataRef = useRef(displayData);
+  displayDataRef.current = displayData;
+
+  // 20차: 인라인 HotTable 콜백 → useCallback (매 렌더마다 새 함수 생성 방지 → IME 깨짐 방지)
+  const contextMenuConfig = useMemo(() => ({
+    items: {
+      copy: { name: '복사' },
+      cut: { name: '잘라내기' },
+      paste: { name: '붙여넣기' },
+      sp1: { name: '---------' },
+      delete_rows: {
+        name: '선택한 구매자행 삭제',
+        callback: function(key, selection) {
+          const hot = hotRef.current?.hotInstance;
+          if (!hot) return;
+          const selectedRows = new Set();
+          selection.forEach(sel => {
+            for (let r = sel.start.row; r <= sel.end.row; r++) {
+              selectedRows.add(r);
+            }
+          });
+          const slotIds = [];
+          selectedRows.forEach(row => {
+            const rowData = tableDataRef.current[row];
+            if (rowData?._isBuyerRow && rowData._slotId) {
+              slotIds.push(rowData._slotId);
+            }
+          });
+          if (slotIds.length === 0) {
+            alert('삭제할 구매자행을 선택해주세요.');
+            return;
+          }
+          openDeleteDialogRef.current('rows', { slotIds }, `선택한 ${slotIds.length}개 행을 삭제하시겠습니까?`);
+        }
+      },
+      delete_group: {
+        name: '이 day_group 전체 삭제',
+        callback: function(key, selection) {
+          const row = selection[0]?.start?.row;
+          if (row === undefined) return;
+          const rowData = tableDataRef.current[row];
+          if (!rowData || (!rowData._isBuyerRow && !rowData._isProductHeader)) {
+            alert('유효한 행을 선택해주세요.');
+            return;
+          }
+          const itemId = rowData._itemId;
+          const dayGroup = rowData._dayGroup;
+          openDeleteDialogRef.current('group', { itemId, dayGroup }, `이 그룹(day ${dayGroup}) 전체를 삭제하시겠습니까?`);
+        }
+      }
+    }
+  }), []);
+
+  const afterChangeHandler = useCallback((changes, source) => {
+    if (isComposingRef.current) return;
+    handleAfterChangeRef.current(changes, source);
+  }, []);
+
+  const afterOnCellMouseUpHandler = useCallback((event, coords) => {
+    const rowData = tableDataRef.current[coords.row];
+
+    // 업로드 링크 바 클릭 시 링크 복사
+    if (rowData?._isUploadLinkBar) {
+      const token = rowData._uploadToken;
+      if (token) {
+        handleCopyUploadLinkRef.current(token);
+      }
+      return;
+    }
+
+    // 리뷰샷 썸네일 클릭 시 스와이프 뷰어 열기
+    const target = event.target;
+    if (target.tagName === 'IMG' && target.classList.contains('review-thumbnail')) {
+      const hot = hotRef.current?.hotInstance;
+      if (!hot) return;
+      const clickedRowData = tableDataRef.current[coords.row];
+      if (clickedRowData && clickedRowData._reviewImages && clickedRowData._reviewImages.length > 0) {
+        setImagePopup({
+          open: true,
+          images: clickedRowData._reviewImages,
+          currentIndex: 0,
+          buyer: clickedRowData._buyerInfo
+        });
+      }
+    }
+
+    // 배송지연 칩 클릭 시 토글
+    if (target.classList.contains('shipping-delayed-chip')) {
+      const buyerId = target.getAttribute('data-buyer-id');
+      const currentDelayed = target.getAttribute('data-delayed') === 'true';
+      if (buyerId) {
+        handleToggleShippingDelayedRef.current(parseInt(buyerId), currentDelayed);
+      }
+    }
+  }, []);
+
+  const afterSelectionHandler = useCallback((row, column, row2, column2, preventScrolling) => {
+    if (hotRef.current?.hotInstance?._isKeyboardNav) {
+      preventScrolling.value = false;
+      hotRef.current.hotInstance._isKeyboardNav = false;
+    } else {
+      preventScrolling.value = true;
+    }
+  }, []);
+
+  const beforeKeyDownHandler = useCallback((event) => {
+    const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
+    if (arrowKeys.includes(event.key)) {
+      if (hotRef.current?.hotInstance) {
+        hotRef.current.hotInstance._isKeyboardNav = true;
+      }
+    }
+  }, []);
+
+  const afterFilterHandler = useCallback((conditionsStack) => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    filterConditionsRef.current = conditionsStack?.length > 0 ? [...conditionsStack] : null;
+
+    const filteredCols = new Set();
+    if (conditionsStack?.length > 0) {
+      conditionsStack.forEach(condition => {
+        if (condition.column !== undefined) {
+          filteredCols.add(condition.column);
+        }
+      });
+    }
+    setFilteredColumns(filteredCols);
+
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) return;
+
+    const currentHidden = hiddenRowsPlugin.getHiddenRows();
+    if (currentHidden.length > 0) {
+      hiddenRowsPlugin.showRows(currentHidden);
+    }
+
+    if (!conditionsStack || conditionsStack.length === 0) {
+      setFilteredRows(null);
+      hot.render();
+      return;
+    }
+
+    const currentTableData = tableDataRef.current;
+    const currentDisplayData = displayDataRef.current;
+    const visibleRows = [];
+    const hiddenRows = [];
+
+    for (let physicalRow = 0; physicalRow < currentTableData.length; physicalRow++) {
+      const rowData = currentTableData[physicalRow];
+
+      if (!rowData._isBuyerRow) {
+        hiddenRows.push(physicalRow);
+        continue;
+      }
+
+      let passesFilter = true;
+      conditionsStack.forEach(condition => {
+        if (!passesFilter) return;
+
+        const col = condition.column;
+        const colKey = `col${col}`;
+        const cellValue = currentDisplayData[physicalRow]?.[colKey];
+
+        if (condition.conditions?.length > 0) {
+          condition.conditions.forEach(cond => {
+            if (!passesFilter) return;
+
+            const { name, args } = cond;
+            const filterValue = args?.[0];
+
+            if (name === 'by_value' && args) {
+              const allowedValues = args[0];
+              if (Array.isArray(allowedValues)) {
+                const cellStr = String(cellValue ?? '');
+                if (!allowedValues.includes(cellStr)) {
+                  passesFilter = false;
+                }
+              }
+            } else if (name === 'eq' && filterValue !== undefined) {
+              if (String(cellValue) !== String(filterValue)) {
+                passesFilter = false;
+              }
+            } else if (name === 'contains' && filterValue) {
+              if (!String(cellValue ?? '').includes(String(filterValue))) {
+                passesFilter = false;
+              }
+            } else if (name === 'not_contains' && filterValue) {
+              if (String(cellValue ?? '').includes(String(filterValue))) {
+                passesFilter = false;
+              }
+            } else if (name === 'empty') {
+              if (cellValue !== null && cellValue !== undefined && cellValue !== '') {
+                passesFilter = false;
+              }
+            } else if (name === 'not_empty') {
+              if (cellValue === null || cellValue === undefined || cellValue === '') {
+                passesFilter = false;
+              }
+            }
+          });
+        }
+      });
+
+      if (passesFilter) {
+        visibleRows.push(physicalRow);
+      } else {
+        hiddenRows.push(physicalRow);
+      }
+    }
+
+    if (hiddenRows.length > 0) {
+      hiddenRowsPlugin.hideRows(hiddenRows);
+    }
+
+    hot.render();
+    setFilteredRows(visibleRows.length > 0 && visibleRows.length < currentTableData.length ? visibleRows : null);
+  }, []);
+
+  // 20차: enterMoves/tabMoves 안정화
+  const enterMovesConfig = useMemo(() => ({ row: 1, col: 0 }), []);
+  const tabMovesConfig = useMemo(() => ({ row: 0, col: 1 }), []);
 
   // 전체 구매자 건수 (원본 slots 기준 - 필터/접기와 무관하게 항상 전체 건수)
   const totalBuyerCount = useMemo(() => {
@@ -1096,241 +1342,29 @@ function UnifiedItemSheetInner({
             manualRowResize={false}
             imeFastEdit={true}
             minSpareRows={0}
-            contextMenu={{
-              items: {
-                copy: { name: '복사' },
-                cut: { name: '잘라내기' },
-                paste: { name: '붙여넣기' },
-                sp1: { name: '---------' },
-                delete_rows: {
-                  name: '선택한 구매자행 삭제',
-                  callback: function(key, selection) {
-                    const hot = hotRef.current?.hotInstance;
-                    if (!hot) return;
-
-                    const selectedRows = new Set();
-                    selection.forEach(sel => {
-                      for (let r = sel.start.row; r <= sel.end.row; r++) {
-                        selectedRows.add(r);
-                      }
-                    });
-
-                    const slotIds = [];
-                    selectedRows.forEach(row => {
-                      const rowData = tableData[row];
-                      if (rowData?._isBuyerRow && rowData._slotId) {
-                        slotIds.push(rowData._slotId);
-                      }
-                    });
-
-                    if (slotIds.length === 0) {
-                      alert('삭제할 구매자행을 선택해주세요.');
-                      return;
-                    }
-
-                    openDeleteDialog('rows', { slotIds }, `선택한 ${slotIds.length}개 행을 삭제하시겠습니까?`);
-                  }
-                },
-                delete_group: {
-                  name: '이 day_group 전체 삭제',
-                  callback: function(key, selection) {
-                    const row = selection[0]?.start?.row;
-                    if (row === undefined) return;
-
-                    const rowData = tableData[row];
-                    if (!rowData || (!rowData._isBuyerRow && !rowData._isProductHeader)) {
-                      alert('유효한 행을 선택해주세요.');
-                      return;
-                    }
-
-                    const itemId = rowData._itemId;
-                    const dayGroup = rowData._dayGroup;
-
-                    openDeleteDialog('group', { itemId, dayGroup }, `이 그룹(day ${dayGroup}) 전체를 삭제하시겠습니까?`);
-                  }
-                }
-              }
-            }}
+            contextMenu={contextMenuConfig}
             copyPaste={true}
             fillHandle={true}
-            afterChange={(changes, source) => {
-              if (isComposingRef.current) return;
-              handleAfterChange(changes, source);
-            }}
+            afterChange={afterChangeHandler}
             cells={cellsRenderer}
-            afterOnCellMouseUp={(event, coords) => {
-              const rowData = tableData[coords.row];
-
-              // 업로드 링크 바 클릭 시 링크 복사
-              if (rowData?._isUploadLinkBar) {
-                const token = rowData._uploadToken;
-                if (token) {
-                  handleCopyUploadLink(token);
-                }
-                return;
-              }
-
-              // 리뷰샷 썸네일 클릭 시 스와이프 뷰어 열기
-              const target = event.target;
-              if (target.tagName === 'IMG' && target.classList.contains('review-thumbnail')) {
-                const hot = hotRef.current?.hotInstance;
-                if (!hot) return;
-                const rowData = tableData[coords.row];
-                if (rowData && rowData._reviewImages && rowData._reviewImages.length > 0) {
-                  setImagePopup({
-                    open: true,
-                    images: rowData._reviewImages,
-                    currentIndex: 0,
-                    buyer: rowData._buyerInfo
-                  });
-                }
-              }
-
-              // 배송지연 칩 클릭 시 토글
-              if (target.classList.contains('shipping-delayed-chip')) {
-                const buyerId = target.getAttribute('data-buyer-id');
-                const currentDelayed = target.getAttribute('data-delayed') === 'true';
-                if (buyerId) {
-                  handleToggleShippingDelayed(parseInt(buyerId), currentDelayed);
-                }
-              }
-            }}
+            afterOnCellMouseUp={afterOnCellMouseUpHandler}
             className="htCenter"
             autoWrapRow={false}
             autoWrapCol={false}
             selectionMode="multiple"
             outsideClickDeselects={true}
             enterBeginsEditing={true}
-            enterMoves={{ row: 1, col: 0 }}
-            tabMoves={{ row: 0, col: 1 }}
+            enterMoves={enterMovesConfig}
+            tabMoves={tabMovesConfig}
             afterColumnResize={handleColumnResize}
             rowHeights={23}
             autoScrollOnSelection={false}
-            afterSelection={(row, column, row2, column2, preventScrolling) => {
-              // 마우스 클릭 시에는 스크롤 방지, 키보드 이동 시에는 스크롤 허용
-              if (hotRef.current?.hotInstance?._isKeyboardNav) {
-                preventScrolling.value = false;
-                hotRef.current.hotInstance._isKeyboardNav = false;
-              } else {
-                preventScrolling.value = true;
-              }
-            }}
-            beforeKeyDown={(event) => {
-              // 방향키 입력 시 플래그 설정
-              const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
-              if (arrowKeys.includes(event.key)) {
-                if (hotRef.current?.hotInstance) {
-                  hotRef.current.hotInstance._isKeyboardNav = true;
-                }
-              }
-            }}
+            afterSelection={afterSelectionHandler}
+            beforeKeyDown={beforeKeyDownHandler}
             filters={true}
             dropdownMenu={['filter_by_condition', 'filter_by_value', 'filter_action_bar']}
-            hiddenRows={{ rows: [], indicators: false }}
-            afterFilter={(conditionsStack) => {
-              const hot = hotRef.current?.hotInstance;
-              if (!hot) return;
-
-              filterConditionsRef.current = conditionsStack?.length > 0 ? [...conditionsStack] : null;
-
-              const filteredCols = new Set();
-              if (conditionsStack?.length > 0) {
-                conditionsStack.forEach(condition => {
-                  if (condition.column !== undefined) {
-                    filteredCols.add(condition.column);
-                  }
-                });
-              }
-              setFilteredColumns(filteredCols);
-
-              const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-              if (!hiddenRowsPlugin) return;
-
-              const currentHidden = hiddenRowsPlugin.getHiddenRows();
-              if (currentHidden.length > 0) {
-                hiddenRowsPlugin.showRows(currentHidden);
-              }
-
-              if (!conditionsStack || conditionsStack.length === 0) {
-                setFilteredRows(null);
-                hot.render();
-                return;
-              }
-
-              const visibleRows = [];
-              const hiddenRows = [];
-
-              for (let physicalRow = 0; physicalRow < tableData.length; physicalRow++) {
-                const rowData = tableData[physicalRow];
-
-                // 구분선/헤더/링크바는 필터 시 숨김
-                if (!rowData._isBuyerRow) {
-                  hiddenRows.push(physicalRow);
-                  continue;
-                }
-
-                let passesFilter = true;
-                conditionsStack.forEach(condition => {
-                  if (!passesFilter) return;
-
-                  const col = condition.column;
-                  const colKey = `col${col}`;
-                  const cellValue = displayData[physicalRow]?.[colKey];
-
-                  if (condition.conditions?.length > 0) {
-                    condition.conditions.forEach(cond => {
-                      if (!passesFilter) return;
-
-                      const { name, args } = cond;
-                      const filterValue = args?.[0];
-
-                      if (name === 'by_value' && args) {
-                        const allowedValues = args[0];
-                        if (Array.isArray(allowedValues)) {
-                          const cellStr = String(cellValue ?? '');
-                          if (!allowedValues.includes(cellStr)) {
-                            passesFilter = false;
-                          }
-                        }
-                      } else if (name === 'eq' && filterValue !== undefined) {
-                        if (String(cellValue) !== String(filterValue)) {
-                          passesFilter = false;
-                        }
-                      } else if (name === 'contains' && filterValue) {
-                        if (!String(cellValue ?? '').includes(String(filterValue))) {
-                          passesFilter = false;
-                        }
-                      } else if (name === 'not_contains' && filterValue) {
-                        if (String(cellValue ?? '').includes(String(filterValue))) {
-                          passesFilter = false;
-                        }
-                      } else if (name === 'empty') {
-                        if (cellValue !== null && cellValue !== undefined && cellValue !== '') {
-                          passesFilter = false;
-                        }
-                      } else if (name === 'not_empty') {
-                        if (cellValue === null || cellValue === undefined || cellValue === '') {
-                          passesFilter = false;
-                        }
-                      }
-                    });
-                  }
-                });
-
-                if (passesFilter) {
-                  visibleRows.push(physicalRow);
-                } else {
-                  hiddenRows.push(physicalRow);
-                }
-              }
-
-              if (hiddenRows.length > 0) {
-                hiddenRowsPlugin.hideRows(hiddenRows);
-              }
-
-              hot.render();
-              setFilteredRows(visibleRows.length > 0 && visibleRows.length < tableData.length ? visibleRows : null);
-            }}
+            hiddenRows={hiddenRowsConfig}
+            afterFilter={afterFilterHandler}
           />
         ) : (
           <Box sx={{
