@@ -447,8 +447,15 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // 필터 조건 저장 (데이터 리로드 시 복원용)
   const filterConditionsRef = useRef(null);
 
-  // 접힌 품목 ID Set (기본값: 빈 Set = 모두 펼침)
-  const [collapsedItems, setCollapsedItems] = useState(new Set());
+  // 접힌 품목 ID Set (localStorage에서 초기화)
+  const [collapsedItems, setCollapsedItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`sales_itemsheet_collapsed_items_${campaignId}`);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   // collapsedItems를 ref로도 유지 (렌더러에서 최신 상태 참조용)
   const collapsedItemsRef = useRef(collapsedItems);

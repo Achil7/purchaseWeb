@@ -300,8 +300,15 @@ function BrandItemSheetInner({
   // 스낵바 상태
   const [snackbar, setSnackbar] = useState({ open: false, message: '' });
 
-  // 접힌 품목 ID Set (기본값: 빈 Set = 모두 펼침)
-  const [collapsedItems, setCollapsedItems] = useState(new Set());
+  // 접힌 품목 ID Set (localStorage에서 복원)
+  const [collapsedItems, setCollapsedItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`brand_itemsheet_collapsed_items_${campaignId}`);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   // collapsedItems를 ref로도 유지 (렌더러에서 최신 상태 참조용)
   const collapsedItemsRef = useRef(collapsedItems);

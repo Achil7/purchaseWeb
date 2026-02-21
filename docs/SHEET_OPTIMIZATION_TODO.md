@@ -1454,6 +1454,42 @@ const handleCompositionEnd = () => {
 - [ ] 페이지 새로고침 후 localStorage에서 접기 상태 복원
 - [ ] 한글 "홍길동" 10회 입력 테스트
 
+**테스트 결과:**
+- 개별 토글 접기/펼치기: ✅ 정상 동작
+- 모두 접기/모두 펼치기: ✅ 정상 동작
+- localStorage 접기 상태 복원: ❌ 안됨 (SalesItemSheet, BrandItemSheet에서 초기 로드 누락)
+
+**결론:** △ 부분 성공 → 21차 추가로 localStorage 복원 수정
+
+---
+
+### 21차 추가 최적화 (2026-02-12) - localStorage 접기 상태 복원 누락 수정
+
+**원인 분석:**
+
+| 시트 | 초기 로드 (localStorage) | 저장 |
+|------|:---:|:---:|
+| OperatorItemSheet | ✅ `useState(() => localStorage...)` | ✅ |
+| **SalesItemSheet** | ❌ `useState(new Set())` — 로드 없음 | ✅ |
+| DailyWorkSheet | ✅ `useState(() => localStorage...)` | ✅ |
+| **BrandItemSheet** | ❌ `useState(new Set())` — 로드 없음 | ✅ |
+
+**적용 내용:**
+1. SalesItemSheet: `useState(new Set())` → `useState(() => { localStorage.getItem(...) })` 변경
+2. BrandItemSheet: 동일 변경
+
+**수정 파일:**
+- `SalesItemSheet.js` ✅
+- `BrandItemSheet.js` ✅
+
+**빌드:** ✅ 성공
+
+**테스트 항목:**
+- [ ] 개별 토글 접기/펼치기: ▶/▼ 아이콘 전환 + 행 숨김/표시
+- [ ] 모두 접기/모두 펼치기 버튼 정상 동작
+- [ ] 페이지 새로고침 후 localStorage에서 접기 상태 복원
+- [ ] 한글 입력 "홍길동" 10회 테스트 (기존 최적화 유지 확인)
+
 **결론:** ⏳ 테스트 대기
 
 ---
@@ -1569,4 +1605,4 @@ measureFPS();
 
 ---
 
-## 최종 업데이트: 2026-02-11
+## 최종 업데이트: 2026-02-12
