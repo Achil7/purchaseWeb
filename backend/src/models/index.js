@@ -37,6 +37,9 @@ db.ItemSlot = require('./ItemSlot')(sequelize, Sequelize.DataTypes);
 db.SheetMemo = require('./SheetMemo')(sequelize, Sequelize.DataTypes);
 db.BrandSales = require('./BrandSales')(sequelize, Sequelize.DataTypes);
 db.Estimate = require('./Estimate')(sequelize, Sequelize.DataTypes);
+db.Settlement = require('./Settlement')(sequelize, Sequelize.DataTypes);
+db.SettlementProduct = require('./SettlementProduct')(sequelize, Sequelize.DataTypes);
+db.MarginSetting = require('./MarginSetting')(sequelize, Sequelize.DataTypes);
 
 // 모델 관계 설정
 Object.keys(db).forEach((modelName) => {
