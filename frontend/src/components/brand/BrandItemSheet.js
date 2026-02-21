@@ -904,6 +904,12 @@ function BrandItemSheetInner({
   const hiddenRowIndicesRef = useRef(hiddenRowIndices);
   hiddenRowIndicesRef.current = hiddenRowIndices;
 
+  // 21차: 초기값만 설정, 동적 변경은 useEffect에서 처리 (HotTable updateSettings 충돌 방지)
+  const hiddenRowsConfig = useMemo(() => ({
+    rows: [],
+    indicators: false
+  }), []);
+
   // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시에만)
   useEffect(() => {
     const hot = hotRef.current?.hotInstance;
@@ -1329,10 +1335,7 @@ function BrandItemSheetInner({
             minSpareRows={0}
             readOnly={true}
             disableVisualSelection={false}
-            hiddenRows={{
-              rows: hiddenRowIndices,
-              indicators: false
-            }}
+            hiddenRows={hiddenRowsConfig}
             filters={true}
             dropdownMenu={['filter_by_condition', 'filter_by_value', 'filter_action_bar']}
             contextMenu={{

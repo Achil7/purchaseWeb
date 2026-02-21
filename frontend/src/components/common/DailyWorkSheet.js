@@ -1076,10 +1076,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   }, []);  // 19차: 의존성 완전 제거
 
   // 19차: hiddenRows prop 안정화
+  // 21차: 초기값만 설정, 동적 변경은 useEffect에서 처리 (HotTable updateSettings 충돌 방지)
   const hiddenRowsConfig = useMemo(() => ({
-    rows: hiddenRowIndices,
+    rows: [],
     indicators: false
-  }), [hiddenRowIndices]);
+  }), []);
 
   // 셀 변경 핸들러
   const handleAfterChange = useCallback((changes, source) => {

@@ -1888,10 +1888,11 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   }, []);  // 19차: 의존성 완전 제거 - 모든 데이터를 ref로 접근
 
   // 19차: hiddenRows prop 안정화 (매 렌더마다 새 객체 생성 방지)
+  // 21차: 초기값만 설정, 동적 변경은 useEffect에서 처리 (HotTable updateSettings 충돌 방지)
   const hiddenRowsConfig = useMemo(() => ({
-    rows: hiddenRowIndices,
+    rows: [],
     indicators: false
-  }), [hiddenRowIndices]);
+  }), []);
 
   // ========== HotTable prop 안정화: contextMenu useMemo ==========
   const contextMenuConfig = useMemo(() => ({

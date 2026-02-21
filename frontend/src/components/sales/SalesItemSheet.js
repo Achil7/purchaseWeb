@@ -1690,10 +1690,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   }, []);  // 19차: 의존성 완전 제거
 
   // 19차: hiddenRows prop 안정화
+  // 21차: 초기값만 설정, 동적 변경은 useEffect에서 처리 (HotTable updateSettings 충돌 방지)
   const hiddenRowsConfig = useMemo(() => ({
-    rows: hiddenRowIndices,
+    rows: [],
     indicators: false
-  }), [hiddenRowIndices]);
+  }), []);
 
   // 전체 데이터 건수 (원본 slots 기준 - 필터/접기와 무관하게 항상 전체 건수)
   const totalDataCount = useMemo(() => {

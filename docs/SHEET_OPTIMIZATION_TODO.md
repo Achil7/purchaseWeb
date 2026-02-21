@@ -1418,6 +1418,42 @@ const handleCompositionEnd = () => {
 - [ ] 우클릭 컨텍스트 메뉴 정상 동작
 - [ ] 날짜별 작업 시트 데이터 표시 확인
 
+**테스트 결과 (2026-02-12):**
+- ❌ 접기/펼치기 (개별 + 모두) 동작 안 됨
+- 한글 입력: 미확인 (접기 문제 우선)
+
+**원인 분석:**
+- `hiddenRowsConfig`가 `[hiddenRowIndices]` 의존성을 가져 매번 새 객체 생성
+- HotTable이 prop 변경으로 `updateSettings` 먼저 호출 → 플러그인 상태 이미 업데이트됨
+- useEffect 비교 시 "변경 없음"으로 판단 → `hot.render()` 미호출 → ▶/▼ 아이콘 업데이트 안 됨
+
+**결론:** ❌ hiddenRowsConfig prop과 useEffect 플러그인 조작이 충돌
+
+---
+
+### 21차 최적화 (2026-02-12) - hiddenRowsConfig 초기값 고정 (접기/펼치기 복원)
+
+**적용 내용:**
+1. `hiddenRowsConfig` useMemo 의존성을 `[hiddenRowIndices]` → `[]`로 변경
+2. `rows: hiddenRowIndices` → `rows: []` (초기값만 설정)
+3. 동적 변경은 기존 useEffect에서만 처리 (hiddenRowsPlugin.showRows/hideRows + hot.render())
+4. HotTable이 `updateSettings` 호출하지 않으므로 useEffect와 충돌 없음
+
+**수정 파일:**
+- `OperatorItemSheet.js` ✅
+- `SalesItemSheet.js` ✅
+- `DailyWorkSheet.js` ✅
+- `BrandItemSheet.js` ✅ (인라인 → useMemo 변환 포함)
+- `UnifiedItemSheet.js` ✅ (이미 `[]` 적용됨)
+
+**빌드:** ✅ 성공
+
+**테스트 항목:**
+- [ ] 개별 토글 접기/펼치기 (▶/▼ 아이콘 전환 + 행 숨김/표시)
+- [ ] 모두 접기/모두 펼치기 버튼
+- [ ] 페이지 새로고침 후 localStorage에서 접기 상태 복원
+- [ ] 한글 "홍길동" 10회 입력 테스트
+
 **결론:** ⏳ 테스트 대기
 
 ---
