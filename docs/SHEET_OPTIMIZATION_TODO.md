@@ -1494,6 +1494,33 @@ const handleCompositionEnd = () => {
 
 ---
 
+### 22차 최적화 (2026-02-12) - SalesItemSheet localStorage 접기 복원 키 형식 불일치 수정
+
+**원인 분석:**
+- SalesItemSheet의 `loadSlots` 내 접기 복원 로직이 **키 형식 불일치**
+- **저장 시**: `toggleItemCollapse(collapseKey)` → `"123_1"` (item_id + day_group 문자열)
+- **복원 시**: `allItemIds = slots.map(s => s.item_id)` → `[123, 456]` (숫자 배열)
+- `"123_1"` vs `123` → **절대 매칭 불가** → 항상 빈 결과 → fallback으로 `new Set(allItemIds)` (숫자) 설정 → 키 형식 불일치로 접기도 안됨
+
+**적용 내용:**
+1. 캐시 분기: `allItemIds`(숫자 배열) → `allKeys`(Set, `"${item_id}_${day_group}"` 형식)
+2. API 분기: 동일 변경
+3. fallback: `new Set(allItemIds)`(모두 접기) → `new Set()`(모두 펼침) - OperatorItemSheet와 동일
+
+**수정 파일:**
+- `SalesItemSheet.js` ✅ (loadSlots 내 2곳)
+
+**빌드:** ✅ 성공
+
+**테스트 항목:**
+- [ ] 영업사 시트: 접기 → 새로고침 → 접기 상태 유지
+- [ ] 브랜드사 시트: 접기 → 새로고침 → 접기 상태 유지
+- [ ] 진행자 시트: 기존 정상 동작 유지
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### 템플릿
 
 ### n차 최적화 (날짜)

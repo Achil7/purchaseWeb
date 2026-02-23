@@ -585,23 +585,23 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
       // preserveCollapsedState가 true면 현재 접기 상태 유지
       if (!preserveCollapsedState) {
-        // localStorage에서 접기 상태 복원
-        const allItemIds = [...new Set(cached.slots.map(s => s.item_id))];
+        // localStorage에서 접기 상태 복원 (item_id + day_group 키 형식)
+        const allKeys = new Set();
+        cached.slots.forEach(s => {
+          allKeys.add(`${s.item_id}_${s.day_group}`);
+        });
         const collapsedKey = `sales_itemsheet_collapsed_items_${targetCampaignId}`;
         try {
           const saved = localStorage.getItem(collapsedKey);
           if (saved) {
-            const savedIds = JSON.parse(saved);
-            const validIds = savedIds.filter(id => allItemIds.includes(id));
-            console.log('[DEBUG] setCollapsedItems from CACHE (localStorage):', validIds);
-            setCollapsedItems(new Set(validIds));
+            const savedKeys = JSON.parse(saved);
+            const validKeys = savedKeys.filter(key => allKeys.has(key));
+            setCollapsedItems(new Set(validKeys));
           } else {
-            console.log('[DEBUG] setCollapsedItems from CACHE (default all):', allItemIds);
-            setCollapsedItems(new Set(allItemIds));
+            setCollapsedItems(new Set());
           }
         } catch (e) {
-          console.log('[DEBUG] setCollapsedItems from CACHE (error):', allItemIds);
-          setCollapsedItems(new Set(allItemIds));
+          setCollapsedItems(new Set());
         }
       }
 
@@ -634,23 +634,23 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
         // preserveCollapsedState가 true면 현재 접기 상태 유지
         if (!preserveCollapsedState) {
-          // API 응답 직후 localStorage에서 접기 상태 복원
-          const allItemIds = [...new Set(newSlots.map(s => s.item_id))];
+          // API 응답 직후 localStorage에서 접기 상태 복원 (item_id + day_group 키 형식)
+          const allKeys = new Set();
+          newSlots.forEach(s => {
+            allKeys.add(`${s.item_id}_${s.day_group}`);
+          });
           const collapsedKey = `sales_itemsheet_collapsed_items_${targetCampaignId}`;
           try {
             const saved = localStorage.getItem(collapsedKey);
             if (saved) {
-              const savedIds = JSON.parse(saved);
-              const validIds = savedIds.filter(id => allItemIds.includes(id));
-              console.log('[DEBUG] setCollapsedItems from API (localStorage):', validIds);
-              setCollapsedItems(new Set(validIds));
+              const savedKeys = JSON.parse(saved);
+              const validKeys = savedKeys.filter(key => allKeys.has(key));
+              setCollapsedItems(new Set(validKeys));
             } else {
-              console.log('[DEBUG] setCollapsedItems from API (default all):', allItemIds);
-              setCollapsedItems(new Set(allItemIds));
+              setCollapsedItems(new Set());
             }
           } catch (e) {
-            console.log('[DEBUG] setCollapsedItems from API (error):', allItemIds);
-            setCollapsedItems(new Set(allItemIds));
+            setCollapsedItems(new Set());
           }
         }
 
