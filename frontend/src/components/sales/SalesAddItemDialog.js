@@ -184,6 +184,8 @@ const parseItemText = (text) => {
         result.platform = '티몬';
       } else if (lower.includes('위메프') || lower.includes('wemakeprice')) {
         result.platform = '위메프';
+      } else if (lower.includes('올리브영') || lower.includes('oliveyoung')) {
+        result.platform = '올리브영';
       } else {
         result.platform = value;
       }
@@ -764,6 +766,10 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
                             <MenuItem value="옥션">옥션</MenuItem>
                             <MenuItem value="티몬">티몬</MenuItem>
                             <MenuItem value="위메프">위메프</MenuItem>
+                            <MenuItem value="올리브영">올리브영</MenuItem>
+                            {!['', '-', '쿠팡', '네이버', '11번가', '지마켓', '옥션', '티몬', '위메프', '올리브영', '기타'].includes(item.platform) && item.platform && (
+                              <MenuItem value={item.platform}>{item.platform}</MenuItem>
+                            )}
                             <MenuItem value="기타">기타</MenuItem>
                           </TextField>
                         </TableCell>
@@ -878,6 +884,10 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
                     <MenuItem value="옥션">옥션</MenuItem>
                     <MenuItem value="티몬">티몬</MenuItem>
                     <MenuItem value="위메프">위메프</MenuItem>
+                    <MenuItem value="올리브영">올리브영</MenuItem>
+                    {!['', '-', '쿠팡', '네이버', '11번가', '지마켓', '옥션', '티몬', '위메프', '올리브영', '기타'].includes(parsedItems[0]?.platform) && parsedItems[0]?.platform && (
+                      <MenuItem value={parsedItems[0].platform}>{parsedItems[0].platform}</MenuItem>
+                    )}
                     <MenuItem value="기타">기타</MenuItem>
                   </TextField>
                   <TextField
@@ -1225,6 +1235,10 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
                 <MenuItem value="옥션">옥션</MenuItem>
                 <MenuItem value="티몬">티몬</MenuItem>
                 <MenuItem value="위메프">위메프</MenuItem>
+                <MenuItem value="올리브영">올리브영</MenuItem>
+                {!['', '-', '쿠팡', '네이버', '11번가', '지마켓', '옥션', '티몬', '위메프', '올리브영', '기타'].includes(formData.platform) && formData.platform && (
+                  <MenuItem value={formData.platform}>{formData.platform}</MenuItem>
+                )}
                 <MenuItem value="기타">기타</MenuItem>
               </TextField>
               <TextField
