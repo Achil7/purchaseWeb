@@ -62,7 +62,8 @@
       "Bash(powershell -Command \"Set-Location 'c:\\\\Users\\\\achil\\\\Desktop\\\\purchaseweb\\\\frontend'; npm run build:*)",
       "Bash(git revert:*)",
       "Bash(git reset:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(npx:*)"
     ],
     "deny": [],
     "ask": []

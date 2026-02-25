@@ -168,10 +168,10 @@ const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
 };
 
 const createBrandBuyerDataRenderer = (tableData, columnAlignments) => {
-  // 컬럼 구조 (14개):
+  // 컬럼 구조 (15개):
   // col0: 빈칸, col1: 날짜, col2: 순번, col3: 제품명, col4: 옵션,
-  // col5: 주문번호, col6: 구매자, col7: 수취인, col8: 아이디,
-  // col9: 주소, col10: 금액, col11: 송장번호, col12: 리뷰샷, col13: 빈칸
+  // col5: 주문번호, col6: 구매자, col7: 수취인, col8: 아이디, col9: 연락처,
+  // col10: 주소, col11: 금액, col12: 송장번호, col13: 리뷰샷, col14: 빈칸
   return (instance, td, r, c, prop, value) => {
     const rowData = tableData[r];
     const hasReviewImage = rowData._reviewImageUrl;
@@ -187,7 +187,7 @@ const createBrandBuyerDataRenderer = (tableData, columnAlignments) => {
       }
     };
 
-    if (prop === 'col0' || prop === 'col13') {
+    if (prop === 'col0' || prop === 'col14') {
       // 빈칸 컬럼
       td.textContent = '';
     } else if (prop === 'col1') {
@@ -212,22 +212,26 @@ const createBrandBuyerDataRenderer = (tableData, columnAlignments) => {
       td.textContent = value ?? '';
       td.style.fontWeight = 'bold';
     } else if (prop === 'col9') {
+      // 연락처
+      td.textContent = value ?? '';
+      if (!isSuspended) td.style.color = '#666';
+    } else if (prop === 'col10') {
       // 주소
       td.textContent = value ?? '';
       if (!isSuspended) td.style.color = '#666';
-    } else if (prop === 'col10' && value) {
+    } else if (prop === 'col11' && value) {
       // 금액 (포맷팅)
       const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
       td.textContent = numValue ? numValue.toLocaleString() + '원' : value;
       td.style.fontWeight = 'bold';
       if (!isSuspended) td.style.color = '#c2185b';
-    } else if (prop === 'col11') {
+    } else if (prop === 'col12') {
       // 송장번호
       td.textContent = value ?? '';
       if (value && !isSuspended) {
         td.style.color = '#1565c0';
       }
-    } else if (prop === 'col12') {
+    } else if (prop === 'col13') {
       // 리뷰샷
       const images = rowData._reviewImages || [];
       const imageCount = images.length;
@@ -254,9 +258,9 @@ const createBrandBuyerDataRenderer = (tableData, columnAlignments) => {
   };
 };
 
-// 기본 컬럼 너비 - 14개 컬럼 (브랜드사 전용)
-// 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
-const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 60, 120, 80, 60, 60, 60, 150, 50, 200];
+// 기본 컬럼 너비 - 15개 컬럼 (브랜드사 전용)
+// 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항, 상세
+const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 60, 120, 80, 60, 100, 60, 60, 150, 50, 200];
 
 /**
  * 브랜드사용 품목별 시트 컴포넌트 (Handsontable - 엑셀)
@@ -264,8 +268,8 @@ const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 60, 120, 80, 60, 60, 60, 15
  * - 읽기 전용 (수정 불가)
  * - 영업사/진행자와 유사한 제품 테이블 구조 + 접기/펼치기
  *
- * 제품 테이블 (14개 컬럼): 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항
- * 구매자 테이블 (14개 컬럼): 빈칸, 날짜, 순번, 제품명, 옵션, 주문번호, 구매자, 수취인, 아이디, 주소, 금액, 송장번호, 리뷰샷, (빈칸)
+ * 제품 테이블 (15개 컬럼): 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, (빈칸), 특이사항, 상세
+ * 구매자 테이블 (15개 컬럼): 빈칸, 날짜, 순번, 제품명, 옵션, 주문번호, 구매자, 수취인, 아이디, 연락처, 주소, 금액, 송장번호, 리뷰샷, (빈칸)
  */
 function BrandItemSheetInner({
   campaignId,
@@ -787,17 +791,17 @@ function BrandItemSheetInner({
           isFirstItem = false;
         }
 
-        // 제품 헤더 행 (14개 컬럼) - 브랜드사 전용
+        // 제품 헤더 행 (15개 컬럼) - 브랜드사 전용
         data.push({
           _rowType: ROW_TYPES.PRODUCT_HEADER,
           _itemId: parseInt(itemId),
           _dayGroup: parseInt(dayGroup),
           _isSuspended: isSuspended,
           col0: '', col1: '날짜', col2: '플랫폼', col3: '제품명', col4: '옵션', col5: '출고', col6: '키워드',
-          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배사', col11: '택배대행', col12: 'URL', col13: '특이사항', col14: '상세'
+          col7: '가격', col8: '총건수', col9: '일건수', col10: '택배사', col11: '택배대행', col12: 'URL', col13: '특이사항', col14: '상세', col15: ''
         });
 
-        // 제품 데이터 행 (15개 컬럼)
+        // 제품 데이터 행 (16개 컬럼)
         data.push({
           _rowType: ROW_TYPES.PRODUCT_DATA,
           _itemId: parseInt(itemId),
@@ -819,10 +823,11 @@ function BrandItemSheetInner({
           col11: dayGroupProductInfo.courier_service_yn,
           col12: dayGroupProductInfo.product_url,
           col13: dayGroupProductInfo.notes,
-          col14: '📋'
+          col14: '📋',
+          col15: ''
         });
 
-        // 구매자 헤더 행 (14개 컬럼) - 항상 포함
+        // 구매자 헤더 행 (15개 컬럼) - 항상 포함
         // 날짜, 순번, 제품명, 옵션을 주문번호 앞에 추가 (영업사/진행자와 동일한 구조)
         data.push({
           _rowType: ROW_TYPES.BUYER_HEADER,
@@ -830,7 +835,7 @@ function BrandItemSheetInner({
           _dayGroup: parseInt(dayGroup),
           _isSuspended: isSuspended,
           col0: '', col1: '날짜', col2: '순번', col3: '제품명', col4: '옵션', col5: '주문번호', col6: '구매자', col7: '수취인', col8: '아이디',
-          col9: '주소', col10: '금액', col11: '송장번호', col12: '리뷰샷', col13: ''
+          col9: '연락처', col10: '주소', col11: '금액', col12: '송장번호', col13: '리뷰샷', col14: ''
         });
 
         // 구매자 데이터 행 - 항상 포함
@@ -864,11 +869,12 @@ function BrandItemSheetInner({
             col6: buyer.buyer_name || '',          // 구매자
             col7: buyer.recipient_name || '',      // 수취인
             col8: buyer.user_id || '',             // 아이디
-            col9: buyer.address || '',             // 주소
-            col10: buyer.amount || '',             // 금액
-            col11: buyer.tracking_number || '',    // 송장번호
-            col12: reviewImage?.s3_url || '',      // 리뷰샷
-            col13: ''
+            col9: buyer.contact || '',             // 연락처
+            col10: buyer.address || '',            // 주소
+            col11: buyer.amount || '',             // 금액
+            col12: buyer.tracking_number || '',    // 송장번호
+            col13: reviewImage?.s3_url || '',      // 리뷰샷
+            col14: ''
           });
         });
       });
@@ -982,7 +988,7 @@ function BrandItemSheetInner({
   const columns = useMemo(() => {
     const baseColumns = [];
 
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 15; i++) {
       baseColumns.push({
         data: `col${i}`,
         type: 'text',
@@ -994,7 +1000,7 @@ function BrandItemSheetInner({
 
     // 맨 오른쪽에 여백 컬럼 추가 (컬럼 너비 조절 용이하게)
     baseColumns.push({
-      data: 'col14',
+      data: 'col15',
       type: 'text',
       width: 50,
       readOnly: true,
@@ -1005,7 +1011,7 @@ function BrandItemSheetInner({
   }, [columnWidths]); // columnWidths 변경 시 컬럼 재생성
 
   // 컬럼 헤더
-  const colHeaders = Array(15).fill('');
+  const colHeaders = Array(16).fill('');
 
   // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
   // collapsedItemsRef를 사용하여 접기 상태 변경 시 렌더러 재생성 방지

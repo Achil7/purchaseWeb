@@ -173,8 +173,8 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
     // 제품 정보
     '플랫폼', '제품명', '옵션', '출고유형', '키워드',
     '가격', '총건수', '일건수', '택배사', '택배대행', '상품URL', '특이사항',
-    // 구매자 정보 (브랜드사 허용 컬럼 - 연락처, 계좌 제외)
-    '주문번호', '구매자', '수취인', '아이디', '주소', '금액', '송장번호', '리뷰샷URL'
+    // 구매자 정보 (브랜드사 허용 컬럼 - 계좌 제외)
+    '주문번호', '구매자', '수취인', '아이디', '연락처', '주소', '금액', '송장번호', '리뷰샷URL'
   ];
 
   const data = [headers];
@@ -245,11 +245,12 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
           courierServiceYn,                  // 택배대행
           productUrl,                        // 상품URL
           notes,                             // 특이사항
-          // 구매자 정보 (브랜드사 허용 컬럼 - 연락처, 계좌 제외)
+          // 구매자 정보 (브랜드사 허용 컬럼 - 계좌 제외)
           buyer.order_number || '',          // 주문번호
           buyer.buyer_name || '',            // 구매자
           buyer.recipient_name || '',        // 수취인
           buyer.user_id || '',               // 아이디
+          buyer.contact || '',               // 연락처
           buyer.address || '',               // 주소
           buyer.amount || '',                // 금액
           buyer.tracking_number || '',       // 송장번호

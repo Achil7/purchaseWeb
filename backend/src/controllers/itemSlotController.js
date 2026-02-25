@@ -267,7 +267,7 @@ exports.getSlotsByCampaign = async (req, res) => {
 
     // 구매자 필드 정의 (Brand vs Sales)
     const buyerAttributes = isBrandView
-      ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number', 'expected_payment_date', 'review_submitted_at', 'date']
+      ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'contact', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number', 'expected_payment_date', 'review_submitted_at', 'date']
       : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at', 'date'];
 
     // 1단계: 슬롯 + Item 정보만 조회 (Buyer/Image 제외 - 성능 최적화)
