@@ -252,7 +252,8 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
         }
 
         const isCompleted = totalPurchaseTarget > 0 && totalReviewCompleted >= totalPurchaseTarget;
-        const completionRate = totalPurchaseTarget > 0 ? Math.round((totalReviewCompleted / totalPurchaseTarget) * 100) : 0;
+        const rawRate = totalPurchaseTarget > 0 ? Math.round((totalReviewCompleted / totalPurchaseTarget) * 100) : 0;
+        const completionRate = (!isCompleted && rawRate >= 100) ? 99 : rawRate;
 
         statsMap.set(campaign.id, {
           newCount,

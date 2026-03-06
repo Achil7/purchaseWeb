@@ -799,7 +799,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         <Paper
           ref={sidebarRef}
           sx={{
-            width: sidebarCollapsed ? 40 : sidebarWidth,
+            width: sidebarCollapsed ? 48 : sidebarWidth,
             flexShrink: 0,
             height: isEmbedded ? '100%' : 'calc(100vh - 64px)',
             display: 'flex',
@@ -1221,7 +1221,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             marginTop: 'auto',
             bgcolor: '#2c387e',
             color: 'white',
-            height: 36,
+            minHeight: 48,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

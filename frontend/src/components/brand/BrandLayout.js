@@ -443,7 +443,8 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         }
 
         const isCompleted = totalPurchaseCount > 0 && totalReviewCompleted >= totalPurchaseCount;
-        const completionRate = totalPurchaseCount > 0 ? Math.round((totalReviewCompleted / totalPurchaseCount) * 100) : 0;
+        const rawRate = totalPurchaseCount > 0 ? Math.round((totalReviewCompleted / totalPurchaseCount) * 100) : 0;
+        const completionRate = (!isCompleted && rawRate >= 100) ? 99 : rawRate;
 
         statsMap.set(campaign.id, {
           totalReviewCompleted,
@@ -577,7 +578,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         <Paper
           ref={sidebarRef}
           sx={{
-            width: sidebarCollapsed ? 40 : sidebarWidth,
+            width: sidebarCollapsed ? 48 : sidebarWidth,
             flexShrink: 0,
             height: isEmbedded ? '100%' : 'calc(100vh - 64px)',
             display: 'flex',
@@ -872,7 +873,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             marginTop: 'auto',
             bgcolor: '#2c387e',
             color: 'white',
-            height: 36,
+            minHeight: 48,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
