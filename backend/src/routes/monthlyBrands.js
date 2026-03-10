@@ -331,16 +331,77 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
       return mb.campaigns && mb.campaigns.length > 0;
     });
 
-    // 각 품목별 emptyDateSlotCount 계산 추가
+    // 품목별 구매자/리뷰 통계 조회 (사이드바 진행률 표시용)
+    const allItemIds = [];
+    filteredMonthlyBrands.forEach(mb => {
+      (mb.campaigns || []).forEach(campaign => {
+        (campaign.items || []).forEach(item => {
+          allItemIds.push(item.id);
+        });
+      });
+    });
+
+    let buyerStatsMap = {};
+    if (allItemIds.length > 0) {
+      const sequelize = require('../models').sequelize;
+
+      // 품목별 구매자 수 (일반 구매자만)
+      const buyerCounts = await Buyer.findAll({
+        where: { item_id: allItemIds, is_temporary: false },
+        attributes: [
+          'item_id',
+          [sequelize.fn('COUNT', sequelize.col('id')), 'normal_count']
+        ],
+        group: ['item_id'],
+        raw: true
+      });
+
+      // 품목별 리뷰 완료 수 (승인된 이미지가 있는 일반 구매자)
+      const reviewCounts = await Buyer.findAll({
+        where: { item_id: allItemIds, is_temporary: false },
+        include: [{
+          model: Image,
+          as: 'images',
+          where: { status: 'approved' },
+          attributes: [],
+          required: true
+        }],
+        attributes: [
+          'item_id',
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "Buyer"."id"')), 'review_count']
+        ],
+        group: ['Buyer.item_id'],
+        raw: true
+      });
+
+      for (const stat of buyerCounts) {
+        buyerStatsMap[stat.item_id] = {
+          normalCount: parseInt(stat.normal_count, 10) || 0,
+          reviewCount: 0
+        };
+      }
+      for (const stat of reviewCounts) {
+        if (buyerStatsMap[stat.item_id]) {
+          buyerStatsMap[stat.item_id].reviewCount = parseInt(stat.review_count, 10) || 0;
+        }
+      }
+    }
+
+    // 각 품목별 emptyDateSlotCount + 구매자 통계 추가
     const processedMonthlyBrands = filteredMonthlyBrands.map(mb => {
       const mbData = mb.toJSON();
       if (mbData.campaigns) {
         mbData.campaigns = mbData.campaigns.map(campaign => {
           if (campaign.items) {
-            campaign.items = campaign.items.map(item => ({
-              ...item,
-              emptyDateSlotCount: (item.slots || []).filter(s => !s.date || s.date.trim() === '').length
-            }));
+            campaign.items = campaign.items.map(item => {
+              const stats = buyerStatsMap[item.id] || { normalCount: 0, reviewCount: 0 };
+              return {
+                ...item,
+                emptyDateSlotCount: (item.slots || []).filter(s => !s.date || s.date.trim() === '').length,
+                normalBuyerCount: stats.normalCount,
+                reviewCompletedCount: stats.reviewCount
+              };
+            });
           }
           return campaign;
         });

@@ -232,6 +232,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
         let totalPurchaseTarget = 0;
         let courierCount = 0;
         let emptyDateCount = 0;
+        const countedItemIds = new Set(); // 같은 item_id의 reviewCount 중복 합산 방지
 
         for (const item of items) {
           const status = getAssignmentStatus(item.assigned_at);
@@ -242,7 +243,11 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
               warningCount++;
             }
           }
-          totalReviewCompleted += item.reviewCompletedCount || 0;
+          // reviewCompletedCount는 item_id 기준이므로 같은 item_id는 한 번만 합산
+          if (!countedItemIds.has(item.id)) {
+            totalReviewCompleted += item.reviewCompletedCount || 0;
+            countedItemIds.add(item.id);
+          }
           totalPurchaseTarget += item.totalPurchaseCount || 0;
           if (item.courier_service_yn === 'Y' || item.courier_service_yn === true) {
             courierCount++;

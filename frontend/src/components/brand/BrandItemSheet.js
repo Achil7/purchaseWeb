@@ -9,7 +9,7 @@ import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/dist/handsontable.full.min.css';
 import { itemSlotService } from '../../services';
-import { downloadExcel, convertBrandSlotsToExcelData } from '../../utils/excelExport';
+import { downloadExcel, convertBrandSlotsToExcelData, filterSlotsByVisibleRows } from '../../utils/excelExport';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import api from '../../services/api';
@@ -71,10 +71,10 @@ const brandProductHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-// tableData를 받아서 중단된 경우 빨간 배경 적용
-const createBrandBuyerHeaderRenderer = (tableData) => {
+// tableDataRef를 받아서 중단된 경우 빨간 배경 적용
+const createBrandBuyerHeaderRenderer = (tableDataRef) => {
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     const isSuspended = rowData?._isSuspended;
 
     td.className = 'buyer-header-row';
@@ -96,9 +96,9 @@ const createBrandBuyerHeaderRenderer = (tableData) => {
 };
 
 // collapsedItemsRef를 사용하여 최신 접기 상태 참조 (렌더러 재생성 방지)
-const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments) => {
+const createBrandProductDataRenderer = (tableDataRef, collapsedItemsRef, toggleItemCollapse, columnAlignmentsRef) => {
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     const isSuspended = rowData._isSuspended;
     td.className = 'product-data-row';
     // 중단된 경우 빨간 배경, 아닌 경우 기본 노란 배경
@@ -159,21 +159,22 @@ const createBrandProductDataRenderer = (tableData, collapsedItemsRef, toggleItem
       td.textContent = value ?? '';
     }
 
-    if (columnAlignments[c] && !td.style.textAlign) {
-      td.style.textAlign = columnAlignments[c];
+    const currentAlignments = columnAlignmentsRef.current;
+    if (currentAlignments[c] && !td.style.textAlign) {
+      td.style.textAlign = currentAlignments[c];
     }
 
     return td;
   };
 };
 
-const createBrandBuyerDataRenderer = (tableData, columnAlignments) => {
+const createBrandBuyerDataRenderer = (tableDataRef, columnAlignmentsRef) => {
   // 컬럼 구조 (15개):
   // col0: 빈칸, col1: 날짜, col2: 순번, col3: 제품명, col4: 옵션,
   // col5: 주문번호, col6: 구매자, col7: 수취인, col8: 아이디, col9: 연락처,
   // col10: 주소, col11: 금액, col12: 송장번호, col13: 리뷰샷, col14: 빈칸
   return (instance, td, r, c, prop, value) => {
-    const rowData = tableData[r];
+    const rowData = tableDataRef.current[r];
     const hasReviewImage = rowData._reviewImageUrl;
     const isSuspended = rowData._isSuspended;
     td.className = hasReviewImage ? 'has-review' : 'no-review';
@@ -247,8 +248,9 @@ const createBrandBuyerDataRenderer = (tableData, columnAlignments) => {
       td.textContent = value ?? '';
     }
 
-    if (columnAlignments[c] && !td.style.textAlign) {
-      td.style.textAlign = columnAlignments[c];
+    const currentAlignments = columnAlignmentsRef.current;
+    if (currentAlignments[c] && !td.style.textAlign) {
+      td.style.textAlign = currentAlignments[c];
     }
 
     // 중단된 행은 맨 마지막에 스타일 강제 적용
@@ -324,6 +326,25 @@ function BrandItemSheetInner({
   // 리뷰샷 필터 상태 ('all', 'with_review', 'without_review')
   const [reviewFilter, setReviewFilter] = useState('all');
 
+  // 필터링된 행 인덱스 (null = 필터 없음) - ref로 관리 (React re-render 방지)
+  const filteredRowsRef = useRef(null);
+  const filterConditionsRef = useRef(null);  // 필터 조건 저장
+  const filterInfoRef = useRef(null);    // 건수 표시 DOM ref
+  const filterAmountRef = useRef(null);  // 금액 표시 DOM ref
+
+  // 필터 숨김 행 인덱스 캐시 (afterRender에서 재계산 없이 사용)
+  const filterHiddenIndicesRef = useRef([]);
+
+  // DOM 기반 snackbar ref (React re-render 없이 알림 표시)
+  const snackbarDomRef = useRef(null);
+
+  // tableDataRef (afterFilter/엑셀다운로드에서 최신 데이터 참조용)
+  const tableDataRef = useRef([]);
+
+  // slotsRef (이벤트 핸들러에서 최신 slots 참조용)
+  const slotsRef = useRef(slots);
+  slotsRef.current = slots;
+
   // 컬럼 크기 저장 키 (캠페인별로 구분)
   const COLUMN_WIDTHS_KEY = `brand_itemsheet_column_widths_${campaignId}`;
 
@@ -335,6 +356,8 @@ function BrandItemSheetInner({
 
   // 컬럼별 정렬 상태 (left, center, right)
   const [columnAlignments, setColumnAlignments] = useState({});
+  const columnAlignmentsRef = useRef(columnAlignments);
+  columnAlignmentsRef.current = columnAlignments;
 
   // 접기 상태 저장
   const saveCollapsedItems = useCallback((items) => {
@@ -402,21 +425,123 @@ function BrandItemSheetInner({
     }
   }, [COLUMN_WIDTHS_KEY]);
 
+  // 필터 조건으로 숨길 BUYER_DATA 행 인덱스 계산
+  const computeFilterHiddenRows = useCallback((conditions, tableData) => {
+    if (!conditions || conditions.length === 0) return { filterHidden: [], visibleBuyer: [] };
+    const filterHidden = [];
+    const visibleBuyer = [];
+
+    for (let i = 0; i < tableData.length; i++) {
+      const rowData = tableData[i];
+      if (rowData?._rowType !== ROW_TYPES.BUYER_DATA) continue;
+
+      let passesFilter = true;
+      for (const condition of conditions) {
+        if (!passesFilter) break;
+        const colName = `col${condition.column}`;
+        const cellValue = rowData[colName] ?? '';
+
+        if (condition.conditions) {
+          for (const cond of condition.conditions) {
+            if (!passesFilter) break;
+            const { name, args } = cond;
+
+            if (name === 'by_value' && args?.[0] && Array.isArray(args[0])) {
+              if (!args[0].includes(String(cellValue))) passesFilter = false;
+            } else if (name === 'eq' && args?.[0] !== undefined) {
+              if (String(cellValue) !== String(args[0])) passesFilter = false;
+            } else if (name === 'contains' && args?.[0]) {
+              if (!String(cellValue).includes(String(args[0]))) passesFilter = false;
+            } else if (name === 'not_contains' && args?.[0]) {
+              if (String(cellValue).includes(String(args[0]))) passesFilter = false;
+            } else if (name === 'empty') {
+              if (cellValue !== null && cellValue !== undefined && cellValue !== '') passesFilter = false;
+            } else if (name === 'not_empty') {
+              if (cellValue === null || cellValue === undefined || cellValue === '') passesFilter = false;
+            }
+          }
+        }
+      }
+
+      if (passesFilter) {
+        visibleBuyer.push(i);
+      } else {
+        filterHidden.push(i);
+      }
+    }
+    return { filterHidden, visibleBuyer };
+  }, []);
+
+  // DOM 직접 업데이트 헬퍼 (React re-render 방지)
+  const updateFilterInfoDOM = useCallback((filtered, tableData) => {
+    const parseAmt = (val) => {
+      if (val === null || val === undefined || val === '') return 0;
+      const num = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
+      return isNaN(num) ? 0 : Math.round(num);
+    };
+    const totalCount = tableData.filter(r => r._rowType === ROW_TYPES.BUYER_DATA).length;
+    const totalAmt = tableData.filter(r => r._rowType === ROW_TYPES.BUYER_DATA)
+      .reduce((sum, r) => sum + parseAmt(r.col11), 0);
+
+    if (filtered) {
+      const filteredCount = filtered.length;
+      const filteredAmt = filtered.reduce((sum, ri) => {
+        const row = tableData[ri];
+        if (!row || row._rowType !== ROW_TYPES.BUYER_DATA) return sum;
+        return sum + parseAmt(row.col11);
+      }, 0);
+      if (filterInfoRef.current) {
+        filterInfoRef.current.textContent = `${filteredCount}건 / 전체 ${totalCount}건`;
+      }
+      if (filterAmountRef.current) {
+        filterAmountRef.current.innerHTML = `금액 합계: <strong>${filteredAmt.toLocaleString()}원 / ${totalAmt.toLocaleString()}원</strong> <span style="font-size:0.75rem;opacity:0.8;margin-left:4px">(필터적용)</span>`;
+      }
+    } else {
+      if (filterInfoRef.current) {
+        filterInfoRef.current.textContent = `전체 ${totalCount}건`;
+      }
+      if (filterAmountRef.current) {
+        filterAmountRef.current.innerHTML = `금액 합계: <strong>${totalAmt.toLocaleString()}원</strong>`;
+      }
+    }
+  }, []);
+
+  // DOM 기반 snackbar 표시 (React re-render 없음 - 필터 상태 보존)
+  const showSnackbar = useCallback((message) => {
+    const snackbarEl = snackbarDomRef.current;
+    if (!snackbarEl) return;
+    const messageEl = snackbarEl.querySelector('.snackbar-message');
+    if (messageEl) {
+      messageEl.textContent = message;
+    }
+    snackbarEl.style.animation = 'none';
+    void snackbarEl.offsetHeight;
+    snackbarEl.style.visibility = 'visible';
+    snackbarEl.style.opacity = '1';
+    snackbarEl.style.animation = 'snackbarFadeOut 0.3s 2s forwards';
+  }, []);
+
   // 엑셀 다운로드 핸들러
   const handleDownloadExcel = useCallback(() => {
-    // items 객체 생성 (item_id → item 매핑)
+    const exportSlots = filterSlotsByVisibleRows(slots, filteredRowsRef.current, tableDataRef.current);
+
     const itemsMap = {};
-    slots.forEach(slot => {
+    exportSlots.forEach(slot => {
       if (!itemsMap[slot.item_id] && slot.item) {
         itemsMap[slot.item_id] = slot.item;
       }
     });
 
-    const excelData = convertBrandSlotsToExcelData(slots, itemsMap);
+    const excelData = convertBrandSlotsToExcelData(exportSlots, itemsMap);
+    const isFiltered = filteredRowsRef.current !== null;
     const fileName = campaignName || 'campaign';
-    downloadExcel(excelData, `${fileName}_brand`, '브랜드시트');
-    setSnackbar({ open: true, message: '엑셀 파일이 다운로드되었습니다' });
-  }, [slots, campaignName]);
+    const suffix = isFiltered ? '_brand_filtered' : '_brand';
+    downloadExcel(excelData, `${fileName}${suffix}`, '브랜드시트');
+    // DOM 기반 snackbar 사용 (React re-render 방지 → 필터 상태 보존)
+    showSnackbar(isFiltered
+      ? `필터된 ${exportSlots.length}건의 엑셀 파일이 다운로드되었습니다`
+      : '엑셀 파일이 다운로드되었습니다');
+  }, [slots, campaignName, showSnackbar]);
 
   // 이미지 ZIP 다운로드 핸들러
   const [zipDownloading, setZipDownloading] = useState(false);
@@ -612,6 +737,11 @@ function BrandItemSheetInner({
           return !buyer?.is_temporary;
         });
         setSlots(allSlots);
+
+        // 필터 상태 초기화
+        filteredRowsRef.current = null;
+        filterConditionsRef.current = null;
+        filterHiddenIndicesRef.current = [];
 
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: allSlots, timestamp: Date.now() });
@@ -838,13 +968,11 @@ function BrandItemSheetInner({
           col9: '연락처', col10: '주소', col11: '금액', col12: '송장번호', col13: '리뷰샷', col14: ''
         });
 
-        // 구매자 데이터 행 - 항상 포함
-        // 날짜, 순번, 제품명, 옵션을 주문번호 앞에 추가 (영업사/진행자와 동일한 구조)
+        // 구매자 데이터 행 (이미 리뷰샷 필터 + 컬럼 필터 적용됨)
         filteredSlots.forEach((slot, slotIndex) => {
           const buyer = slot.buyer || {};
           const reviewImage = buyer.images && buyer.images.length > 0 ? buyer.images[0] : null;
 
-          // 슬롯에서 제품 정보 가져오기 (슬롯 값 > dayGroupProductInfo)
           const slotProductName = slot.product_name || dayGroupProductInfo.product_name || '';
           const slotPurchaseOption = slot.purchase_option || dayGroupProductInfo.purchase_option || '';
           const slotDate = slot.date || dayGroupProductInfo.date || '';
@@ -862,7 +990,7 @@ function BrandItemSheetInner({
             _reviewImageName: reviewImage?.file_name || '',
             col0: '',
             col1: slotDate,                        // 날짜
-            col2: slotIndex + 1,                   // 순번 (품목/day_group별 1부터 시작)
+            col2: slotIndex + 1,                   // 순번
             col3: slotProductName,                 // 제품명
             col4: slotPurchaseOption,              // 옵션
             col5: buyer.order_number || '',        // 주문번호
@@ -886,6 +1014,8 @@ function BrandItemSheetInner({
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
   // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
   const tableData = baseTableData;
+
+  tableDataRef.current = tableData;
 
   // hiddenRows 플러그인용 숨길 행 인덱스 계산
   const hiddenRowIndices = useMemo(() => {
@@ -923,7 +1053,8 @@ function BrandItemSheetInner({
     indicators: false
   }), []);
 
-  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 변경 시에만)
+  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 또는 데이터 변경 시)
+  // 필터 조건이 있으면 필터 숨김 행도 함께 적용
   useEffect(() => {
     const hot = hotRef.current?.hotInstance;
     if (!hot) return;
@@ -933,10 +1064,20 @@ function BrandItemSheetInner({
 
     // 먼저 모든 행 표시
     hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
-    // 그 다음 숨길 행만 숨기기
-    const indices = hiddenRowIndicesRef.current;
-    if (indices.length > 0) {
-      hiddenRowsPlugin.hideRows(indices);
+
+    // 접기 인덱스 + 필터 인덱스 합치기 (캐시 사용)
+    const collapseIndices = hiddenRowIndicesRef.current;
+    const filterHidden = filterHiddenIndicesRef.current;
+
+    let allHidden;
+    if (filterHidden.length > 0) {
+      allHidden = [...new Set([...collapseIndices, ...filterHidden])];
+    } else {
+      allHidden = collapseIndices;
+    }
+
+    if (allHidden.length > 0) {
+      hiddenRowsPlugin.hideRows(allHidden);
     }
     hot.render();
   }, [collapsedItems]); // hiddenRowIndices 대신 collapsedItems만 의존
@@ -1016,30 +1157,270 @@ function BrandItemSheetInner({
   // 성능 최적화: 동적 렌더러 함수들을 useMemo로 캐싱
   // collapsedItemsRef를 사용하여 접기 상태 변경 시 렌더러 재생성 방지
   const productDataRenderer = useMemo(() =>
-    createBrandProductDataRenderer(tableData, collapsedItemsRef, toggleItemCollapse, columnAlignments),
-    [tableData, toggleItemCollapse, columnAlignments]
+    createBrandProductDataRenderer(tableDataRef, collapsedItemsRef, toggleItemCollapse, columnAlignmentsRef),
+    [toggleItemCollapse]
   );
 
   const buyerDataRenderer = useMemo(() =>
-    createBrandBuyerDataRenderer(tableData, columnAlignments),
-    [tableData, columnAlignments]
+    createBrandBuyerDataRenderer(tableDataRef, columnAlignmentsRef),
+    []
   );
 
   const buyerHeaderRenderer = useMemo(() =>
-    createBrandBuyerHeaderRenderer(tableData),
-    [tableData]
+    createBrandBuyerHeaderRenderer(tableDataRef),
+    []
   );
 
+  // 렌더러 ref 유지 (cellsRenderer 의존성 제거용)
+  const productDataRendererRef = useRef(productDataRenderer);
+  productDataRendererRef.current = productDataRenderer;
+  const buyerDataRendererRef = useRef(buyerDataRenderer);
+  buyerDataRendererRef.current = buyerDataRenderer;
+  const buyerHeaderRendererRef = useRef(buyerHeaderRenderer);
+  buyerHeaderRendererRef.current = buyerHeaderRenderer;
+
+  // ========== HotTable prop 안정화 (필터 적용 시 updateSettings 방지) ==========
+  const dropdownMenuConfig = useMemo(() => ['filter_by_condition', 'filter_by_value', 'filter_action_bar'], []);
+
+  const beforeCopyHandler = useCallback((data, coords) => {
+    const urlPattern = /^(https?:\/\/|www\.|[a-zA-Z0-9-]+\.(com|co\.kr|kr|net|org|io|shop|store))/i;
+    for (let i = 0; i < data.length; i++) {
+      for (let j = 0; j < data[i].length; j++) {
+        const value = data[i][j];
+        if (value && typeof value === 'string' && value.trim()) {
+          if (urlPattern.test(value.trim())) {
+            const url = value.startsWith('http') ? value : `https://${value}`;
+            data[i][j] = url;
+          }
+        }
+      }
+    }
+  }, []);
+
+  const afterSelectionHandler = useCallback((row, column, row2, column2, preventScrolling) => {
+    if (hotRef.current?.hotInstance?._isKeyboardNav) {
+      preventScrolling.value = false;
+      hotRef.current.hotInstance._isKeyboardNav = false;
+    } else {
+      preventScrolling.value = true;
+    }
+  }, []);
+
+  const beforeKeyDownHandler = useCallback((event) => {
+    const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
+    if (arrowKeys.includes(event.key)) {
+      if (hotRef.current?.hotInstance) {
+        hotRef.current.hotInstance._isKeyboardNav = true;
+      }
+    }
+  }, []);
+
+  const beforeOnCellMouseDownHandler = useCallback((event, coords, TD) => {
+    const rowData = tableDataRef.current[coords.row];
+    if (rowData?._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
+      event.stopImmediatePropagation();
+    }
+  }, []);
+
+  const afterOnCellMouseUpHandler = useCallback((event, coords) => {
+    const rowData = tableDataRef.current[coords.row];
+    if (!rowData) return;
+
+    // 제품 데이터 행의 col0(토글) 클릭 시 접기/펼치기
+    if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
+      const itemId = rowData._itemId;
+      const dayGroup = rowData._dayGroup;
+      toggleItemCollapse(itemId, dayGroup);
+      return;
+    }
+
+    // 제품 데이터 행의 col14(상세보기) 클릭 시 팝업
+    if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
+      const item = rowData._item;
+      const itemId = rowData._itemId;
+      const dayGroup = rowData._dayGroup;
+      if (item) {
+        const dayGroupSlots = slotsRef.current.filter(s => s.item_id === itemId && s.day_group === dayGroup);
+        const firstSlot = dayGroupSlots[0] || null;
+        setProductDetailPopup({
+          open: true,
+          item: item,
+          slot: firstSlot,
+          dayGroup: dayGroup
+        });
+      }
+      return;
+    }
+
+    // 리뷰 보기 링크 클릭 시 갤러리 팝업
+    const target = event.target;
+    if (target.tagName === 'A' && target.classList.contains('review-link')) {
+      event.preventDefault();
+      const images = rowData?._reviewImages || [];
+      if (images.length > 0) {
+        setImagePopup({
+          open: true,
+          images: images,
+          currentIndex: 0,
+          buyer: rowData?._buyer || null
+        });
+      }
+    }
+  }, [toggleItemCollapse]);
+
+  const handleAlignmentChangeRef = useRef(handleAlignmentChange);
+  handleAlignmentChangeRef.current = handleAlignmentChange;
+
+  const contextMenuConfig = useMemo(() => ({
+    items: {
+      copy: { name: '복사' },
+      sp1: { name: '---------' },
+      align_left: {
+        name: '⬅️ 왼쪽 정렬',
+        callback: function(key, selection) {
+          const col = selection[0]?.start?.col;
+          if (col !== undefined) {
+            handleAlignmentChangeRef.current(col, 'left');
+          }
+        }
+      },
+      align_center: {
+        name: '↔️ 가운데 정렬',
+        callback: function(key, selection) {
+          const col = selection[0]?.start?.col;
+          if (col !== undefined) {
+            handleAlignmentChangeRef.current(col, 'center');
+          }
+        }
+      },
+      align_right: {
+        name: '➡️ 오른쪽 정렬',
+        callback: function(key, selection) {
+          const col = selection[0]?.start?.col;
+          if (col !== undefined) {
+            handleAlignmentChangeRef.current(col, 'right');
+          }
+        }
+      }
+    }
+  }), []);
+
+  // ========== 필터 핸들러 (hiddenRows 방식 - OperatorItemSheet 패턴) ==========
+  // filtersRowsMap은 render()→React re-render→updatePlugin 체인에서 항상 리셋됨
+  // 대신 hiddenRows 플러그인 사용 + afterRender에서 매 렌더마다 재적용하여 자동 복구
+  const afterFilterHandler = useCallback((conditionsStack) => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) return;
+
+    // 필터 조건 저장
+    filterConditionsRef.current = conditionsStack?.length > 0 ? [...conditionsStack] : null;
+
+    const tableData = tableDataRef.current;
+
+    // 필터 해제 시
+    if (!conditionsStack || conditionsStack.length === 0) {
+      filteredRowsRef.current = null;
+      filterHiddenIndicesRef.current = [];  // 캐시 초기화
+      // showRows + hideRows를 batch로 묶어 render 1회만
+      hot.batch(() => {
+        const currentHidden = hiddenRowsPlugin.getHiddenRows();
+        if (currentHidden.length > 0) {
+          hiddenRowsPlugin.showRows(currentHidden);
+        }
+        const collapseIndices = hiddenRowIndicesRef.current;
+        if (collapseIndices.length > 0) {
+          hiddenRowsPlugin.hideRows(collapseIndices);
+        }
+      });
+      updateFilterInfoDOM(null, tableData);
+      return;
+    }
+
+    // BUYER_DATA 필터링
+    const { filterHidden, visibleBuyer } = computeFilterHiddenRows(conditionsStack, tableData);
+    filterHiddenIndicesRef.current = filterHidden;  // 캐시에 저장
+
+    // showRows + hideRows를 batch로 묶어 render 1회만
+    const collapseIndices = hiddenRowIndicesRef.current;
+    const allHidden = [...new Set([...collapseIndices, ...filterHidden])];
+    hot.batch(() => {
+      const currentHidden = hiddenRowsPlugin.getHiddenRows();
+      if (currentHidden.length > 0) {
+        hiddenRowsPlugin.showRows(currentHidden);
+      }
+      if (allHidden.length > 0) {
+        hiddenRowsPlugin.hideRows(allHidden);
+      }
+    });
+
+    // ref + DOM 업데이트
+    const totalBuyerRows = tableData.filter(r => r._rowType === ROW_TYPES.BUYER_DATA).length;
+    filteredRowsRef.current = visibleBuyer.length < totalBuyerRows ? visibleBuyer : null;
+    updateFilterInfoDOM(filteredRowsRef.current, tableData);
+  }, [computeFilterHiddenRows, updateFilterInfoDOM]);
+
+  // afterRender: 매 렌더마다 hidden rows 재적용 (updatePlugin 리셋 자동 복구)
+  // 성능 최적화: computeFilterHiddenRows 재계산 제거, 캐시된 filterHiddenIndicesRef 사용
+  const afterRenderHandler = useCallback(() => {
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) return;
+
+    // 목표 hidden rows 계산: 접기 + 필터 (캐시 사용)
+    const collapseIndices = hiddenRowIndicesRef.current;
+    const filterHidden = filterHiddenIndicesRef.current;
+
+    let targetIndices;
+    if (filterHidden.length > 0) {
+      targetIndices = [...new Set([...collapseIndices, ...filterHidden])];
+    } else {
+      targetIndices = collapseIndices;
+    }
+
+    if (targetIndices.length === 0) return;
+
+    // 이미 올바르게 숨겨져 있으면 스킵 (무한 루프 방지)
+    const currentHidden = hiddenRowsPlugin.getHiddenRows();
+    const currentSet = new Set(currentHidden);
+    const targetSet = new Set(targetIndices);
+    if (currentSet.size === targetSet.size &&
+        [...currentSet].every(r => targetSet.has(r))) {
+      return;
+    }
+
+    // hidden rows 재적용 (batchExecution 사용 - render() 미호출로 render 체인 방지)
+    // batch()는 resumeRender()→render()를 호출해서 afterRender 재발동 → 렉 유발
+    // batchExecution()은 map만 변경, render 없음 → 현재 render 사이클에서 반영
+    hot.batchExecution(() => {
+      if (currentHidden.length > 0) {
+        hiddenRowsPlugin.showRows(currentHidden);
+      }
+      hiddenRowsPlugin.hideRows(targetIndices);
+    }, true);
+
+    // DOM 필터 정보 업데이트 (React re-render로 JSX 기본값 복원 대응)
+    if (filterConditionsRef.current) {
+      updateFilterInfoDOM(filteredRowsRef.current, tableDataRef.current);
+    }
+  }, [updateFilterInfoDOM]);
+
   // 셀 렌더러 - 행 타입별 분기 (최적화: 외부 정의 렌더러 사용)
+  // 의존성 완전 제거 - ref를 통해 최신 데이터/렌더러 참조 (필터 적용 시 재생성 방지)
   const cellsRenderer = useCallback((row, col, prop) => {
     const cellProperties = {};
+    const currentTableData = tableDataRef.current;
 
-    if (row >= tableData.length) {
+    if (row >= currentTableData.length) {
       cellProperties.className = 'spare-row-cell';
       return cellProperties;
     }
 
-    const rowData = tableData[row];
+    const rowData = currentTableData[row];
     const rowType = rowData?._rowType;
 
     switch (rowType) {
@@ -1059,7 +1440,7 @@ function BrandItemSheetInner({
 
       case ROW_TYPES.PRODUCT_DATA:
         cellProperties.readOnly = true;
-        cellProperties.renderer = productDataRenderer;
+        cellProperties.renderer = productDataRendererRef.current;
         // 중단된 day_group은 빨간 배경
         if (rowData._isSuspended) {
           cellProperties.className = 'suspended-row';
@@ -1068,7 +1449,7 @@ function BrandItemSheetInner({
 
       case ROW_TYPES.BUYER_HEADER:
         cellProperties.readOnly = true;
-        cellProperties.renderer = buyerHeaderRenderer;
+        cellProperties.renderer = buyerHeaderRendererRef.current;
         // 중단된 day_group은 빨간 배경
         if (rowData._isSuspended) {
           cellProperties.className = 'suspended-row';
@@ -1081,7 +1462,7 @@ function BrandItemSheetInner({
         // 중단된 경우 suspended-row 클래스 추가
         const baseClass = hasReviewImage ? 'has-review' : 'no-review';
         cellProperties.className = rowData._isSuspended ? `${baseClass} suspended-row` : baseClass;
-        cellProperties.renderer = buyerDataRenderer;
+        cellProperties.renderer = buyerDataRendererRef.current;
         break;
 
       default:
@@ -1089,7 +1470,7 @@ function BrandItemSheetInner({
     }
 
     return cellProperties;
-  }, [tableData, productDataRenderer, buyerDataRenderer, buyerHeaderRenderer]);
+  }, []);
 
   // 전체 데이터 건수 (원본 slots 기준)
   const totalDataCount = useMemo(() => {
@@ -1120,6 +1501,8 @@ function BrandItemSheetInner({
     return slots.filter(slot => slot.buyer?.images?.length > 0).length;
   }, [slots]);
 
+  // filteredCount/filteredAmount는 DOM ref로 직접 업데이트 (React re-render 방지)
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
@@ -1145,13 +1528,13 @@ function BrandItemSheetInner({
         {/* 왼쪽: 건수 정보 + 접기/펼치기 */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
           <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-            전체 {totalDataCount}건
+            <span ref={filterInfoRef}>{`전체 ${totalDataCount}건`}</span>
           </Box>
           <Box sx={{ fontSize: '0.9rem' }}>
             리뷰 완료: <strong>{reviewCount}건</strong>
           </Box>
           <Box sx={{ fontSize: '0.9rem' }}>
-            금액 합계: <strong>{totalAmount.toLocaleString()}원</strong>
+            <span ref={filterAmountRef}>금액 합계: <strong>{`${totalAmount.toLocaleString()}원`}</strong></span>
           </Box>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
             <Button
@@ -1350,130 +1733,17 @@ function BrandItemSheetInner({
             disableVisualSelection={false}
             hiddenRows={hiddenRowsConfig}
             filters={true}
-            dropdownMenu={['filter_by_condition', 'filter_by_value', 'filter_action_bar']}
-            contextMenu={{
-              items: {
-                copy: { name: '복사' },
-                sp1: { name: '---------' },
-                align_left: {
-                  name: '⬅️ 왼쪽 정렬',
-                  callback: function(key, selection) {
-                    const col = selection[0]?.start?.col;
-                    if (col !== undefined) {
-                      handleAlignmentChange(col, 'left');
-                    }
-                  }
-                },
-                align_center: {
-                  name: '↔️ 가운데 정렬',
-                  callback: function(key, selection) {
-                    const col = selection[0]?.start?.col;
-                    if (col !== undefined) {
-                      handleAlignmentChange(col, 'center');
-                    }
-                  }
-                },
-                align_right: {
-                  name: '➡️ 오른쪽 정렬',
-                  callback: function(key, selection) {
-                    const col = selection[0]?.start?.col;
-                    if (col !== undefined) {
-                      handleAlignmentChange(col, 'right');
-                    }
-                  }
-                }
-              }
-            }}
+            dropdownMenu={dropdownMenuConfig}
+            afterFilter={afterFilterHandler}
+            afterRender={afterRenderHandler}
+            contextMenu={contextMenuConfig}
             copyPaste={true}
             cells={cellsRenderer}
-            beforeCopy={(data, coords) => {
-              // URL 형식의 데이터 복사 시 하이퍼링크 형식으로 변환
-              // col11 뿐 아니라 모든 셀에서 URL 패턴을 감지하여 처리
-              const urlPattern = /^(https?:\/\/|www\.|[a-zA-Z0-9-]+\.(com|co\.kr|kr|net|org|io|shop|store))/i;
-
-              for (let i = 0; i < data.length; i++) {
-                for (let j = 0; j < data[i].length; j++) {
-                  const value = data[i][j];
-                  if (value && typeof value === 'string' && value.trim()) {
-                    if (urlPattern.test(value.trim())) {
-                      const url = value.startsWith('http') ? value : `https://${value}`;
-                      data[i][j] = url;
-                    }
-                  }
-                }
-              }
-            }}
-            afterSelection={(row, column, row2, column2, preventScrolling) => {
-              // 마우스 클릭 시에는 스크롤 방지, 키보드 이동 시에는 스크롤 허용
-              if (hotRef.current?.hotInstance?._isKeyboardNav) {
-                preventScrolling.value = false;
-                hotRef.current.hotInstance._isKeyboardNav = false;
-              } else {
-                preventScrolling.value = true;
-              }
-            }}
-            beforeKeyDown={(event) => {
-              // 방향키 입력 시 플래그 설정
-              const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'];
-              if (arrowKeys.includes(event.key)) {
-                if (hotRef.current?.hotInstance) {
-                  hotRef.current.hotInstance._isKeyboardNav = true;
-                }
-              }
-            }}
-            beforeOnCellMouseDown={(event, coords, TD) => {
-              // 토글 셀(제품 데이터 행의 col0) 클릭 시 기본 동작 방지
-              const rowData = tableData[coords.row];
-              if (rowData?._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
-                event.stopImmediatePropagation();
-              }
-            }}
-            afterOnCellMouseUp={(event, coords) => {
-              const rowData = tableData[coords.row];
-              if (!rowData) return;
-
-              // 제품 데이터 행의 col0(토글) 클릭 시 접기/펼치기
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 0) {
-                const itemId = rowData._itemId;
-                const dayGroup = rowData._dayGroup;
-                toggleItemCollapse(itemId, dayGroup);
-                return;
-              }
-
-              // 제품 데이터 행의 col14(상세보기) 클릭 시 팝업
-              if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 14) {
-                const item = rowData._item;
-                const itemId = rowData._itemId;
-                const dayGroup = rowData._dayGroup;
-                if (item) {
-                  // 해당 day_group의 슬롯 데이터 가져오기
-                  const dayGroupSlots = slots.filter(s => s.item_id === itemId && s.day_group === dayGroup);
-                  const firstSlot = dayGroupSlots[0] || null;
-                  setProductDetailPopup({
-                    open: true,
-                    item: item,
-                    slot: firstSlot,
-                    dayGroup: dayGroup
-                  });
-                }
-                return;
-              }
-
-              // 리뷰 보기 링크 클릭 시 갤러리 팝업
-              const target = event.target;
-              if (target.tagName === 'A' && target.classList.contains('review-link')) {
-                event.preventDefault();
-                const images = rowData?._reviewImages || [];
-                if (images.length > 0) {
-                  setImagePopup({
-                    open: true,
-                    images: images,
-                    currentIndex: 0,
-                    buyer: rowData?._buyer || null
-                  });
-                }
-              }
-            }}
+            beforeCopy={beforeCopyHandler}
+            afterSelection={afterSelectionHandler}
+            beforeKeyDown={beforeKeyDownHandler}
+            beforeOnCellMouseDown={beforeOnCellMouseDownHandler}
+            afterOnCellMouseUp={afterOnCellMouseUpHandler}
             className="htCenter"
             autoWrapRow={false}
             autoWrapCol={false}
@@ -1498,7 +1768,33 @@ function BrandItemSheetInner({
         )}
       </Paper>
 
-      {/* 스낵바 알림 */}
+      {/* DOM 기반 Snackbar (React re-render 없음 - 필터 상태 보존용) */}
+      <Box
+        ref={snackbarDomRef}
+        sx={{
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          bgcolor: '#323232',
+          color: '#fff',
+          px: 3,
+          py: 1.5,
+          borderRadius: 1,
+          boxShadow: 3,
+          zIndex: 9999,
+          visibility: 'hidden',
+          opacity: 0,
+          '@keyframes snackbarFadeOut': {
+            '0%': { opacity: 1, visibility: 'visible' },
+            '100%': { opacity: 0, visibility: 'hidden' },
+          },
+        }}
+      >
+        <span className="snackbar-message"></span>
+      </Box>
+
+      {/* 스낵바 알림 (MUI - 이미지 다운로드 등) */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={snackbar.severity === 'error' ? 5000 : 3000}

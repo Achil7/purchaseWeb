@@ -27,6 +27,8 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import PlaylistAddIcon from '@mui/icons-material/PlaylistAdd';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import WarningIcon from '@mui/icons-material/Warning';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import EditIcon from '@mui/icons-material/Edit';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -313,6 +315,49 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         console.error('Failed to save expanded state:', e);
       }
     }, 300);
+  }, [monthlyBrands]);
+
+  // 캠페인별 통계 캐싱 (사이드바 진행률 표시용)
+  const campaignStatsMap = useMemo(() => {
+    const statsMap = new Map();
+    monthlyBrands.forEach(mb => {
+      (mb.campaigns || []).forEach(campaign => {
+        const items = campaign.items || [];
+        let totalReviewCompleted = 0;
+        let totalPurchaseTarget = 0;
+        let courierCount = 0;
+        let emptyDateCount = 0;
+        let warningCount = 0;
+
+        for (const item of items) {
+          totalReviewCompleted += item.reviewCompletedCount || 0;
+          totalPurchaseTarget += parseInt(item.total_purchase_count) || 0;
+          if (item.courier_service_yn === 'Y' || item.courier_service_yn === true) {
+            courierCount++;
+          }
+          emptyDateCount += item.emptyDateSlotCount || 0;
+          if ((item.normalBuyerCount || 0) === 0 && (parseInt(item.total_purchase_count) || 0) > 0) {
+            warningCount++;
+          }
+        }
+
+        const isCompleted = totalPurchaseTarget > 0 && totalReviewCompleted >= totalPurchaseTarget;
+        const rawRate = totalPurchaseTarget > 0 ? Math.round((totalReviewCompleted / totalPurchaseTarget) * 100) : 0;
+        const completionRate = (!isCompleted && rawRate >= 100) ? 99 : rawRate;
+
+        statsMap.set(campaign.id, {
+          totalItems: items.length,
+          totalReviewCompleted,
+          totalPurchaseTarget,
+          isCompleted,
+          completionRate,
+          courierCount,
+          emptyDateCount,
+          warningCount
+        });
+      });
+    });
+    return statsMap;
   }, [monthlyBrands]);
 
   // 드래그 앤 드롭 완료 핸들러
@@ -1069,14 +1114,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                             {filteredCampaigns.length > 0 ? (
                               filteredCampaigns.map((campaign) => {
                                 const isSelected = selectedCampaign?.id === campaign.id;
-                                // 택배대행 Y인 품목 개수 계산
-                                const courierCount = (campaign.items || []).filter(item =>
-                                  item.courier_service_yn === 'Y' || item.courier_service_yn === true
-                                ).length;
-                                // 날짜 비어있는 슬롯 수 계산
-                                const emptyDateCount = (campaign.items || []).reduce(
-                                  (sum, item) => sum + (item.emptyDateSlotCount || 0), 0
-                                );
+                                const stats = campaignStatsMap.get(campaign.id) || { totalItems: 0, totalReviewCompleted: 0, totalPurchaseTarget: 0, isCompleted: false, completionRate: 0, courierCount: 0, emptyDateCount: 0, warningCount: 0 };
                                 return (
                                   <ListItemButton
                                     key={campaign.id}
@@ -1124,11 +1162,31 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                             </>
                                           ) : !showHidden ? (
                                             <>
-                                              {courierCount > 0 && (
-                                                <Tooltip title={`택배대행 ${courierCount}건`}>
+                                              {stats.isCompleted ? (
+                                                <Tooltip title={`완료! ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
+                                                  <CheckCircleIcon sx={{ fontSize: 18, color: '#4caf50' }} />
+                                                </Tooltip>
+                                              ) : stats.totalPurchaseTarget > 0 ? (
+                                                <Tooltip title={`진행률: ${stats.totalReviewCompleted}/${stats.totalPurchaseTarget}`}>
+                                                  <Chip
+                                                    label={`${stats.completionRate}%`}
+                                                    size="small"
+                                                    sx={{
+                                                      height: 16, fontSize: '0.6rem',
+                                                      bgcolor: stats.completionRate >= 80 ? '#c8e6c9' : stats.completionRate >= 50 ? '#fff9c4' : '#ffecb3',
+                                                      color: stats.completionRate >= 80 ? '#2e7d32' : stats.completionRate >= 50 ? '#f57f17' : '#ff6f00',
+                                                      fontWeight: 'bold'
+                                                    }}
+                                                  />
+                                                </Tooltip>
+                                              ) : (
+                                                <Chip label={stats.totalItems} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
+                                              )}
+                                              {stats.courierCount > 0 && (
+                                                <Tooltip title={`택배대행 ${stats.courierCount}건`}>
                                                   <Chip
                                                     icon={<LocalShippingIcon sx={{ fontSize: '0.7rem !important' }} />}
-                                                    label={courierCount}
+                                                    label={stats.courierCount}
                                                     size="small"
                                                     sx={{
                                                       height: 16,
@@ -1140,11 +1198,11 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                                   />
                                                 </Tooltip>
                                               )}
-                                              {emptyDateCount > 0 && (
-                                                <Tooltip title={`날짜 미입력 ${emptyDateCount}건`}>
+                                              {stats.emptyDateCount > 0 && (
+                                                <Tooltip title={`날짜 미입력 ${stats.emptyDateCount}건`}>
                                                   <Chip
                                                     icon={<EventBusyIcon sx={{ fontSize: '0.7rem !important' }} />}
-                                                    label={emptyDateCount}
+                                                    label={stats.emptyDateCount}
                                                     size="small"
                                                     sx={{
                                                       height: 16,
@@ -1156,6 +1214,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                                   />
                                                 </Tooltip>
                                               )}
+                                              {stats.warningCount > 0 && <WarningIcon color="error" sx={{ fontSize: 14 }} />}
                                               <Tooltip title="캠페인 수정">
                                                 <IconButton size="small" color="primary" onClick={(e) => handleEditCampaign(campaign, e)} sx={{ p: 0.2 }}>
                                                   <EditIcon sx={{ fontSize: 14 }} />
@@ -1168,7 +1227,6 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                               </Tooltip>
                                             </>
                                           ) : null}
-                                          <Chip label={campaign.items?.length || 0} size="small" sx={{ height: 14, fontSize: '0.6rem', minWidth: 16 }} />
                                         </Box>
                                       }
                                     />

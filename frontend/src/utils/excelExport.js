@@ -2,6 +2,27 @@ import XLSX from 'xlsx-js-style';
 import { saveAs } from 'file-saver';
 
 /**
+ * 필터링된 행 인덱스 기반으로 slots 배열 필터링
+ * @param {Array} slots - 원본 슬롯 데이터
+ * @param {Array|null} filteredRows - 보이는 행의 물리적 인덱스 배열 (null이면 전체)
+ * @param {Array} tableData - Handsontable에 표시되는 전체 테이블 데이터
+ * @returns {Array} 필터링된 slots 배열
+ */
+export const filterSlotsByVisibleRows = (slots, filteredRows, tableData) => {
+  if (!filteredRows) return slots;
+
+  const visibleSlotIds = new Set();
+  filteredRows.forEach(rowIndex => {
+    const row = tableData[rowIndex];
+    if (row && row._slotId) {
+      visibleSlotIds.add(row._slotId);
+    }
+  });
+
+  return slots.filter(slot => visibleSlotIds.has(slot.id));
+};
+
+/**
  * 엑셀 파일 다운로드
  * @param {Array} data - 2차원 배열 (첫 행은 헤더)
  * @param {string} fileName - 파일명 (확장자 제외)
