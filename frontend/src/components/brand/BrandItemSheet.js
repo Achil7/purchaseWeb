@@ -323,9 +323,6 @@ function BrandItemSheetInner({
   // localStorage 저장 디바운스용 타이머 ref
   const saveCollapsedTimeoutRef = useRef(null);
 
-  // 리뷰샷 필터 상태 ('all', 'with_review', 'without_review')
-  const [reviewFilter, setReviewFilter] = useState('all');
-
   // 필터링된 행 인덱스 (null = 필터 없음) - ref로 관리 (React re-render 방지)
   const filteredRowsRef = useRef(null);
   const filterConditionsRef = useRef(null);  // 필터 조건 저장
@@ -334,6 +331,11 @@ function BrandItemSheetInner({
 
   // 필터 숨김 행 인덱스 캐시 (afterRender에서 재계산 없이 사용)
   const filterHiddenIndicesRef = useRef([]);
+
+  // 리뷰샷 필터 숨김 행 인덱스 캐시 (hiddenRows 방식)
+  const reviewHiddenIndicesRef = useRef([]);
+  const reviewFilterRef = useRef('all');
+  const reviewBtnContainerRef = useRef(null);
 
   // DOM 기반 snackbar ref (React re-render 없이 알림 표시)
   const snackbarDomRef = useRef(null);
@@ -472,6 +474,64 @@ function BrandItemSheetInner({
     return { filterHidden, visibleBuyer };
   }, []);
 
+  // 리뷰샷 필터로 숨길 BUYER_DATA 행 인덱스 계산
+  const computeReviewHiddenRows = useCallback((filter, tableData) => {
+    if (filter === 'all') return [];
+    const hidden = [];
+    for (let i = 0; i < tableData.length; i++) {
+      const row = tableData[i];
+      if (row?._rowType !== ROW_TYPES.BUYER_DATA) continue;
+      const hasReview = row._reviewImages && row._reviewImages.length > 0;
+      if (filter === 'with_review' && !hasReview) hidden.push(i);
+      else if (filter === 'without_review' && hasReview) hidden.push(i);
+    }
+    return hidden;
+  }, []);
+
+  // 빈 그룹 숨김: 필터로 모든 BUYER_DATA가 숨겨진 day_group의 제품 테이블도 숨김
+  // 그룹 구조: [ITEM_SEPARATOR?] + PRODUCT_HEADER + PRODUCT_DATA + BUYER_HEADER + BUYER_DATA*N
+  const computeEmptyGroupHiddenRows = useCallback((hiddenBuyerSet, tableData) => {
+    if (hiddenBuyerSet.size === 0) return [];
+    const groupHidden = [];
+    let groupNonBuyerIndices = [];
+    let groupBuyerIndices = [];
+
+    const finalizeGroup = () => {
+      if (groupBuyerIndices.length > 0 &&
+          groupBuyerIndices.every(idx => hiddenBuyerSet.has(idx))) {
+        groupHidden.push(...groupNonBuyerIndices);
+      }
+    };
+
+    for (let i = 0; i < tableData.length; i++) {
+      const rowType = tableData[i]?._rowType;
+
+      if (rowType === ROW_TYPES.ITEM_SEPARATOR) {
+        // 이전 그룹 마무리
+        finalizeGroup();
+        // SEPARATOR는 다음 그룹에 속함
+        groupNonBuyerIndices = [i];
+        groupBuyerIndices = [];
+      } else if (rowType === ROW_TYPES.PRODUCT_HEADER) {
+        // SEPARATOR 없이 시작하는 첫 그룹인 경우만 이전 그룹 마무리
+        if (groupNonBuyerIndices.length > 0 && groupBuyerIndices.length > 0) {
+          finalizeGroup();
+          groupNonBuyerIndices = [];
+          groupBuyerIndices = [];
+        }
+        groupNonBuyerIndices.push(i);
+      } else if (rowType === ROW_TYPES.PRODUCT_DATA || rowType === ROW_TYPES.BUYER_HEADER) {
+        groupNonBuyerIndices.push(i);
+      } else if (rowType === ROW_TYPES.BUYER_DATA) {
+        groupBuyerIndices.push(i);
+      }
+    }
+    // 마지막 그룹 마무리
+    finalizeGroup();
+
+    return groupHidden;
+  }, []);
+
   // DOM 직접 업데이트 헬퍼 (React re-render 방지)
   const updateFilterInfoDOM = useCallback((filtered, tableData) => {
     const parseAmt = (val) => {
@@ -520,6 +580,68 @@ function BrandItemSheetInner({
     snackbarEl.style.opacity = '1';
     snackbarEl.style.animation = 'snackbarFadeOut 0.3s 2s forwards';
   }, []);
+
+  // 리뷰샷 필터 버튼 DOM 직접 업데이트 (React re-render 없이 - 필터 플러그인 보존)
+  const updateReviewFilterButtonsDOM = useCallback((filter) => {
+    const container = reviewBtnContainerRef.current;
+    if (!container) return;
+    const buttons = container.querySelectorAll('button');
+    buttons.forEach(btn => {
+      const btnFilter = btn.dataset.filter;
+      const isActive = btnFilter === filter;
+      btn.style.fontWeight = isActive ? 'bold' : 'normal';
+      if (btnFilter === 'all') {
+        btn.style.backgroundColor = isActive ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)';
+      } else if (btnFilter === 'with_review') {
+        btn.style.backgroundColor = isActive ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.15)';
+      } else if (btnFilter === 'without_review') {
+        btn.style.backgroundColor = isActive ? 'rgba(244,67,54,0.5)' : 'rgba(255,255,255,0.15)';
+      }
+    });
+  }, []);
+
+  // 리뷰샷 필터 변경 핸들러 (hiddenRows 방식 - 컬럼 필터와 AND 결합)
+  // setReviewFilter() 사용 금지! React re-render → HotTable updatePlugin → 필터 플러그인 리셋
+  const handleReviewFilterChange = useCallback((newFilter) => {
+    reviewFilterRef.current = newFilter;
+    // 버튼 UI는 DOM 직접 조작 (React re-render 방지)
+    updateReviewFilterButtonsDOM(newFilter);
+
+    const tableData = tableDataRef.current;
+    const reviewHidden = computeReviewHiddenRows(newFilter, tableData);
+    reviewHiddenIndicesRef.current = reviewHidden;
+
+    // hidden rows 재적용: 접기 + 컬럼 필터 + 리뷰샷 필터
+    const hot = hotRef.current?.hotInstance;
+    if (!hot) return;
+    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    if (!hiddenRowsPlugin) return;
+
+    const collapseIndices = hiddenRowIndicesRef.current;
+    const filterHidden = filterHiddenIndicesRef.current;
+    const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
+    const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableData);
+    const allHidden = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
+
+    hot.batch(() => {
+      const currentHidden = hiddenRowsPlugin.getHiddenRows();
+      if (currentHidden.length > 0) hiddenRowsPlugin.showRows(currentHidden);
+      if (allHidden.length > 0) hiddenRowsPlugin.hideRows(allHidden);
+    });
+
+    // filteredRowsRef 업데이트 (엑셀 다운로드 + DOM 표시용)
+    const allHiddenSet = new Set(allHidden);
+    const visibleBuyer = [];
+    for (let i = 0; i < tableData.length; i++) {
+      if (tableData[i]?._rowType === ROW_TYPES.BUYER_DATA && !allHiddenSet.has(i)) {
+        visibleBuyer.push(i);
+      }
+    }
+    filteredRowsRef.current = (filterHidden.length > 0 || reviewHidden.length > 0)
+      ? visibleBuyer : null;
+
+    updateFilterInfoDOM(filteredRowsRef.current, tableData);
+  }, [computeReviewHiddenRows, computeEmptyGroupHiddenRows, updateReviewFilterButtonsDOM, updateFilterInfoDOM]);
 
   // 엑셀 다운로드 핸들러
   const handleDownloadExcel = useCallback(() => {
@@ -742,6 +864,8 @@ function BrandItemSheetInner({
         filteredRowsRef.current = null;
         filterConditionsRef.current = null;
         filterHiddenIndicesRef.current = [];
+        reviewHiddenIndicesRef.current = [];
+        reviewFilterRef.current = 'all';
 
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: allSlots, timestamp: Date.now() });
@@ -831,7 +955,7 @@ function BrandItemSheetInner({
   }, [slots]);
 
   // 성능 최적화: 2단계로 분리하여 캠페인 변경 시 불필요한 재계산 방지
-  // 1단계: 기본 데이터 구조 생성 (slots, reviewFilter만 의존)
+  // 1단계: 기본 데이터 구조 생성 (slots만 의존, 리뷰샷 필터는 hiddenRows로 처리)
   // day_group별로 분리하여 영업사/진행자와 동일한 구조로 표시
   const { baseTableData } = useMemo(() => {
     const data = [];
@@ -870,18 +994,9 @@ function BrandItemSheetInner({
         // 해당 day_group이 중단 상태인지 확인 (슬롯 중 하나라도 is_suspended가 true면 중단)
         const isSuspended = groupData.slots.some(slot => slot.is_suspended);
 
-        // 리뷰샷 필터 적용
-        let filteredSlots = groupData.slots;
-        if (reviewFilter === 'with_review') {
-          filteredSlots = groupData.slots.filter(slot => slot.buyer?.images?.length > 0);
-        } else if (reviewFilter === 'without_review') {
-          filteredSlots = groupData.slots.filter(slot => !slot.buyer?.images || slot.buyer.images.length === 0);
-        }
-
-        // 필터링 후 슬롯이 없으면 이 day_group은 표시하지 않음
-        if (filteredSlots.length === 0) {
-          return;
-        }
+        // 리뷰샷 필터는 hiddenRows 방식으로 처리 (컬럼 필터와 AND 결합 지원)
+        // baseTableData에는 항상 전체 슬롯 포함
+        const filteredSlots = groupData.slots;
 
         // day_group별 완료 상태 계산
         const totalSlots = groupData.slots.length;
@@ -1009,7 +1124,7 @@ function BrandItemSheetInner({
     });
 
     return { baseTableData: data };
-  }, [slots, reviewFilter]); // collapsedItems 제거 - 캠페인 변경 시 재계산 방지
+  }, [slots]); // reviewFilter 제거 - hiddenRows 방식으로 전환하여 컬럼 필터와 AND 결합
 
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
   // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
@@ -1065,13 +1180,16 @@ function BrandItemSheetInner({
     // 먼저 모든 행 표시
     hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
 
-    // 접기 인덱스 + 필터 인덱스 합치기 (캐시 사용)
+    // 접기 인덱스 + 컬럼 필터 + 리뷰샷 필터 인덱스 합치기 (캐시 사용)
     const collapseIndices = hiddenRowIndicesRef.current;
     const filterHidden = filterHiddenIndicesRef.current;
+    const reviewHidden = reviewHiddenIndicesRef.current;
 
     let allHidden;
-    if (filterHidden.length > 0) {
-      allHidden = [...new Set([...collapseIndices, ...filterHidden])];
+    if (filterHidden.length > 0 || reviewHidden.length > 0) {
+      const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
+      const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableDataRef.current);
+      allHidden = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
     } else {
       allHidden = collapseIndices;
     }
@@ -1080,7 +1198,7 @@ function BrandItemSheetInner({
       hiddenRowsPlugin.hideRows(allHidden);
     }
     hot.render();
-  }, [collapsedItems]); // hiddenRowIndices 대신 collapsedItems만 의존
+  }, [collapsedItems, computeEmptyGroupHiddenRows]); // hiddenRowIndices 대신 collapsedItems만 의존
 
   // 개별 품목(day_group별) 접기/펼치기 토글
   // 성능 최적화: localStorage 저장을 디바운스하여 I/O 지연
@@ -1322,20 +1440,36 @@ function BrandItemSheetInner({
 
     // 필터 해제 시
     if (!conditionsStack || conditionsStack.length === 0) {
-      filteredRowsRef.current = null;
       filterHiddenIndicesRef.current = [];  // 캐시 초기화
       // showRows + hideRows를 batch로 묶어 render 1회만
+      const collapseIndices = hiddenRowIndicesRef.current;
+      const reviewHidden = reviewHiddenIndicesRef.current;
+      const buyerHiddenSet = new Set(reviewHidden);
+      const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableData);
+      const allHidden = [...new Set([...collapseIndices, ...reviewHidden, ...emptyGroupHidden])];
       hot.batch(() => {
         const currentHidden = hiddenRowsPlugin.getHiddenRows();
         if (currentHidden.length > 0) {
           hiddenRowsPlugin.showRows(currentHidden);
         }
-        const collapseIndices = hiddenRowIndicesRef.current;
-        if (collapseIndices.length > 0) {
-          hiddenRowsPlugin.hideRows(collapseIndices);
+        if (allHidden.length > 0) {
+          hiddenRowsPlugin.hideRows(allHidden);
         }
       });
-      updateFilterInfoDOM(null, tableData);
+      // filteredRowsRef: 리뷰샷 필터가 남아있으면 visibleBuyer 계산
+      if (reviewHidden.length > 0) {
+        const allHiddenSet = new Set(allHidden);
+        const visibleBuyer = [];
+        for (let i = 0; i < tableData.length; i++) {
+          if (tableData[i]?._rowType === ROW_TYPES.BUYER_DATA && !allHiddenSet.has(i)) {
+            visibleBuyer.push(i);
+          }
+        }
+        filteredRowsRef.current = visibleBuyer;
+      } else {
+        filteredRowsRef.current = null;
+      }
+      updateFilterInfoDOM(filteredRowsRef.current, tableData);
       return;
     }
 
@@ -1343,9 +1477,12 @@ function BrandItemSheetInner({
     const { filterHidden, visibleBuyer } = computeFilterHiddenRows(conditionsStack, tableData);
     filterHiddenIndicesRef.current = filterHidden;  // 캐시에 저장
 
-    // showRows + hideRows를 batch로 묶어 render 1회만
+    // showRows + hideRows를 batch로 묶어 render 1회만 (접기 + 컬럼 필터 + 리뷰샷 필터 + 빈 그룹)
     const collapseIndices = hiddenRowIndicesRef.current;
-    const allHidden = [...new Set([...collapseIndices, ...filterHidden])];
+    const reviewHidden = reviewHiddenIndicesRef.current;
+    const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
+    const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableData);
+    const allHidden = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
     hot.batch(() => {
       const currentHidden = hiddenRowsPlugin.getHiddenRows();
       if (currentHidden.length > 0) {
@@ -1356,11 +1493,18 @@ function BrandItemSheetInner({
       }
     });
 
-    // ref + DOM 업데이트
+    // ref + DOM 업데이트: 컬럼 필터 + 리뷰샷 필터 AND 결과
+    const allHiddenSet = new Set(allHidden);
+    const andVisibleBuyer = [];
+    for (let i = 0; i < tableData.length; i++) {
+      if (tableData[i]?._rowType === ROW_TYPES.BUYER_DATA && !allHiddenSet.has(i)) {
+        andVisibleBuyer.push(i);
+      }
+    }
     const totalBuyerRows = tableData.filter(r => r._rowType === ROW_TYPES.BUYER_DATA).length;
-    filteredRowsRef.current = visibleBuyer.length < totalBuyerRows ? visibleBuyer : null;
+    filteredRowsRef.current = andVisibleBuyer.length < totalBuyerRows ? andVisibleBuyer : null;
     updateFilterInfoDOM(filteredRowsRef.current, tableData);
-  }, [computeFilterHiddenRows, updateFilterInfoDOM]);
+  }, [computeFilterHiddenRows, computeEmptyGroupHiddenRows, updateFilterInfoDOM]);
 
   // afterRender: 매 렌더마다 hidden rows 재적용 (updatePlugin 리셋 자동 복구)
   // 성능 최적화: computeFilterHiddenRows 재계산 제거, 캐시된 filterHiddenIndicesRef 사용
@@ -1371,13 +1515,16 @@ function BrandItemSheetInner({
     const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
     if (!hiddenRowsPlugin) return;
 
-    // 목표 hidden rows 계산: 접기 + 필터 (캐시 사용)
+    // 목표 hidden rows 계산: 접기 + 컬럼 필터 + 리뷰샷 필터 + 빈 그룹 (캐시 사용)
     const collapseIndices = hiddenRowIndicesRef.current;
     const filterHidden = filterHiddenIndicesRef.current;
+    const reviewHidden = reviewHiddenIndicesRef.current;
 
     let targetIndices;
-    if (filterHidden.length > 0) {
-      targetIndices = [...new Set([...collapseIndices, ...filterHidden])];
+    if (filterHidden.length > 0 || reviewHidden.length > 0) {
+      const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
+      const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableDataRef.current);
+      targetIndices = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
     } else {
       targetIndices = collapseIndices;
     }
@@ -1404,10 +1551,10 @@ function BrandItemSheetInner({
     }, true);
 
     // DOM 필터 정보 업데이트 (React re-render로 JSX 기본값 복원 대응)
-    if (filterConditionsRef.current) {
+    if (filterConditionsRef.current || reviewFilterRef.current !== 'all') {
       updateFilterInfoDOM(filteredRowsRef.current, tableDataRef.current);
     }
-  }, [updateFilterInfoDOM]);
+  }, [computeEmptyGroupHiddenRows, updateFilterInfoDOM]);
 
   // 셀 렌더러 - 행 타입별 분기 (최적화: 외부 정의 렌더러 사용)
   // 의존성 완전 제거 - ref를 통해 최신 데이터/렌더러 참조 (필터 적용 시 재생성 방지)
@@ -1572,19 +1719,20 @@ function BrandItemSheetInner({
 
         {/* 오른쪽: 리뷰샷 필터 + 엑셀 다운로드 */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {/* 리뷰샷 필터 버튼 */}
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
+          {/* 리뷰샷 필터 버튼 (DOM 직접 조작 - React re-render 방지로 필터 플러그인 보존) */}
+          <Box ref={reviewBtnContainerRef} sx={{ display: 'flex', gap: 0.5 }}>
             <Button
               size="small"
-              onClick={() => setReviewFilter('all')}
+              data-filter="all"
+              onClick={() => handleReviewFilterChange('all')}
               sx={{
                 color: 'white',
-                bgcolor: reviewFilter === 'all' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
+                bgcolor: 'rgba(255,255,255,0.3)',
                 fontSize: '0.7rem',
                 minWidth: 'auto',
                 px: 1,
                 py: 0.3,
-                fontWeight: reviewFilter === 'all' ? 'bold' : 'normal',
+                fontWeight: 'bold',
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
               }}
             >
@@ -1592,15 +1740,16 @@ function BrandItemSheetInner({
             </Button>
             <Button
               size="small"
-              onClick={() => setReviewFilter('with_review')}
+              data-filter="with_review"
+              onClick={() => handleReviewFilterChange('with_review')}
               sx={{
                 color: 'white',
-                bgcolor: reviewFilter === 'with_review' ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.15)',
+                bgcolor: 'rgba(255,255,255,0.15)',
                 fontSize: '0.7rem',
                 minWidth: 'auto',
                 px: 1,
                 py: 0.3,
-                fontWeight: reviewFilter === 'with_review' ? 'bold' : 'normal',
+                fontWeight: 'normal',
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
               }}
             >
@@ -1608,15 +1757,16 @@ function BrandItemSheetInner({
             </Button>
             <Button
               size="small"
-              onClick={() => setReviewFilter('without_review')}
+              data-filter="without_review"
+              onClick={() => handleReviewFilterChange('without_review')}
               sx={{
                 color: 'white',
-                bgcolor: reviewFilter === 'without_review' ? 'rgba(244,67,54,0.5)' : 'rgba(255,255,255,0.15)',
+                bgcolor: 'rgba(255,255,255,0.15)',
                 fontSize: '0.7rem',
                 minWidth: 'auto',
                 px: 1,
                 py: 0.3,
-                fontWeight: reviewFilter === 'without_review' ? 'bold' : 'normal',
+                fontWeight: 'normal',
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
               }}
             >
