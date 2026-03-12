@@ -353,10 +353,9 @@ exports.uploadImages = async (req, res) => {
       }, { transaction });
 
       // 입금 예정일 업데이트:
-      // - 신규 업로드: 항상 업데이트
-      // - 재제출 (입금 미확인): 업데이트
-      // - 재제출 (입금 확인됨): 업데이트하지 않음 (날짜별 입금관리에 영향 없음)
-      if (!hasExistingImage || !isPaymentConfirmed) {
+      // - 입금 미확인: 항상 업데이트 (신규/재제출 모두)
+      // - 입금 확인됨: 절대 업데이트하지 않음 (날짜별 입금관리에 영향 없음)
+      if (!isPaymentConfirmed) {
         const now = new Date();
         const expectedPaymentDate = getNextBusinessDay(now);
 
@@ -603,15 +602,19 @@ exports.deleteImage = async (req, res) => {
 
       // 다른 이미지가 없으면 리뷰 관련 필드 초기화
       if (remainingImages === 0) {
-        await Buyer.update({
-          review_submitted_at: null,
-          expected_payment_date: null
-        }, {
-          where: { id: buyerId },
-          transaction
-        });
+        // 입금 확인된 구매자는 리뷰 관련 필드를 초기화하지 않음 (날짜별 입금관리에 영향 없음)
+        const buyerRecord = await Buyer.findByPk(buyerId, { transaction });
+        if (buyerRecord && buyerRecord.payment_status !== 'completed') {
+          await Buyer.update({
+            review_submitted_at: null,
+            expected_payment_date: null
+          }, {
+            where: { id: buyerId },
+            transaction
+          });
+        }
 
-        // ItemSlot의 status를 'active'로 복원
+        // ItemSlot의 status를 'active'로 복원 (입금 여부 관계없이)
         await ItemSlot.update({
           status: 'active'
         }, {

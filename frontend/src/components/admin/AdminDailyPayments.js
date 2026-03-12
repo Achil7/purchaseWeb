@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
   Chip, CircularProgress, Alert, IconButton, Switch, Button, Tooltip,
-  Dialog, DialogTitle, DialogContent, DialogActions
+  Dialog, DialogTitle, DialogContent, DialogActions, TablePagination
 } from '@mui/material';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -63,6 +63,13 @@ function AdminDailyPayments() {
   });
   const [deletingReview, setDeletingReview] = useState(false);
 
+  // 페이지네이션
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+
+  // 입금 상태 필터: 'all' | 'completed' | 'pending'
+  const [paymentFilter, setPaymentFilter] = useState('all');
+
   useEffect(() => {
     loadBuyers();
   }, [selectedDate]);
@@ -77,6 +84,7 @@ function AdminDailyPayments() {
 
       const response = await buyerService.getBuyersByDate(year, month, day);
       setBuyers(response.data || []);
+      setPage(0);
     } catch (err) {
       console.error('Failed to load buyers:', err);
       setError('구매자 목록을 불러오는데 실패했습니다.');
@@ -303,6 +311,47 @@ function AdminDailyPayments() {
     .filter(b => b.payment_status === 'completed')
     .reduce((sum, buyer) => sum + parseAmount(buyer.amount), 0);
 
+  // 필터별 통계
+  const completedCount = buyers.filter(b => b.payment_status === 'completed').length;
+  const pendingCount = buyers.filter(b => b.payment_status !== 'completed').length;
+
+  // 필터링된 구매자 목록
+  const filteredBuyers = useMemo(() => {
+    if (paymentFilter === 'completed') return buyers.filter(b => b.payment_status === 'completed');
+    if (paymentFilter === 'pending') return buyers.filter(b => b.payment_status !== 'completed');
+    return buyers;
+  }, [buyers, paymentFilter]);
+
+  // 현재 페이지에 표시할 데이터
+  const paginatedBuyers = useMemo(() => {
+    const startIndex = page * rowsPerPage;
+    return filteredBuyers.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredBuyers, page, rowsPerPage]);
+
+  // 페이지네이션 핸들러
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  // 필터 변경 핸들러
+  const handleFilterChange = (newFilter) => {
+    setPaymentFilter(newFilter);
+    setPage(0);
+  };
+
+  // 필터 적용 중 페이지 자동 보정
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil(filteredBuyers.length / rowsPerPage) - 1);
+    if (page > maxPage) {
+      setPage(maxPage);
+    }
+  }, [filteredBuyers.length, page, rowsPerPage]);
+
   // 날짜 포맷
   const formatDate = (date) => {
     const year = date.getFullYear();
@@ -363,9 +412,30 @@ function AdminDailyPayments() {
               <Typography variant="subtitle1" fontWeight="bold" color="primary">
                 {formatDate(selectedDate)}
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                총 {buyers.length}명
-              </Typography>
+              <Chip
+                label={`전체 ${buyers.length}명`}
+                color={paymentFilter === 'all' ? 'primary' : 'default'}
+                variant={paymentFilter === 'all' ? 'filled' : 'outlined'}
+                size="small"
+                onClick={() => handleFilterChange('all')}
+                sx={{ cursor: 'pointer', fontWeight: paymentFilter === 'all' ? 'bold' : 'normal' }}
+              />
+              <Chip
+                label={`입금완료 ${completedCount}명`}
+                color={paymentFilter === 'completed' ? 'success' : 'default'}
+                variant={paymentFilter === 'completed' ? 'filled' : 'outlined'}
+                size="small"
+                onClick={() => handleFilterChange('completed')}
+                sx={{ cursor: 'pointer', fontWeight: paymentFilter === 'completed' ? 'bold' : 'normal' }}
+              />
+              <Chip
+                label={`미확인 ${pendingCount}명`}
+                color={paymentFilter === 'pending' ? 'warning' : 'default'}
+                variant={paymentFilter === 'pending' ? 'filled' : 'outlined'}
+                size="small"
+                onClick={() => handleFilterChange('pending')}
+                sx={{ cursor: 'pointer', fontWeight: paymentFilter === 'pending' ? 'bold' : 'normal' }}
+              />
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
               {/* 일괄 처리 버튼 */}
@@ -409,7 +479,7 @@ function AdminDailyPayments() {
               {/* 금액 통계 */}
               <Box sx={{ textAlign: 'right' }}>
                 <Typography variant="body2" color="text.secondary">
-                  입금완료: <strong style={{ color: '#2e7d32' }}>{completedAmount.toLocaleString()}원</strong> ({buyers.filter(b => b.payment_status === 'completed').length}명)
+                  입금완료: <strong style={{ color: '#2e7d32' }}>{completedAmount.toLocaleString()}원</strong> ({completedCount}명)
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   총 금액: <strong>{totalAmount.toLocaleString()}원</strong> ({buyers.length}명)
@@ -450,14 +520,16 @@ function AdminDailyPayments() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {buyers.length === 0 ? (
+                  {filteredBuyers.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={12} align="center" sx={{ py: 4, color: '#999' }}>
-                        해당 입금예정일에 해당하는 구매자가 없습니다.
+                        {buyers.length === 0
+                          ? '해당 입금예정일에 해당하는 구매자가 없습니다.'
+                          : '해당 필터 조건에 맞는 구매자가 없습니다.'}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    buyers.map((buyer) => (
+                    paginatedBuyers.map((buyer) => (
                       <TableRow key={buyer.id} hover>
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           <Typography variant="body2" fontWeight="medium">
@@ -552,6 +624,19 @@ function AdminDailyPayments() {
                 </TableBody>
               </Table>
             </TableContainer>
+            {filteredBuyers.length > 0 && (
+              <TablePagination
+                component="div"
+                count={filteredBuyers.length}
+                page={page}
+                onPageChange={handleChangePage}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={handleChangeRowsPerPage}
+                rowsPerPageOptions={[10, 20, 50, 100]}
+                labelRowsPerPage="페이지당 행:"
+                labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
+              />
+            )}
           </Paper>
         )}
 

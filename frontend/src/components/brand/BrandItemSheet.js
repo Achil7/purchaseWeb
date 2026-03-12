@@ -320,6 +320,9 @@ function BrandItemSheetInner({
   const collapsedItemsRef = useRef(collapsedItems);
   collapsedItemsRef.current = collapsedItems;
 
+  // hiddenRows useEffect 트리거용 (필터/리뷰 변경 시 useEffect 재실행)
+  const [hiddenRowsTrigger, setHiddenRowsTrigger] = useState(0);
+
   // localStorage 저장 디바운스용 타이머 ref
   const saveCollapsedTimeoutRef = useRef(null);
 
@@ -339,6 +342,7 @@ function BrandItemSheetInner({
 
   // DOM 기반 snackbar ref (React re-render 없이 알림 표시)
   const snackbarDomRef = useRef(null);
+  const isApplyingHiddenRowsRef = useRef(false);
 
   // tableDataRef (afterFilter/엑셀다운로드에서 최신 데이터 참조용)
   const tableDataRef = useRef([]);
@@ -489,45 +493,49 @@ function BrandItemSheetInner({
   }, []);
 
   // 빈 그룹 숨김: 필터로 모든 BUYER_DATA가 숨겨진 day_group의 제품 테이블도 숨김
-  // 그룹 구조: [ITEM_SEPARATOR?] + PRODUCT_HEADER + PRODUCT_DATA + BUYER_HEADER + BUYER_DATA*N
+  // _itemId + _dayGroup 메타데이터 기반 그룹핑 (순차 파싱 대신)
   const computeEmptyGroupHiddenRows = useCallback((hiddenBuyerSet, tableData) => {
     if (hiddenBuyerSet.size === 0) return [];
-    const groupHidden = [];
-    let groupNonBuyerIndices = [];
-    let groupBuyerIndices = [];
 
-    const finalizeGroup = () => {
-      if (groupBuyerIndices.length > 0 &&
-          groupBuyerIndices.every(idx => hiddenBuyerSet.has(idx))) {
-        groupHidden.push(...groupNonBuyerIndices);
-      }
-    };
-
+    // 1단계: _itemId + _dayGroup 기준으로 그룹별 행 분류
+    const groups = new Map();
     for (let i = 0; i < tableData.length; i++) {
-      const rowType = tableData[i]?._rowType;
-
-      if (rowType === ROW_TYPES.ITEM_SEPARATOR) {
-        // 이전 그룹 마무리
-        finalizeGroup();
-        // SEPARATOR는 다음 그룹에 속함
-        groupNonBuyerIndices = [i];
-        groupBuyerIndices = [];
-      } else if (rowType === ROW_TYPES.PRODUCT_HEADER) {
-        // SEPARATOR 없이 시작하는 첫 그룹인 경우만 이전 그룹 마무리
-        if (groupNonBuyerIndices.length > 0 && groupBuyerIndices.length > 0) {
-          finalizeGroup();
-          groupNonBuyerIndices = [];
-          groupBuyerIndices = [];
-        }
-        groupNonBuyerIndices.push(i);
-      } else if (rowType === ROW_TYPES.PRODUCT_DATA || rowType === ROW_TYPES.BUYER_HEADER) {
-        groupNonBuyerIndices.push(i);
-      } else if (rowType === ROW_TYPES.BUYER_DATA) {
-        groupBuyerIndices.push(i);
+      const row = tableData[i];
+      if (!row || row._itemId === undefined || row._dayGroup === undefined) continue;
+      const groupKey = `${row._itemId}_${row._dayGroup}`;
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, { nonBuyerIndices: [], buyerIndices: [] });
+      }
+      const group = groups.get(groupKey);
+      if (row._rowType === ROW_TYPES.BUYER_DATA) {
+        group.buyerIndices.push(i);
+      } else {
+        group.nonBuyerIndices.push(i);
       }
     }
-    // 마지막 그룹 마무리
-    finalizeGroup();
+
+    // 2단계: 빈 그룹 숨김
+    // - BUYER_DATA가 있는데 전부 숨겨진 경우 → 숨김
+    // - BUYER_DATA가 0개인 경우 → 숨김 (필터 활성 상태이므로 보여줄 데이터 없음)
+    const groupHidden = [];
+    for (const [, group] of groups) {
+      const allBuyersHidden = group.buyerIndices.length === 0 ||
+          group.buyerIndices.every(idx => hiddenBuyerSet.has(idx));
+      if (allBuyersHidden) {
+        groupHidden.push(...group.nonBuyerIndices);
+      }
+    }
+
+    // 3단계: 첫 번째 보이는 행이 ITEM_SEPARATOR이면 숨김 (맨 위 잘림 방지)
+    const allHiddenForCheck = new Set([...hiddenBuyerSet, ...groupHidden]);
+    for (let i = 0; i < tableData.length; i++) {
+      if (!allHiddenForCheck.has(i)) {
+        if (tableData[i]?._rowType === ROW_TYPES.ITEM_SEPARATOR) {
+          groupHidden.push(i);
+        }
+        break;
+      }
+    }
 
     return groupHidden;
   }, []);
@@ -600,36 +608,23 @@ function BrandItemSheetInner({
     });
   }, []);
 
-  // 리뷰샷 필터 변경 핸들러 (hiddenRows 방식 - 컬럼 필터와 AND 결합)
+  // 리뷰샷 필터 변경 핸들러
+  // ref 업데이트 + setHiddenRowsTrigger로 useEffect 트리거 (hiddenRows 통합 적용)
   // setReviewFilter() 사용 금지! React re-render → HotTable updatePlugin → 필터 플러그인 리셋
   const handleReviewFilterChange = useCallback((newFilter) => {
     reviewFilterRef.current = newFilter;
-    // 버튼 UI는 DOM 직접 조작 (React re-render 방지)
     updateReviewFilterButtonsDOM(newFilter);
 
     const tableData = tableDataRef.current;
     const reviewHidden = computeReviewHiddenRows(newFilter, tableData);
     reviewHiddenIndicesRef.current = reviewHidden;
 
-    // hidden rows 재적용: 접기 + 컬럼 필터 + 리뷰샷 필터
-    const hot = hotRef.current?.hotInstance;
-    if (!hot) return;
-    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-    if (!hiddenRowsPlugin) return;
-
-    const collapseIndices = hiddenRowIndicesRef.current;
+    // filteredRowsRef 업데이트 (엑셀 다운로드 + DOM 표시용)
     const filterHidden = filterHiddenIndicesRef.current;
+    const collapseIndices = hiddenRowIndicesRef.current;
     const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
     const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableData);
     const allHidden = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
-
-    hot.batch(() => {
-      const currentHidden = hiddenRowsPlugin.getHiddenRows();
-      if (currentHidden.length > 0) hiddenRowsPlugin.showRows(currentHidden);
-      if (allHidden.length > 0) hiddenRowsPlugin.hideRows(allHidden);
-    });
-
-    // filteredRowsRef 업데이트 (엑셀 다운로드 + DOM 표시용)
     const allHiddenSet = new Set(allHidden);
     const visibleBuyer = [];
     for (let i = 0; i < tableData.length; i++) {
@@ -637,10 +632,11 @@ function BrandItemSheetInner({
         visibleBuyer.push(i);
       }
     }
-    filteredRowsRef.current = (filterHidden.length > 0 || reviewHidden.length > 0)
-      ? visibleBuyer : null;
+    filteredRowsRef.current = (filterHidden.length > 0 || reviewHidden.length > 0) ? visibleBuyer : null;
 
     updateFilterInfoDOM(filteredRowsRef.current, tableData);
+    // useEffect 트리거 (hiddenRows 통합 적용)
+    setHiddenRowsTrigger(prev => prev + 1);
   }, [computeReviewHiddenRows, computeEmptyGroupHiddenRows, updateReviewFilterButtonsDOM, updateFilterInfoDOM]);
 
   // 엑셀 다운로드 핸들러
@@ -1168,8 +1164,8 @@ function BrandItemSheetInner({
     indicators: false
   }), []);
 
-  // hiddenRows 플러그인 직접 업데이트 (collapsedItems 또는 데이터 변경 시)
-  // 필터 조건이 있으면 필터 숨김 행도 함께 적용
+  // hiddenRows 통합 적용 (접기 + 컬럼 필터 + 리뷰샷 필터 + 빈 그룹)
+  // collapsedItems 변경 또는 hiddenRowsTrigger 변경 시 실행
   useEffect(() => {
     const hot = hotRef.current?.hotInstance;
     if (!hot) return;
@@ -1198,7 +1194,25 @@ function BrandItemSheetInner({
       hiddenRowsPlugin.hideRows(allHidden);
     }
     hot.render();
-  }, [collapsedItems, computeEmptyGroupHiddenRows]); // hiddenRowIndices 대신 collapsedItems만 의존
+
+    // 필터 조건 복원 (state 변경 → re-render → updatePlugin()이 conditionCollection 리셋할 수 있음)
+    const savedConditions = filterConditionsRef.current;
+    if (savedConditions && savedConditions.length > 0) {
+      try {
+        const filtersPlugin = hot.getPlugin('filters');
+        if (filtersPlugin) {
+          filtersPlugin.clearConditions();
+          savedConditions.forEach(cond => {
+            if (cond.conditions) {
+              cond.conditions.forEach(c => {
+                filtersPlugin.addCondition(cond.column, c.name, c.args, cond.operation);
+              });
+            }
+          });
+        }
+      } catch (e) { /* 필터 복원 실패 무시 */ }
+    }
+  }, [collapsedItems, hiddenRowsTrigger, computeEmptyGroupHiddenRows]);
 
   // 개별 품목(day_group별) 접기/펼치기 토글
   // 성능 최적화: localStorage 저장을 디바운스하여 I/O 지연
@@ -1423,41 +1437,24 @@ function BrandItemSheetInner({
     }
   }), []);
 
-  // ========== 필터 핸들러 (hiddenRows 방식 - OperatorItemSheet 패턴) ==========
-  // filtersRowsMap은 render()→React re-render→updatePlugin 체인에서 항상 리셋됨
-  // 대신 hiddenRows 플러그인 사용 + afterRender에서 매 렌더마다 재적용하여 자동 복구
+  // ========== 필터 핸들러 ==========
+  // ref에 필터 결과 저장 후 hiddenRowsTrigger로 useEffect 트리거
+  // useEffect에서 showRows/hideRows/render() 통합 적용 (collapsedItems useEffect 패턴)
   const afterFilterHandler = useCallback((conditionsStack) => {
-    const hot = hotRef.current?.hotInstance;
-    if (!hot) return;
-
-    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-    if (!hiddenRowsPlugin) return;
-
     // 필터 조건 저장
     filterConditionsRef.current = conditionsStack?.length > 0 ? [...conditionsStack] : null;
 
     const tableData = tableDataRef.current;
 
-    // 필터 해제 시
     if (!conditionsStack || conditionsStack.length === 0) {
-      filterHiddenIndicesRef.current = [];  // 캐시 초기화
-      // showRows + hideRows를 batch로 묶어 render 1회만
-      const collapseIndices = hiddenRowIndicesRef.current;
+      // 필터 해제
+      filterHiddenIndicesRef.current = [];
       const reviewHidden = reviewHiddenIndicesRef.current;
-      const buyerHiddenSet = new Set(reviewHidden);
-      const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableData);
-      const allHidden = [...new Set([...collapseIndices, ...reviewHidden, ...emptyGroupHidden])];
-      hot.batch(() => {
-        const currentHidden = hiddenRowsPlugin.getHiddenRows();
-        if (currentHidden.length > 0) {
-          hiddenRowsPlugin.showRows(currentHidden);
-        }
-        if (allHidden.length > 0) {
-          hiddenRowsPlugin.hideRows(allHidden);
-        }
-      });
-      // filteredRowsRef: 리뷰샷 필터가 남아있으면 visibleBuyer 계산
       if (reviewHidden.length > 0) {
+        const collapseIndices = hiddenRowIndicesRef.current;
+        const buyerHiddenSet = new Set(reviewHidden);
+        const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableData);
+        const allHidden = [...new Set([...collapseIndices, ...reviewHidden, ...emptyGroupHidden])];
         const allHiddenSet = new Set(allHidden);
         const visibleBuyer = [];
         for (let i = 0; i < tableData.length; i++) {
@@ -1469,92 +1466,42 @@ function BrandItemSheetInner({
       } else {
         filteredRowsRef.current = null;
       }
-      updateFilterInfoDOM(filteredRowsRef.current, tableData);
-      return;
+    } else {
+      // 필터 활성
+      const { filterHidden } = computeFilterHiddenRows(conditionsStack, tableData);
+      filterHiddenIndicesRef.current = filterHidden;
+
+      const collapseIndices = hiddenRowIndicesRef.current;
+      const reviewHidden = reviewHiddenIndicesRef.current;
+      const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
+      const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableData);
+      const allHidden = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
+      const allHiddenSet = new Set(allHidden);
+      const andVisibleBuyer = [];
+      for (let i = 0; i < tableData.length; i++) {
+        if (tableData[i]?._rowType === ROW_TYPES.BUYER_DATA && !allHiddenSet.has(i)) {
+          andVisibleBuyer.push(i);
+        }
+      }
+      const totalBuyerRows = tableData.filter(r => r._rowType === ROW_TYPES.BUYER_DATA).length;
+      filteredRowsRef.current = andVisibleBuyer.length < totalBuyerRows ? andVisibleBuyer : null;
     }
 
-    // BUYER_DATA 필터링
-    const { filterHidden, visibleBuyer } = computeFilterHiddenRows(conditionsStack, tableData);
-    filterHiddenIndicesRef.current = filterHidden;  // 캐시에 저장
-
-    // showRows + hideRows를 batch로 묶어 render 1회만 (접기 + 컬럼 필터 + 리뷰샷 필터 + 빈 그룹)
-    const collapseIndices = hiddenRowIndicesRef.current;
-    const reviewHidden = reviewHiddenIndicesRef.current;
-    const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
-    const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableData);
-    const allHidden = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
-    hot.batch(() => {
-      const currentHidden = hiddenRowsPlugin.getHiddenRows();
-      if (currentHidden.length > 0) {
-        hiddenRowsPlugin.showRows(currentHidden);
-      }
-      if (allHidden.length > 0) {
-        hiddenRowsPlugin.hideRows(allHidden);
-      }
-    });
-
-    // ref + DOM 업데이트: 컬럼 필터 + 리뷰샷 필터 AND 결과
-    const allHiddenSet = new Set(allHidden);
-    const andVisibleBuyer = [];
-    for (let i = 0; i < tableData.length; i++) {
-      if (tableData[i]?._rowType === ROW_TYPES.BUYER_DATA && !allHiddenSet.has(i)) {
-        andVisibleBuyer.push(i);
-      }
-    }
-    const totalBuyerRows = tableData.filter(r => r._rowType === ROW_TYPES.BUYER_DATA).length;
-    filteredRowsRef.current = andVisibleBuyer.length < totalBuyerRows ? andVisibleBuyer : null;
     updateFilterInfoDOM(filteredRowsRef.current, tableData);
+    // useEffect 트리거 (hiddenRows 통합 적용)
+    setHiddenRowsTrigger(prev => prev + 1);
   }, [computeFilterHiddenRows, computeEmptyGroupHiddenRows, updateFilterInfoDOM]);
 
-  // afterRender: 매 렌더마다 hidden rows 재적용 (updatePlugin 리셋 자동 복구)
-  // 성능 최적화: computeFilterHiddenRows 재계산 제거, 캐시된 filterHiddenIndicesRef 사용
+  // afterRender: DOM 필터 정보만 복구 (React re-render로 JSX 기본값 복원 대응)
+  // hiddenRows 조작은 하지 않음 — collapsedItems useEffect + afterFilterHandler/handleReviewFilterChange의
+  // setTimeout에서만 관리하여 충돌/무한루프 방지
   const afterRenderHandler = useCallback(() => {
-    const hot = hotRef.current?.hotInstance;
-    if (!hot) return;
-
-    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-    if (!hiddenRowsPlugin) return;
-
-    // 목표 hidden rows 계산: 접기 + 컬럼 필터 + 리뷰샷 필터 + 빈 그룹 (캐시 사용)
-    const collapseIndices = hiddenRowIndicesRef.current;
-    const filterHidden = filterHiddenIndicesRef.current;
-    const reviewHidden = reviewHiddenIndicesRef.current;
-
-    let targetIndices;
-    if (filterHidden.length > 0 || reviewHidden.length > 0) {
-      const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
-      const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableDataRef.current);
-      targetIndices = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
-    } else {
-      targetIndices = collapseIndices;
-    }
-
-    if (targetIndices.length === 0) return;
-
-    // 이미 올바르게 숨겨져 있으면 스킵 (무한 루프 방지)
-    const currentHidden = hiddenRowsPlugin.getHiddenRows();
-    const currentSet = new Set(currentHidden);
-    const targetSet = new Set(targetIndices);
-    if (currentSet.size === targetSet.size &&
-        [...currentSet].every(r => targetSet.has(r))) {
-      return;
-    }
-
-    // hidden rows 재적용 (batchExecution 사용 - render() 미호출로 render 체인 방지)
-    // batch()는 resumeRender()→render()를 호출해서 afterRender 재발동 → 렉 유발
-    // batchExecution()은 map만 변경, render 없음 → 현재 render 사이클에서 반영
-    hot.batchExecution(() => {
-      if (currentHidden.length > 0) {
-        hiddenRowsPlugin.showRows(currentHidden);
-      }
-      hiddenRowsPlugin.hideRows(targetIndices);
-    }, true);
-
-    // DOM 필터 정보 업데이트 (React re-render로 JSX 기본값 복원 대응)
     if (filterConditionsRef.current || reviewFilterRef.current !== 'all') {
       updateFilterInfoDOM(filteredRowsRef.current, tableDataRef.current);
     }
-  }, [computeEmptyGroupHiddenRows, updateFilterInfoDOM]);
+    // 리뷰 버튼 DOM 상태 복구
+    updateReviewFilterButtonsDOM(reviewFilterRef.current);
+  }, [updateFilterInfoDOM, updateReviewFilterButtonsDOM]);
 
   // 셀 렌더러 - 행 타입별 분기 (최적화: 외부 정의 렌더러 사용)
   // 의존성 완전 제거 - ref를 통해 최신 데이터/렌더러 참조 (필터 적용 시 재생성 방지)
