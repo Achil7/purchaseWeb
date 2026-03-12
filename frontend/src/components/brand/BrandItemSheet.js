@@ -320,7 +320,7 @@ function BrandItemSheetInner({
   const collapsedItemsRef = useRef(collapsedItems);
   collapsedItemsRef.current = collapsedItems;
 
-  // hiddenRows useEffect 트리거용 (필터/리뷰 변경 시 useEffect 재실행)
+  // hiddenRows useEffect 트리거용
   const [hiddenRowsTrigger, setHiddenRowsTrigger] = useState(0);
 
   // localStorage 저장 디바운스용 타이머 ref
@@ -331,6 +331,7 @@ function BrandItemSheetInner({
   const filterConditionsRef = useRef(null);  // 필터 조건 저장
   const filterInfoRef = useRef(null);    // 건수 표시 DOM ref
   const filterAmountRef = useRef(null);  // 금액 표시 DOM ref
+  const reviewCountRef = useRef(null);  // 리뷰 완료 건수 DOM ref
 
   // 필터 숨김 행 인덱스 캐시 (afterRender에서 재계산 없이 사용)
   const filterHiddenIndicesRef = useRef([]);
@@ -547,9 +548,10 @@ function BrandItemSheetInner({
       const num = parseFloat(String(val).replace(/[^0-9.-]/g, ''));
       return isNaN(num) ? 0 : Math.round(num);
     };
-    const totalCount = tableData.filter(r => r._rowType === ROW_TYPES.BUYER_DATA).length;
-    const totalAmt = tableData.filter(r => r._rowType === ROW_TYPES.BUYER_DATA)
-      .reduce((sum, r) => sum + parseAmt(r.col11), 0);
+    const buyerRows = tableData.filter(r => r._rowType === ROW_TYPES.BUYER_DATA);
+    const totalCount = buyerRows.length;
+    const totalAmt = buyerRows.reduce((sum, r) => sum + parseAmt(r.col11), 0);
+    const totalReviewCount = buyerRows.filter(r => r._reviewImages && r._reviewImages.length > 0).length;
 
     if (filtered) {
       const filteredCount = filtered.length;
@@ -558,11 +560,19 @@ function BrandItemSheetInner({
         if (!row || row._rowType !== ROW_TYPES.BUYER_DATA) return sum;
         return sum + parseAmt(row.col11);
       }, 0);
+      const filteredReviewCount = filtered.reduce((count, ri) => {
+        const row = tableData[ri];
+        if (!row || row._rowType !== ROW_TYPES.BUYER_DATA) return count;
+        return count + ((row._reviewImages && row._reviewImages.length > 0) ? 1 : 0);
+      }, 0);
       if (filterInfoRef.current) {
         filterInfoRef.current.textContent = `${filteredCount}건 / 전체 ${totalCount}건`;
       }
       if (filterAmountRef.current) {
         filterAmountRef.current.innerHTML = `금액 합계: <strong>${filteredAmt.toLocaleString()}원 / ${totalAmt.toLocaleString()}원</strong> <span style="font-size:0.75rem;opacity:0.8;margin-left:4px">(필터적용)</span>`;
+      }
+      if (reviewCountRef.current) {
+        reviewCountRef.current.innerHTML = `리뷰 완료: <strong>${filteredReviewCount}건 / ${totalReviewCount}건</strong>`;
       }
     } else {
       if (filterInfoRef.current) {
@@ -570,6 +580,9 @@ function BrandItemSheetInner({
       }
       if (filterAmountRef.current) {
         filterAmountRef.current.innerHTML = `금액 합계: <strong>${totalAmt.toLocaleString()}원</strong>`;
+      }
+      if (reviewCountRef.current) {
+        reviewCountRef.current.innerHTML = `리뷰 완료: <strong>${totalReviewCount}건</strong>`;
       }
     }
   }, []);
@@ -609,7 +622,7 @@ function BrandItemSheetInner({
   }, []);
 
   // 리뷰샷 필터 변경 핸들러
-  // ref 업데이트 + setHiddenRowsTrigger로 useEffect 트리거 (hiddenRows 통합 적용)
+  // 직접 hiddenRows 적용 (filters plugin 상태 보존을 위해 useEffect 미사용)
   // setReviewFilter() 사용 금지! React re-render → HotTable updatePlugin → 필터 플러그인 리셋
   const handleReviewFilterChange = useCallback((newFilter) => {
     reviewFilterRef.current = newFilter;
@@ -635,7 +648,6 @@ function BrandItemSheetInner({
     filteredRowsRef.current = (filterHidden.length > 0 || reviewHidden.length > 0) ? visibleBuyer : null;
 
     updateFilterInfoDOM(filteredRowsRef.current, tableData);
-    // useEffect 트리거 (hiddenRows 통합 적용)
     setHiddenRowsTrigger(prev => prev + 1);
   }, [computeReviewHiddenRows, computeEmptyGroupHiddenRows, updateReviewFilterButtonsDOM, updateFilterInfoDOM]);
 
@@ -1166,15 +1178,14 @@ function BrandItemSheetInner({
 
   // hiddenRows 통합 적용 (접기 + 컬럼 필터 + 리뷰샷 필터 + 빈 그룹)
   // collapsedItems 변경 또는 hiddenRowsTrigger 변경 시 실행
+  // exportConditions/importConditions로 필터 체크박스 상태 보존
   useEffect(() => {
     const hot = hotRef.current?.hotInstance;
     if (!hot) return;
 
     const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    const filtersPlugin = hot.getPlugin('filters');
     if (!hiddenRowsPlugin) return;
-
-    // 먼저 모든 행 표시
-    hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
 
     // 접기 인덱스 + 컬럼 필터 + 리뷰샷 필터 인덱스 합치기 (캐시 사용)
     const collapseIndices = hiddenRowIndicesRef.current;
@@ -1190,28 +1201,24 @@ function BrandItemSheetInner({
       allHidden = collapseIndices;
     }
 
+    // 필터 조건 백업 (conditionCollection 보존)
+    let backupConditions = null;
+    if (filtersPlugin) {
+      try { backupConditions = filtersPlugin.exportConditions(); } catch(e) {}
+    }
+
+    // 전체 리셋 + 재적용 (Handsontable 자체 필터링 해제 포함)
+    hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
     if (allHidden.length > 0) {
       hiddenRowsPlugin.hideRows(allHidden);
     }
-    hot.render();
 
-    // 필터 조건 복원 (state 변경 → re-render → updatePlugin()이 conditionCollection 리셋할 수 있음)
-    const savedConditions = filterConditionsRef.current;
-    if (savedConditions && savedConditions.length > 0) {
-      try {
-        const filtersPlugin = hot.getPlugin('filters');
-        if (filtersPlugin) {
-          filtersPlugin.clearConditions();
-          savedConditions.forEach(cond => {
-            if (cond.conditions) {
-              cond.conditions.forEach(c => {
-                filtersPlugin.addCondition(cond.column, c.name, c.args, cond.operation);
-              });
-            }
-          });
-        }
-      } catch (e) { /* 필터 복원 실패 무시 */ }
+    // 필터 조건 복원 (체크박스 상태 유지)
+    if (backupConditions && filtersPlugin) {
+      try { filtersPlugin.importConditions(backupConditions); } catch(e) {}
     }
+
+    hot.render();
   }, [collapsedItems, hiddenRowsTrigger, computeEmptyGroupHiddenRows]);
 
   // 개별 품목(day_group별) 접기/펼치기 토글
@@ -1438,8 +1445,7 @@ function BrandItemSheetInner({
   }), []);
 
   // ========== 필터 핸들러 ==========
-  // ref에 필터 결과 저장 후 hiddenRowsTrigger로 useEffect 트리거
-  // useEffect에서 showRows/hideRows/render() 통합 적용 (collapsedItems useEffect 패턴)
+  // 직접 hiddenRows 적용 (afterFilter 컨텍스트 내에서 실행하여 filters plugin 상태 보존)
   const afterFilterHandler = useCallback((conditionsStack) => {
     // 필터 조건 저장
     filterConditionsRef.current = conditionsStack?.length > 0 ? [...conditionsStack] : null;
@@ -1488,13 +1494,11 @@ function BrandItemSheetInner({
     }
 
     updateFilterInfoDOM(filteredRowsRef.current, tableData);
-    // useEffect 트리거 (hiddenRows 통합 적용)
     setHiddenRowsTrigger(prev => prev + 1);
   }, [computeFilterHiddenRows, computeEmptyGroupHiddenRows, updateFilterInfoDOM]);
 
   // afterRender: DOM 필터 정보만 복구 (React re-render로 JSX 기본값 복원 대응)
-  // hiddenRows 조작은 하지 않음 — collapsedItems useEffect + afterFilterHandler/handleReviewFilterChange의
-  // setTimeout에서만 관리하여 충돌/무한루프 방지
+  // hiddenRows 조작은 하지 않음 — collapsedItems useEffect + afterFilterHandler/handleReviewFilterChange에서 직접 관리
   const afterRenderHandler = useCallback(() => {
     if (filterConditionsRef.current || reviewFilterRef.current !== 'all') {
       updateFilterInfoDOM(filteredRowsRef.current, tableDataRef.current);
@@ -1625,7 +1629,7 @@ function BrandItemSheetInner({
             <span ref={filterInfoRef}>{`전체 ${totalDataCount}건`}</span>
           </Box>
           <Box sx={{ fontSize: '0.9rem' }}>
-            리뷰 완료: <strong>{reviewCount}건</strong>
+            <span ref={reviewCountRef}>리뷰 완료: <strong>{reviewCount}건</strong></span>
           </Box>
           <Box sx={{ fontSize: '0.9rem' }}>
             <span ref={filterAmountRef}>금액 합계: <strong>{`${totalAmount.toLocaleString()}원`}</strong></span>
