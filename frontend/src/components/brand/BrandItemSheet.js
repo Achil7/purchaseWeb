@@ -222,8 +222,12 @@ const createBrandBuyerDataRenderer = (tableDataRef, columnAlignmentsRef) => {
       if (!isSuspended) td.style.color = '#666';
     } else if (prop === 'col11' && value) {
       // 금액 (포맷팅)
-      const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
-      td.textContent = numValue ? numValue.toLocaleString() + '원' : value;
+      if (typeof value === 'number') {
+        td.textContent = value.toLocaleString() + '원';
+      } else {
+        const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
+        td.textContent = numValue ? numValue.toLocaleString() + '원' : value;
+      }
       td.style.fontWeight = 'bold';
       if (!isSuspended) td.style.color = '#c2185b';
     } else if (prop === 'col12') {
@@ -960,7 +964,7 @@ function BrandItemSheetInner({
 
     rootElement.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     return () => rootElement.removeEventListener('wheel', handleWheel, { capture: true });
-  }, [slots]);
+  }, []); // DOM 참조는 HotTable 생존 기간 동안 불변
 
   // 성능 최적화: 2단계로 분리하여 캠페인 변경 시 불필요한 재계산 방지
   // 1단계: 기본 데이터 구조 생성 (slots만 의존, 리뷰샷 필터는 hiddenRows로 처리)

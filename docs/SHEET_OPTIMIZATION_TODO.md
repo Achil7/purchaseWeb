@@ -1525,6 +1525,38 @@ const handleCompositionEnd = () => {
 
 ---
 
+### 23차 최적화 (2026-03-16) - 스크롤 성능 개선 (렌더러 최적화 + useEffect 의존성)
+
+**적용 내용:**
+1. **Shift+Wheel useEffect 의존성 `[slots]` → `[]`** (5개 시트)
+   - DOM 참조(wtHolder)는 HotTable 생존 기간 동안 불변 → 불필요한 리스너 재바인딩 제거
+2. **렌더러 내 금액 포맷팅 최적화** (OperatorItemSheet, SalesItemSheet, BrandItemSheet)
+   - typeof 체크로 이미 숫자인 경우 정규식 스킵 (parseInt + replace 연산 절약)
+3. **렌더러 내 입금여부 Date 파싱 최적화** (OperatorItemSheet, SalesItemSheet)
+   - 이미 포맷된 문자열이면 Date 객체 생성 스킵
+4. **viewportRowRenderingOffset 유지 (100)** - 줄이면 스크롤 시 빈 행이 더 자주 보임 (사용자 피드백과 반대)
+
+**수정 파일:**
+- `OperatorItemSheet.js` ✅ (Shift+Wheel useEffect, col14 금액, col20 입금여부)
+- `SalesItemSheet.js` ✅ (Shift+Wheel useEffect, col14 금액, col19 입금여부)
+- `BrandItemSheet.js` ✅ (Shift+Wheel useEffect, col11 금액)
+- `DailyWorkSheet.js` ✅ (Shift+Wheel useEffect)
+- `UnifiedItemSheet.js` ✅ (Shift+Wheel useEffect)
+
+**빌드:** ✅ 성공
+
+**테스트 항목:**
+- [ ] 500행+ 데이터에서 스크롤 개선 여부
+- [ ] Shift+스크롤 횡스크롤 정상 동작
+- [ ] 접기/펼치기 정상 동작
+- [ ] 한글 입력 정상 동작
+- [ ] 금액 표시 정상 (숫자 포맷)
+- [ ] 입금여부 표시 정상
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### 템플릿
 
 ### n차 최적화 (날짜)

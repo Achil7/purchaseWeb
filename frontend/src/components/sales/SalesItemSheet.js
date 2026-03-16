@@ -239,8 +239,12 @@ const createSalesBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, co
       if (!isSuspended) td.style.color = '#555';
     } else if (prop === 'col14' && value) {
       // col14: 금액 (col13 -> col14로 시프트)
-      const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
-      td.textContent = numValue ? numValue.toLocaleString() : value;
+      if (typeof value === 'number') {
+        td.textContent = value.toLocaleString();
+      } else {
+        const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
+        td.textContent = numValue ? numValue.toLocaleString() : value;
+      }
     } else if (prop === 'col16') {
       // col16: 리뷰샷 (col15 -> col16으로 시프트)
       const images = rowData._reviewImages || [];
@@ -273,19 +277,24 @@ const createSalesBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, co
       // col19: 입금여부 (col18 -> col19로 시프트)
       td.style.textAlign = 'center';
       if (value) {
-        try {
-          const date = new Date(value);
-          const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
-          const yy = String(kstDate.getUTCFullYear()).slice(-2);
-          const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
-          const dd = String(kstDate.getUTCDate()).padStart(2, '0');
-          td.textContent = `${yy}${mm}${dd}`;
-          if (!isSuspended) {
-            td.style.color = '#388e3c';
-          }
-          td.style.fontWeight = 'bold';
-        } catch (e) {
+        if (typeof value === 'string' && /^\d{6}$/.test(value)) {
+          // 이미 포맷된 값 (YYMMDD)
           td.textContent = value;
+          if (!isSuspended) td.style.color = '#388e3c';
+          td.style.fontWeight = 'bold';
+        } else {
+          try {
+            const date = new Date(value);
+            const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+            const yy = String(kstDate.getUTCFullYear()).slice(-2);
+            const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
+            const dd = String(kstDate.getUTCDate()).padStart(2, '0');
+            td.textContent = `${yy}${mm}${dd}`;
+            if (!isSuspended) td.style.color = '#388e3c';
+            td.style.fontWeight = 'bold';
+          } catch (e) {
+            td.textContent = value;
+          }
         }
       } else {
         td.textContent = '';
@@ -864,7 +873,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     // 테이블 전체 영역에 이벤트 리스너 추가 (capture phase에서 처리)
     rootElement.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     return () => rootElement.removeEventListener('wheel', handleWheel, { capture: true });
-  }, [slots]); // slots가 변경되면 다시 바인딩
+  }, []); // DOM 참조는 HotTable 생존 기간 동안 불변
 
   // 성능 최적화: 2단계로 분리하여 캠페인 변경 시 불필요한 재계산 방지
   // 1단계: 기본 데이터 구조 생성 (slots, items만 의존, collapsedItems 제외)

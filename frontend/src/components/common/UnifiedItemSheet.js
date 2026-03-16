@@ -356,7 +356,7 @@ function UnifiedItemSheetInner({
 
     rootElement.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     return () => rootElement.removeEventListener('wheel', handleWheel, { capture: true });
-  }, [slots]);
+  }, []); // DOM 참조는 HotTable 생존 기간 동안 불변
 
   /**
    * Handsontable 데이터 변환

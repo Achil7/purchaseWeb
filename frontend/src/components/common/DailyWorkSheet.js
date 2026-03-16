@@ -549,7 +549,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
     rootElement.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     return () => rootElement.removeEventListener('wheel', handleWheel, { capture: true });
-  }, [slots]);
+  }, []); // DOM 참조는 HotTable 생존 기간 동안 불변
 
   // 슬롯을 품목 ID와 day_group으로 그룹화
   const groupedSlots = useMemo(() => {

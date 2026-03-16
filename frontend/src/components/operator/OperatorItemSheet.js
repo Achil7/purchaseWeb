@@ -243,8 +243,12 @@ const createBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, columnA
       td.textContent = value ?? '';
     } else if (prop === 'col14' && value) {
       // col14: 금액 (amount) - 숫자 포맷
-      const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
-      td.textContent = numValue ? numValue.toLocaleString() : value;
+      if (typeof value === 'number') {
+        td.textContent = value.toLocaleString();
+      } else {
+        const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
+        td.textContent = numValue ? numValue.toLocaleString() : value;
+      }
     } else if (prop === 'col15') {
       // col15: 송장번호
       td.textContent = value ?? '';
@@ -284,22 +288,26 @@ const createBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, columnA
       // col19: 입금명
       td.textContent = value ?? '';
     } else if (prop === 'col20') {
-      // col20: 입금여부
+      // col20: 입금여부 - 이미 포맷된 값이면 Date 파싱 스킵
       td.style.textAlign = 'center';
       if (value) {
-        try {
-          const date = new Date(value);
-          const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
-          const yy = String(kstDate.getUTCFullYear()).slice(-2);
-          const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
-          const dd = String(kstDate.getUTCDate()).padStart(2, '0');
-          td.textContent = `${yy}${mm}${dd} 입금완료`;
-          if (!isSuspended) {
-            td.style.color = '#388e3c';
-          }
-          td.style.fontWeight = 'bold';
-        } catch (e) {
+        if (typeof value === 'string' && value.includes('입금완료')) {
           td.textContent = value;
+          if (!isSuspended) td.style.color = '#388e3c';
+          td.style.fontWeight = 'bold';
+        } else {
+          try {
+            const date = new Date(value);
+            const kstDate = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+            const yy = String(kstDate.getUTCFullYear()).slice(-2);
+            const mm = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
+            const dd = String(kstDate.getUTCDate()).padStart(2, '0');
+            td.textContent = `${yy}${mm}${dd} 입금완료`;
+            if (!isSuspended) td.style.color = '#388e3c';
+            td.style.fontWeight = 'bold';
+          } catch (e) {
+            td.textContent = value;
+          }
         }
       } else {
         td.textContent = '';
@@ -809,7 +817,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     // 테이블 전체 영역에 이벤트 리스너 추가 (capture phase에서 처리)
     rootElement.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     return () => rootElement.removeEventListener('wheel', handleWheel, { capture: true });
-  }, [slots]); // slots가 변경되면 다시 바인딩
+  }, []); // DOM 참조는 HotTable 생존 기간 동안 불변
 
   // 성능 최적화: 2단계로 분리하여 캠페인 변경 시 불필요한 재계산 방지
   // 1단계: 기본 데이터 구조 생성 (slots만 의존, collapsedItems 제외)
