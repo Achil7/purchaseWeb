@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, TableContainer, Table, TableHead, TableRow, TableCell, TableBody,
   Chip, CircularProgress, Alert, IconButton, Switch, Button, Tooltip,
-  Dialog, DialogTitle, DialogContent, DialogActions, TablePagination
+  Dialog, DialogTitle, DialogContent, DialogActions, TablePagination,
+  TextField, InputAdornment
 } from '@mui/material';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -14,6 +15,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import DownloadIcon from '@mui/icons-material/Download';
 import DeleteIcon from '@mui/icons-material/Delete';
+import SearchIcon from '@mui/icons-material/Search';
 import { buyerService } from '../../services';
 import imageService from '../../services/imageService';
 import { downloadExcel, convertDailyPaymentsToExcelData } from '../../utils/excelExport';
@@ -69,6 +71,9 @@ function AdminDailyPayments() {
 
   // 입금 상태 필터: 'all' | 'completed' | 'pending'
   const [paymentFilter, setPaymentFilter] = useState('all');
+
+  // 구매자 검색
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     loadBuyers();
@@ -317,10 +322,18 @@ function AdminDailyPayments() {
 
   // 필터링된 구매자 목록
   const filteredBuyers = useMemo(() => {
-    if (paymentFilter === 'completed') return buyers.filter(b => b.payment_status === 'completed');
-    if (paymentFilter === 'pending') return buyers.filter(b => b.payment_status !== 'completed');
-    return buyers;
-  }, [buyers, paymentFilter]);
+    let result = buyers;
+    if (paymentFilter === 'completed') result = result.filter(b => b.payment_status === 'completed');
+    if (paymentFilter === 'pending') result = result.filter(b => b.payment_status !== 'completed');
+    if (searchTerm.trim()) {
+      const term = searchTerm.trim().toLowerCase();
+      result = result.filter(b =>
+        (b.buyer_name && b.buyer_name.toLowerCase().includes(term)) ||
+        (b.recipient_name && b.recipient_name.toLowerCase().includes(term))
+      );
+    }
+    return result;
+  }, [buyers, paymentFilter, searchTerm]);
 
   // 현재 페이지에 표시할 데이터
   const paginatedBuyers = useMemo(() => {
@@ -341,6 +354,12 @@ function AdminDailyPayments() {
   // 필터 변경 핸들러
   const handleFilterChange = (newFilter) => {
     setPaymentFilter(newFilter);
+    setPage(0);
+  };
+
+  // 검색어 변경 핸들러
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
     setPage(0);
   };
 
@@ -435,6 +454,20 @@ function AdminDailyPayments() {
                 size="small"
                 onClick={() => handleFilterChange('pending')}
                 sx={{ cursor: 'pointer', fontWeight: paymentFilter === 'pending' ? 'bold' : 'normal' }}
+              />
+              <TextField
+                size="small"
+                placeholder="구매자/수취인 검색"
+                value={searchTerm}
+                onChange={handleSearchChange}
+                sx={{ width: 180, bgcolor: 'white', borderRadius: 1, '& .MuiOutlinedInput-root': { height: 32 } }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
               />
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>

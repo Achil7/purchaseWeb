@@ -1178,7 +1178,7 @@ function BrandItemSheetInner({
 
   // hiddenRows 통합 적용 (접기 + 컬럼 필터 + 리뷰샷 필터 + 빈 그룹)
   // collapsedItems 변경 또는 hiddenRowsTrigger 변경 시 실행
-  // exportConditions/importConditions로 필터 체크박스 상태 보존
+  // ValueComponent state 직접 백업/복원으로 필터 체크박스 상태 보존
   useEffect(() => {
     const hot = hotRef.current?.hotInstance;
     if (!hot) return;
@@ -1201,10 +1201,18 @@ function BrandItemSheetInner({
       allHidden = collapseIndices;
     }
 
-    // 필터 조건 백업 (conditionCollection 보존)
-    let backupConditions = null;
+    // ValueComponent state 직접 백업 (conditionCollection/importConditions 우회)
+    const backupStates = new Map();
     if (filtersPlugin) {
-      try { backupConditions = filtersPlugin.exportConditions(); } catch(e) {}
+      try {
+        const valueComponent = filtersPlugin.components.get('filter_by_value');
+        if (valueComponent && valueComponent.state) {
+          const entries = valueComponent.state.getEntries();
+          entries.forEach(([physicalCol, stateObj]) => {
+            if (stateObj) backupStates.set(physicalCol, stateObj);
+          });
+        }
+      } catch(e) {}
     }
 
     // 전체 리셋 + 재적용 (Handsontable 자체 필터링 해제 포함)
@@ -1213,9 +1221,16 @@ function BrandItemSheetInner({
       hiddenRowsPlugin.hideRows(allHidden);
     }
 
-    // 필터 조건 복원 (체크박스 상태 유지)
-    if (backupConditions && filtersPlugin) {
-      try { filtersPlugin.importConditions(backupConditions); } catch(e) {}
+    // ValueComponent state 직접 복원 (importConditions 우회 → 체크박스 상태 유지)
+    if (backupStates.size > 0 && filtersPlugin) {
+      try {
+        const valueComponent = filtersPlugin.components.get('filter_by_value');
+        if (valueComponent && valueComponent.state) {
+          backupStates.forEach((stateObj, physicalCol) => {
+            valueComponent.state.setValueAtIndex(physicalCol, stateObj);
+          });
+        }
+      } catch(e) {}
     }
 
     hot.render();
