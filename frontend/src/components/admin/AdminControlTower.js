@@ -85,8 +85,9 @@ function AdminControlTower() {
   const [userPage, setUserPage] = useState(1);
   const USERS_PER_PAGE = 10;
 
-  // 진행자 배정 탭 - 영업사 검색 상태
+  // 진행자 배정 탭 - 영업사/연월브랜드 검색 상태
   const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [mbSearchQuery, setMbSearchQuery] = useState('');
 
   // 진행자 배정 탭 - 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
@@ -498,15 +499,20 @@ function AdminControlTower() {
 
   // 진행자 배정 탭 렌더링 - 연월브랜드 > 캠페인 목록
   const renderAssignmentTab = () => {
-    // 숨겨지지 않은 연월브랜드만 표시 + 영업사 검색 필터
-    // 영업사 검색 필터 (is_hidden은 백엔드에서 이미 필터링됨)
+    // 영업사 + 연월브랜드 검색 필터 (is_hidden은 백엔드에서 이미 필터링됨)
     const salesSearchLower = salesSearchQuery.trim().toLowerCase();
-    const filteredMonthlyBrands = salesSearchLower
-      ? monthlyBrands.filter(mb => {
-          const creatorName = mb.creator?.name || '';
-          return creatorName.toLowerCase().includes(salesSearchLower);
-        })
-      : monthlyBrands;
+    const mbSearchLower = mbSearchQuery.trim().toLowerCase();
+    const filteredMonthlyBrands = monthlyBrands.filter(mb => {
+      if (salesSearchLower) {
+        const creatorName = mb.creator?.name || '';
+        if (!creatorName.toLowerCase().includes(salesSearchLower)) return false;
+      }
+      if (mbSearchLower) {
+        const mbName = mb.name || '';
+        if (!mbName.toLowerCase().includes(mbSearchLower)) return false;
+      }
+      return true;
+    });
 
     // 페이지네이션 계산
     const totalItems = filteredMonthlyBrands.length;
@@ -617,7 +623,36 @@ function AdminControlTower() {
                         />
                       </Box>
                     </TableCell>
-                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa' }}>연월브랜드</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa', minWidth: 180 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Typography variant="body2" fontWeight="bold">연월브랜드</Typography>
+                        <TextField
+                          size="small"
+                          placeholder="검색..."
+                          value={mbSearchQuery}
+                          onChange={(e) => { setMbSearchQuery(e.target.value); setCurrentPage(1); }}
+                          onClick={(e) => e.stopPropagation()}
+                          sx={{
+                            width: 100,
+                            '& .MuiInputBase-root': { height: 28, fontSize: '0.75rem', bgcolor: '#fff' },
+                            '& .MuiInputBase-input': { py: 0.5, px: 1 }
+                          }}
+                          InputProps={{
+                            endAdornment: mbSearchQuery && (
+                              <InputAdornment position="end">
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => { e.stopPropagation(); setMbSearchQuery(''); setCurrentPage(1); }}
+                                  sx={{ p: 0.2 }}
+                                >
+                                  <ClearIcon sx={{ fontSize: 16 }} />
+                                </IconButton>
+                              </InputAdornment>
+                            )
+                          }}
+                        />
+                      </Box>
+                    </TableCell>
                     <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e3f2fd' }}>캠페인</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#fff3e0', width: '100px' }}>날짜</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa', width: '80px' }}>제품 수</TableCell>

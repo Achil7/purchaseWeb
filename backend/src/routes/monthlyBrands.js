@@ -313,7 +313,7 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
                 {
                   model: ItemSlot,
                   as: 'slots',
-                  attributes: ['id', 'date']
+                  attributes: ['id', 'date', 'day_group']
                 }
               ]
             }
@@ -342,6 +342,7 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
     });
 
     let buyerStatsMap = {};
+    let dayGroupBuyerStats = {};
     if (allItemIds.length > 0) {
       const sequelize = require('../models').sequelize;
 
@@ -385,6 +386,35 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
           buyerStatsMap[stat.item_id].reviewCount = parseInt(stat.review_count, 10) || 0;
         }
       }
+
+      // day_group별 정상 구매자 수 조회 (ItemSlot 기반)
+      const dgStats = await ItemSlot.findAll({
+        where: {
+          item_id: allItemIds,
+          buyer_id: { [Op.ne]: null }
+        },
+        include: [{
+          model: Buyer,
+          as: 'buyer',
+          where: { is_temporary: false },
+          attributes: [],
+          required: true
+        }],
+        attributes: [
+          'item_id',
+          'day_group',
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "ItemSlot"."buyer_id"')), 'normal_count']
+        ],
+        group: ['ItemSlot.item_id', 'ItemSlot.day_group'],
+        raw: true
+      });
+
+      for (const stat of dgStats) {
+        if (!dayGroupBuyerStats[stat.item_id]) {
+          dayGroupBuyerStats[stat.item_id] = {};
+        }
+        dayGroupBuyerStats[stat.item_id][stat.day_group] = parseInt(stat.normal_count, 10) || 0;
+      }
     }
 
     // 각 품목별 emptyDateSlotCount + 구매자 통계 추가
@@ -399,7 +429,9 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
                 ...item,
                 emptyDateSlotCount: (item.slots || []).filter(s => !s.date || s.date.trim() === '').length,
                 normalBuyerCount: stats.normalCount,
-                reviewCompletedCount: stats.reviewCount
+                reviewCompletedCount: stats.reviewCount,
+                dayGroupBuyerStats: dayGroupBuyerStats[item.id] || {},
+                dayGroupCount: new Set((item.slots || []).map(s => s.day_group)).size
               };
             });
           }

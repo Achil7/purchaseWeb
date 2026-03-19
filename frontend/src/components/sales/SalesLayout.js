@@ -332,12 +332,19 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         for (const item of items) {
           totalReviewCompleted += item.reviewCompletedCount || 0;
           totalPurchaseTarget += parseInt(item.total_purchase_count) || 0;
-          if (item.courier_service_yn === 'Y' || item.courier_service_yn === true) {
-            courierCount++;
-          }
           emptyDateCount += item.emptyDateSlotCount || 0;
-          if ((item.normalBuyerCount || 0) === 0 && (parseInt(item.total_purchase_count) || 0) > 0) {
-            warningCount++;
+          // day_group별로 카운트 (day_group 1개 = 품목 1개)
+          const dgStats = item.dayGroupBuyerStats || {};
+          const dgCount = item.dayGroupCount || 1;
+          if (item.courier_service_yn === 'Y' || item.courier_service_yn === true) {
+            courierCount += dgCount;
+          }
+          if ((parseInt(item.total_purchase_count) || 0) > 0) {
+            for (let dg = 1; dg <= dgCount; dg++) {
+              if ((dgStats[dg] || 0) === 0) {
+                warningCount++;
+              }
+            }
           }
         }
 
@@ -345,8 +352,10 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         const rawRate = totalPurchaseTarget > 0 ? Math.round((totalReviewCompleted / totalPurchaseTarget) * 100) : 0;
         const completionRate = (!isCompleted && rawRate >= 100) ? 99 : rawRate;
 
+        // totalItems = day_group 기준 품목 수 (day_group 1개 = 품목 1개)
+        const totalItems = items.reduce((sum, item) => sum + (item.dayGroupCount || 1), 0);
         statsMap.set(campaign.id, {
-          totalItems: items.length,
+          totalItems,
           totalReviewCompleted,
           totalPurchaseTarget,
           isCompleted,
@@ -1214,7 +1223,11 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                                   />
                                                 </Tooltip>
                                               )}
-                                              {stats.warningCount > 0 && <WarningIcon color="error" sx={{ fontSize: 14 }} />}
+                                              {stats.warningCount > 0 && (
+                                                <Tooltip title={`구매자 미등록 품목 ${stats.warningCount}건`}>
+                                                  <WarningIcon color="error" sx={{ fontSize: 14 }} />
+                                                </Tooltip>
+                                              )}
                                               <Tooltip title="캠페인 수정">
                                                 <IconButton size="small" color="primary" onClick={(e) => handleEditCampaign(campaign, e)} sx={{ p: 0.2 }}>
                                                   <EditIcon sx={{ fontSize: 14 }} />

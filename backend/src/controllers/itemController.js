@@ -700,6 +700,38 @@ exports.getMyMonthlyBrands = async (req, res) => {
       }
     }
 
+    // day_group별 정상 구매자 수 조회 (ItemSlot 기반)
+    let dayGroupBuyerStats = {};
+    if (itemIds.length > 0) {
+      const dgStats = await ItemSlot.findAll({
+        where: {
+          item_id: itemIds,
+          buyer_id: { [Op.ne]: null }
+        },
+        include: [{
+          model: Buyer,
+          as: 'buyer',
+          where: { is_temporary: false },
+          attributes: [],
+          required: true
+        }],
+        attributes: [
+          'item_id',
+          'day_group',
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "ItemSlot"."buyer_id"')), 'normal_count']
+        ],
+        group: ['ItemSlot.item_id', 'ItemSlot.day_group'],
+        raw: true
+      });
+
+      for (const stat of dgStats) {
+        if (!dayGroupBuyerStats[stat.item_id]) {
+          dayGroupBuyerStats[stat.item_id] = {};
+        }
+        dayGroupBuyerStats[stat.item_id][stat.day_group] = parseInt(stat.normal_count, 10) || 0;
+      }
+    }
+
     // 연월브랜드별로 그룹화
     const monthlyBrandMap = new Map();
 
@@ -758,7 +790,9 @@ exports.getMyMonthlyBrands = async (req, res) => {
         status: item.status,
         keyword: item.keyword,
         buyerCount: stats.totalCount,
-        normalBuyerCount: stats.normalCount,
+        normalBuyerCount: assignedDayGroup !== null
+          ? (dayGroupBuyerStats[item.id]?.[assignedDayGroup] || 0)
+          : stats.normalCount,
         tempBuyerCount: stats.tempCount,
         reviewCompletedCount: stats.reviewCount,
         totalPurchaseCount: assignedSlots.length,

@@ -129,7 +129,11 @@ const CampaignItem = React.memo(({
                     />
                   </Tooltip>
                 )}
-                {stats.warningCount > 0 && <WarningIcon color="error" sx={{ fontSize: 14 }} />}
+                {stats.warningCount > 0 && (
+                  <Tooltip title={`구매자 미등록 품목 ${stats.warningCount}건`}>
+                    <WarningIcon color="error" sx={{ fontSize: 14 }} />
+                  </Tooltip>
+                )}
                 <Tooltip title="숨기기">
                   <IconButton size="small" color="default" onClick={(e) => onHideCampaign(campaign.id, e)} sx={{ p: 0.2 }}>
                     <VisibilityOffIcon sx={{ fontSize: 14, color: '#ccc' }} />
