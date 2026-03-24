@@ -1224,15 +1224,24 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
 
   // 엑셀 다운로드 핸들러
   const handleDownloadExcel = useCallback(() => {
+    // changedSlotsRef의 변경사항을 slots에 머지한 복사본 생성 (리렌더링 없이 최신 데이터 반영)
+    const changedSlots = changedSlotsRef.current;
+    const mergedSlots = Object.keys(changedSlots).length > 0
+      ? slots.map(slot => {
+          const changes = changedSlots[slot.id];
+          return changes ? { ...slot, ...changes } : slot;
+        })
+      : slots;
+
     // items 객체 생성 (item_id → item 매핑)
     const itemsMap = {};
-    slots.forEach(slot => {
+    mergedSlots.forEach(slot => {
       if (!itemsMap[slot.item_id] && slot.item) {
         itemsMap[slot.item_id] = slot.item;
       }
     });
 
-    const excelData = convertSlotsToExcelData(slots, itemsMap, 'sales');
+    const excelData = convertSlotsToExcelData(mergedSlots, itemsMap, 'sales');
     const fileName = campaignName || 'campaign';
     downloadExcel(excelData, `${fileName}_sales`, '영업사시트');
     showSnackbar('엑셀 파일이 다운로드되었습니다');
@@ -1383,7 +1392,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
             const cellsToUpdate = [];
             currentTableData.forEach((buyerRow, buyerRowIndex) => {
               if (buyerRow._rowType === ROW_TYPES.BUYER_DATA &&
-                  buyerRow._itemId === itemId) {
+                  buyerRow._itemId === itemId &&
+                  buyerRow._dayGroup === dayGroup) {
                 cellsToUpdate.push([buyerRowIndex, 1, newDate]);
 
                 // changedSlots에도 추가 (저장 시 DB 반영)

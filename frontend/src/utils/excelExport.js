@@ -144,7 +144,7 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
           // 제품 정보
           platform,                          // 플랫폼
           productName,                       // 제품명
-          purchaseOption,                    // 옵션
+          slot.purchase_option || purchaseOption,  // 옵션
           shippingType,                      // 출고유형
           keyword,                           // 키워드
           productPrice,                      // 가격
@@ -256,7 +256,7 @@ export const convertBrandSlotsToExcelData = (slots, items) => {
           // 제품 정보
           platform,                          // 플랫폼
           productName,                       // 제품명
-          purchaseOption,                    // 옵션
+          slot.purchase_option || purchaseOption,  // 옵션
           shippingType,                      // 출고유형
           keyword,                           // 키워드
           productPrice,                      // 가격

@@ -966,14 +966,23 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
   // 엑셀 다운로드 핸들러
   const handleDownloadExcel = useCallback(() => {
+    // changedSlotsRef의 변경사항을 slots에 머지한 복사본 생성 (리렌더링 없이 최신 데이터 반영)
+    const changedSlots = changedSlotsRef.current;
+    const mergedSlots = Object.keys(changedSlots).length > 0
+      ? slots.map(slot => {
+          const changes = changedSlots[slot.id];
+          return changes ? { ...slot, ...changes } : slot;
+        })
+      : slots;
+
     const itemsMap = {};
-    slots.forEach(slot => {
+    mergedSlots.forEach(slot => {
       if (!itemsMap[slot.item_id] && slot.item) {
         itemsMap[slot.item_id] = slot.item;
       }
     });
 
-    const excelData = convertSlotsToExcelData(slots, itemsMap, userRole);
+    const excelData = convertSlotsToExcelData(mergedSlots, itemsMap, userRole);
     const dateStr = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : 'daily';
     downloadExcel(excelData, `${dateStr}_daily_work`, '날짜별작업');
     showSnackbar('엑셀 파일이 다운로드되었습니다');
