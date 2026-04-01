@@ -320,11 +320,25 @@ function AdminDailyPayments() {
   const completedCount = buyers.filter(b => b.payment_status === 'completed').length;
   const pendingCount = buyers.filter(b => b.payment_status !== 'completed').length;
 
+  // 날짜불일치: payment_confirmed_at 날짜(KST)가 expected_payment_date와 다른 구매자
+  const mismatchCount = buyers.filter(b => {
+    if (!b.payment_confirmed_at || !b.expected_payment_date) return false;
+    const confirmedKST = new Date(new Date(b.payment_confirmed_at).getTime() + (9 * 60 * 60 * 1000));
+    const confirmedDateStr = `${confirmedKST.getUTCFullYear()}-${String(confirmedKST.getUTCMonth() + 1).padStart(2, '0')}-${String(confirmedKST.getUTCDate()).padStart(2, '0')}`;
+    return confirmedDateStr !== b.expected_payment_date;
+  }).length;
+
   // 필터링된 구매자 목록
   const filteredBuyers = useMemo(() => {
     let result = buyers;
     if (paymentFilter === 'completed') result = result.filter(b => b.payment_status === 'completed');
     if (paymentFilter === 'pending') result = result.filter(b => b.payment_status !== 'completed');
+    if (paymentFilter === 'mismatch') result = result.filter(b => {
+      if (!b.payment_confirmed_at || !b.expected_payment_date) return false;
+      const confirmedKST = new Date(new Date(b.payment_confirmed_at).getTime() + (9 * 60 * 60 * 1000));
+      const confirmedDateStr = `${confirmedKST.getUTCFullYear()}-${String(confirmedKST.getUTCMonth() + 1).padStart(2, '0')}-${String(confirmedKST.getUTCDate()).padStart(2, '0')}`;
+      return confirmedDateStr !== b.expected_payment_date;
+    });
     if (searchTerm.trim()) {
       const term = searchTerm.trim().toLowerCase();
       result = result.filter(b =>
@@ -455,6 +469,16 @@ function AdminDailyPayments() {
                 onClick={() => handleFilterChange('pending')}
                 sx={{ cursor: 'pointer', fontWeight: paymentFilter === 'pending' ? 'bold' : 'normal' }}
               />
+              {mismatchCount > 0 && (
+                <Chip
+                  label={`날짜불일치 ${mismatchCount}명`}
+                  color={paymentFilter === 'mismatch' ? 'error' : 'default'}
+                  variant={paymentFilter === 'mismatch' ? 'filled' : 'outlined'}
+                  size="small"
+                  onClick={() => handleFilterChange('mismatch')}
+                  sx={{ cursor: 'pointer', fontWeight: paymentFilter === 'mismatch' ? 'bold' : 'normal' }}
+                />
+              )}
               <TextField
                 size="small"
                 placeholder="구매자/수취인 검색"

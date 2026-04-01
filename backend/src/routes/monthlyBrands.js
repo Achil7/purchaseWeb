@@ -69,6 +69,11 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
                       attributes: ['id']
                     }
                   ]
+                },
+                {
+                  model: ItemSlot,
+                  as: 'slots',
+                  attributes: ['id']
                 }
               ]
             }
@@ -343,35 +348,56 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
 
     let buyerStatsMap = {};
     let dayGroupBuyerStats = {};
+    let dayGroupReviewStats = {};
     if (allItemIds.length > 0) {
       const sequelize = require('../models').sequelize;
 
-      // 품목별 구매자 수 (일반 구매자만)
-      const buyerCounts = await Buyer.findAll({
-        where: { item_id: allItemIds, is_temporary: false },
-        attributes: [
-          'item_id',
-          [sequelize.fn('COUNT', sequelize.col('id')), 'normal_count']
-        ],
-        group: ['item_id'],
-        raw: true
-      });
-
-      // 품목별 리뷰 완료 수 (승인된 이미지가 있는 일반 구매자)
-      const reviewCounts = await Buyer.findAll({
-        where: { item_id: allItemIds, is_temporary: false },
+      // 품목별 구매자 수 (슬롯에 연결된 일반 구매자만 - ItemSlot 기반)
+      const buyerCounts = await ItemSlot.findAll({
+        where: {
+          item_id: allItemIds,
+          buyer_id: { [Op.ne]: null }
+        },
         include: [{
-          model: Image,
-          as: 'images',
-          where: { status: 'approved' },
+          model: Buyer,
+          as: 'buyer',
+          where: { is_temporary: false },
           attributes: [],
           required: true
         }],
         attributes: [
           'item_id',
-          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "Buyer"."id"')), 'review_count']
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "ItemSlot"."buyer_id"')), 'normal_count']
         ],
-        group: ['Buyer.item_id'],
+        group: ['ItemSlot.item_id'],
+        raw: true
+      });
+
+      // 품목별 리뷰 완료 수 (슬롯에 연결된 승인된 이미지가 있는 구매자 - ItemSlot 기반)
+      const reviewCounts = await ItemSlot.findAll({
+        where: {
+          item_id: allItemIds,
+          buyer_id: { [Op.ne]: null }
+        },
+        include: [{
+          model: Buyer,
+          as: 'buyer',
+          where: { is_temporary: false },
+          attributes: [],
+          required: true,
+          include: [{
+            model: Image,
+            as: 'images',
+            where: { status: 'approved' },
+            attributes: [],
+            required: true
+          }]
+        }],
+        attributes: [
+          'item_id',
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "ItemSlot"."buyer_id"')), 'review_count']
+        ],
+        group: ['ItemSlot.item_id'],
         raw: true
       });
 
@@ -415,6 +441,42 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
         }
         dayGroupBuyerStats[stat.item_id][stat.day_group] = parseInt(stat.normal_count, 10) || 0;
       }
+
+      // day_group별 리뷰 완료 수 (승인된 이미지가 있는 구매자)
+      const dgReviewStats = await ItemSlot.findAll({
+        where: {
+          item_id: allItemIds,
+          buyer_id: { [Op.ne]: null }
+        },
+        include: [{
+          model: Buyer,
+          as: 'buyer',
+          where: { is_temporary: false },
+          attributes: [],
+          required: true,
+          include: [{
+            model: Image,
+            as: 'images',
+            where: { status: 'approved' },
+            attributes: [],
+            required: true
+          }]
+        }],
+        attributes: [
+          'item_id',
+          'day_group',
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "ItemSlot"."buyer_id"')), 'review_count']
+        ],
+        group: ['ItemSlot.item_id', 'ItemSlot.day_group'],
+        raw: true
+      });
+
+      for (const stat of dgReviewStats) {
+        if (!dayGroupReviewStats[stat.item_id]) {
+          dayGroupReviewStats[stat.item_id] = {};
+        }
+        dayGroupReviewStats[stat.item_id][stat.day_group] = parseInt(stat.review_count, 10) || 0;
+      }
     }
 
     // 각 품목별 emptyDateSlotCount + 구매자 통계 추가
@@ -425,13 +487,22 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
           if (campaign.items) {
             campaign.items = campaign.items.map(item => {
               const stats = buyerStatsMap[item.id] || { normalCount: 0, reviewCount: 0 };
+              const slots = item.slots || [];
+              // day_group별 슬롯 수 계산
+              const dayGroupSlotStats = {};
+              for (const s of slots) {
+                dayGroupSlotStats[s.day_group] = (dayGroupSlotStats[s.day_group] || 0) + 1;
+              }
               return {
                 ...item,
-                emptyDateSlotCount: (item.slots || []).filter(s => !s.date || s.date.trim() === '').length,
+                emptyDateSlotCount: slots.filter(s => !s.date || s.date.trim() === '').length,
+                slotCount: slots.length,
                 normalBuyerCount: stats.normalCount,
                 reviewCompletedCount: stats.reviewCount,
                 dayGroupBuyerStats: dayGroupBuyerStats[item.id] || {},
-                dayGroupCount: new Set((item.slots || []).map(s => s.day_group)).size
+                dayGroupReviewStats: dayGroupReviewStats[item.id] || {},
+                dayGroupSlotStats,
+                dayGroupCount: new Set(slots.map(s => s.day_group)).size
               };
             });
           }

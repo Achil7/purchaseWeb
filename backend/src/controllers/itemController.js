@@ -650,36 +650,53 @@ exports.getMyMonthlyBrands = async (req, res) => {
 
     let buyerStats = {};
     if (itemIds.length > 0) {
-      const stats = await Buyer.findAll({
-        where: { item_id: itemIds },
-        attributes: [
-          'item_id',
-          [sequelize.fn('COUNT', sequelize.col('id')), 'total_count'],
-          [sequelize.fn('SUM', sequelize.literal("CASE WHEN is_temporary = true THEN 1 ELSE 0 END")), 'temp_count'],
-          [sequelize.fn('SUM', sequelize.literal("CASE WHEN is_temporary = false THEN 1 ELSE 0 END")), 'normal_count']
-        ],
-        group: ['item_id'],
-        raw: true
-      });
-
-      // 리뷰 완료 수 (승인된 이미지가 있는 구매자) - 별도 쿼리
-      const reviewStats = await Buyer.findAll({
+      // 슬롯에 연결된 구매자 통계 (ItemSlot 기반)
+      const stats = await ItemSlot.findAll({
         where: {
           item_id: itemIds,
-          is_temporary: false
+          buyer_id: { [Op.ne]: null }
         },
         include: [{
-          model: Image,
-          as: 'images',
-          where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
+          model: Buyer,
+          as: 'buyer',
           attributes: [],
-          required: true  // INNER JOIN - 승인된 이미지 있는 것만
+          required: true
         }],
         attributes: [
           'item_id',
-          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "Buyer"."id"')), 'review_count']
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "ItemSlot"."buyer_id"')), 'total_count'],
+          [sequelize.fn('SUM', sequelize.literal('CASE WHEN "buyer"."is_temporary" = true THEN 1 ELSE 0 END')), 'temp_count'],
+          [sequelize.fn('SUM', sequelize.literal('CASE WHEN "buyer"."is_temporary" = false THEN 1 ELSE 0 END')), 'normal_count']
         ],
-        group: ['Buyer.item_id'],
+        group: ['ItemSlot.item_id'],
+        raw: true
+      });
+
+      // 리뷰 완료 수 (슬롯에 연결된 승인된 이미지가 있는 구매자 - ItemSlot 기반)
+      const reviewStats = await ItemSlot.findAll({
+        where: {
+          item_id: itemIds,
+          buyer_id: { [Op.ne]: null }
+        },
+        include: [{
+          model: Buyer,
+          as: 'buyer',
+          where: { is_temporary: false },
+          attributes: [],
+          required: true,
+          include: [{
+            model: Image,
+            as: 'images',
+            where: { status: 'approved' },
+            attributes: [],
+            required: true
+          }]
+        }],
+        attributes: [
+          'item_id',
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "ItemSlot"."buyer_id"')), 'review_count']
+        ],
+        group: ['ItemSlot.item_id'],
         raw: true
       });
 
@@ -702,6 +719,8 @@ exports.getMyMonthlyBrands = async (req, res) => {
 
     // day_group별 정상 구매자 수 조회 (ItemSlot 기반)
     let dayGroupBuyerStats = {};
+    // day_group별 리뷰 완료 수 조회 (ItemSlot 기반)
+    let dayGroupReviewStats = {};
     if (itemIds.length > 0) {
       const dgStats = await ItemSlot.findAll({
         where: {
@@ -729,6 +748,42 @@ exports.getMyMonthlyBrands = async (req, res) => {
           dayGroupBuyerStats[stat.item_id] = {};
         }
         dayGroupBuyerStats[stat.item_id][stat.day_group] = parseInt(stat.normal_count, 10) || 0;
+      }
+
+      // day_group별 리뷰 완료 수 (승인된 이미지가 있는 구매자)
+      const dgReviewStats = await ItemSlot.findAll({
+        where: {
+          item_id: itemIds,
+          buyer_id: { [Op.ne]: null }
+        },
+        include: [{
+          model: Buyer,
+          as: 'buyer',
+          where: { is_temporary: false },
+          attributes: [],
+          required: true,
+          include: [{
+            model: Image,
+            as: 'images',
+            where: { status: 'approved' },
+            attributes: [],
+            required: true
+          }]
+        }],
+        attributes: [
+          'item_id',
+          'day_group',
+          [sequelize.fn('COUNT', sequelize.literal('DISTINCT "ItemSlot"."buyer_id"')), 'review_count']
+        ],
+        group: ['ItemSlot.item_id', 'ItemSlot.day_group'],
+        raw: true
+      });
+
+      for (const stat of dgReviewStats) {
+        if (!dayGroupReviewStats[stat.item_id]) {
+          dayGroupReviewStats[stat.item_id] = {};
+        }
+        dayGroupReviewStats[stat.item_id][stat.day_group] = parseInt(stat.review_count, 10) || 0;
       }
     }
 
@@ -794,7 +849,9 @@ exports.getMyMonthlyBrands = async (req, res) => {
           ? (dayGroupBuyerStats[item.id]?.[assignedDayGroup] || 0)
           : stats.normalCount,
         tempBuyerCount: stats.tempCount,
-        reviewCompletedCount: stats.reviewCount,
+        reviewCompletedCount: assignedDayGroup !== null
+          ? (dayGroupReviewStats[item.id]?.[assignedDayGroup] || 0)
+          : stats.reviewCount,
         totalPurchaseCount: assignedSlots.length,
         courier_service_yn: item.courier_service_yn,
         assigned_at: assignment.assigned_at,
@@ -1539,6 +1596,29 @@ exports.deleteItem = async (req, res) => {
       });
     }
 
+    // 슬롯에 연결된 구매자 ID 수집
+    const slots = await ItemSlot.findAll({
+      where: { item_id: id },
+      attributes: ['buyer_id'],
+      raw: true
+    });
+    const buyerIds = slots.map(s => s.buyer_id).filter(Boolean);
+
+    // 구매자의 이미지 삭제
+    if (buyerIds.length > 0) {
+      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } } });
+    }
+
+    // 구매자 삭제
+    await Buyer.destroy({ where: { item_id: id } });
+
+    // 슬롯 삭제
+    await ItemSlot.destroy({ where: { item_id: id } });
+
+    // 진행자 배정 삭제
+    await CampaignOperator.destroy({ where: { item_id: id } });
+
+    // 품목 삭제
     await item.destroy();
 
     res.json({

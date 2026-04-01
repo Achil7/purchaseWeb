@@ -330,18 +330,18 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         let warningCount = 0;
 
         for (const item of items) {
+          totalPurchaseTarget += item.slotCount || 0;
           totalReviewCompleted += item.reviewCompletedCount || 0;
-          totalPurchaseTarget += parseInt(item.total_purchase_count) || 0;
           emptyDateCount += item.emptyDateSlotCount || 0;
           // day_group별로 카운트 (day_group 1개 = 품목 1개)
-          const dgStats = item.dayGroupBuyerStats || {};
+          const dgBuyerStats = item.dayGroupBuyerStats || {};
           const dgCount = item.dayGroupCount || 1;
           if (item.courier_service_yn === 'Y' || item.courier_service_yn === true) {
             courierCount += dgCount;
           }
           if ((parseInt(item.total_purchase_count) || 0) > 0) {
             for (let dg = 1; dg <= dgCount; dg++) {
-              if ((dgStats[dg] || 0) === 0) {
+              if ((dgBuyerStats[dg] || 0) === 0) {
                 warningCount++;
               }
             }

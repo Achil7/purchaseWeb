@@ -895,12 +895,20 @@ exports.deleteSlotsBulk = async (req, res) => {
       });
     }
 
-    // 삭제할 슬롯들의 item_id 조회 (삭제 전에)
+    // 삭제할 슬롯들의 item_id, buyer_id 조회 (삭제 전에)
     const slotsToDelete = await ItemSlot.findAll({
       where: { id: { [Op.in]: slotIds } },
-      attributes: ['item_id']
+      attributes: ['item_id', 'buyer_id']
     });
     const affectedItemIds = [...new Set(slotsToDelete.map(s => s.item_id))];
+    const buyerIds = slotsToDelete.map(s => s.buyer_id).filter(Boolean);
+
+    // 구매자의 이미지 삭제
+    if (buyerIds.length > 0) {
+      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } } });
+      // 구매자 삭제
+      await Buyer.destroy({ where: { id: { [Op.in]: buyerIds } } });
+    }
 
     // 슬롯 삭제
     const deletedCount = await ItemSlot.destroy({
@@ -942,6 +950,26 @@ exports.deleteSlotsBulk = async (req, res) => {
 exports.deleteSlotsByGroup = async (req, res) => {
   try {
     const { itemId, dayGroup } = req.params;
+
+    // 해당 그룹의 슬롯에 연결된 구매자 ID 수집
+    const slots = await ItemSlot.findAll({
+      where: { item_id: itemId, day_group: dayGroup },
+      attributes: ['buyer_id'],
+      raw: true
+    });
+    const buyerIds = slots.map(s => s.buyer_id).filter(Boolean);
+
+    // 구매자의 이미지 삭제
+    if (buyerIds.length > 0) {
+      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } } });
+      // 구매자 삭제
+      await Buyer.destroy({ where: { id: { [Op.in]: buyerIds } } });
+    }
+
+    // 진행자 배정 삭제
+    await CampaignOperator.destroy({
+      where: { item_id: itemId, day_group: dayGroup }
+    });
 
     // 해당 그룹의 슬롯들 삭제
     const deletedCount = await ItemSlot.destroy({

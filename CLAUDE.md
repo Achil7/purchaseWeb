@@ -336,7 +336,7 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정,
   - 구매자 테이블: 빈칸, 주문번호, 구매자, 수취인, 아이디, 주소, 금액, 송장번호, 리뷰샷
   - **제외**: 연락처, 계좌번호
 - **선 업로드 숨김**: is_temporary=false인 구매자만 표시
-- **진행률 표시**: 전체 구매자 수 대비 리뷰 완료 퍼센트
+- **진행률 표시**: 슬롯 수 대비 리뷰 완료 구매자 퍼센트 (3개 역할 공통 기준)
 
 ---
 
@@ -549,14 +549,22 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 - [x] 중복 주문번호 빨간색 하이라이팅 (클래스 방식)
 - [x] 일 구매건수 슬래시 구분 지원 (TEXT 타입, 예: "6/6" 또는 "2/2/2/2")
 - [x] Brand 시트 제품 테이블 확장 (14개 컬럼, 영업사/진행자와 동일 구조)
-- [x] Brand 진행률 계산 (전체 구매자 수 대비 리뷰 완료)
+- [x] Brand 진행률 계산 (슬롯 수 대비 리뷰 완료)
 - [x] Admin 컨트롤 타워 구조 변경 (연월브랜드 → 캠페인 목록 → 배정 페이지)
 - [x] 숨김 항목 관리 (연월브랜드/캠페인 숨기기/복구)
 - [x] Shift+스크롤 횡스크롤 전용
 - [x] Operator 메모장 기능 (OperatorMemoDialog)
 - [x] Operator 선 업로드 알림 (30초 갱신)
 
-### 최신 수정 (2026-01-15)
+### 최신 수정 (2026-03-26)
+- [x] **사이드바 진행률 분모 통일 (슬롯 수 기준)**
+  - Operator/Sales/Brand 3개 역할 모두 분모를 ItemSlot 수(= 시트 "전체 N건"과 동일 기준)로 통일
+  - 변경 전: Sales/Brand는 `total_purchase_count`(목표치), Operator는 `assignedSlots.length`(슬롯 수)
+  - 변경 후: 3개 역할 모두 슬롯 수 기준
+  - Sales: 백엔드에 `slotCount` 필드 추가 (`/api/monthly-brands`)
+  - Brand: 백엔드에 ItemSlot include 추가 (`/api/monthly-brands/my-brand`)
+
+### 이전 수정 (2026-01-15)
 - [x] **일마감(splitDayGroup) 기능 강화**
   - 일마감 시 새 day_group에 진행자 자동 배정 (CampaignOperator 레코드 생성)
   - 일마감 시 제품 정보(product_name, platform, shipping_type 등)가 새 day_group 슬롯에 복사됨

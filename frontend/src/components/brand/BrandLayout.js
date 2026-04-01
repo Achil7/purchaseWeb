@@ -435,7 +435,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         let totalPurchaseCount = 0;
 
         for (const item of items) {
-          totalPurchaseCount += parseInt(item.total_purchase_count) || 0;
+          totalPurchaseCount += (item.slots || []).length;
           const buyers = item.buyers || [];
           const realBuyers = buyers.filter(b => !b.is_temporary);
           const reviewedBuyers = realBuyers.filter(b => b.images && b.images.length > 0);
