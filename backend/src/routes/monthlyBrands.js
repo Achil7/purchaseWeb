@@ -30,7 +30,9 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
       brandUserId = req.user.id;
     }
 
-    // 해당 브랜드에 연결된 연월브랜드 조회
+    const { sequelize } = require('../models');
+
+    // ✅ Step 1: Buyer/Image 없이 기본 구조만 로드
     const monthlyBrands = await MonthlyBrand.findAll({
       where: {
         brand_id: brandUserId,
@@ -57,20 +59,6 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
               attributes: ['id', 'product_name', 'shipping_type', 'courier_service_yn', 'product_price', 'status', 'total_purchase_count', 'daily_purchase_count', 'purchase_option', 'keyword', 'notes'],
               include: [
                 {
-                  model: Buyer,
-                  as: 'buyers',
-                  attributes: ['id', 'is_temporary'],
-                  include: [
-                    {
-                      model: Image,
-                      as: 'images',
-                      where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
-                      required: false,
-                      attributes: ['id']
-                    }
-                  ]
-                },
-                {
                   model: ItemSlot,
                   as: 'slots',
                   attributes: ['id']
@@ -83,10 +71,87 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
       order: [['sort_order', 'ASC'], ['created_at', 'ASC']]
     });
 
-    res.json({
-      success: true,
-      data: monthlyBrands
+    // ✅ Step 2: 품목 ID 수집
+    const allItemIds = [];
+    monthlyBrands.forEach(mb => {
+      (mb.campaigns || []).forEach(campaign => {
+        (campaign.items || []).forEach(item => allItemIds.push(item.id));
+      });
     });
+
+    // ✅ Step 3: COUNT/SUM 쿼리로 통계만 조회 (객체 전체 로드 안 함)
+    let buyerStatsMap = {};
+    if (allItemIds.length > 0) {
+      // 품목별 일반 구매자 수 + 금액 합계 + 리뷰 완료 수 + 이미지 수 (단일 raw SQL)
+      const stats = await sequelize.query(`
+        SELECT
+          bc.item_id,
+          bc.normal_count,
+          bc.total_amount,
+          COALESCE(rc.review_count, 0) AS review_count,
+          COALESCE(rc.image_count, 0) AS image_count
+        FROM (
+          SELECT
+            item_id,
+            COUNT(id) AS normal_count,
+            SUM(CASE
+              WHEN REPLACE(amount, ',', '') ~ '^[0-9]+(\\.[0-9]+)?$'
+              THEN REPLACE(amount, ',', '')::NUMERIC
+              ELSE 0
+            END) AS total_amount
+          FROM buyers
+          WHERE item_id IN (:itemIds) AND is_temporary = false
+          GROUP BY item_id
+        ) bc
+        LEFT JOIN (
+          SELECT
+            b.item_id,
+            COUNT(DISTINCT b.id) AS review_count,
+            COUNT(i.id) AS image_count
+          FROM buyers b
+          INNER JOIN images i ON i.buyer_id = b.id AND i.status = 'approved'
+          WHERE b.item_id IN (:itemIds) AND b.is_temporary = false
+          GROUP BY b.item_id
+        ) rc ON bc.item_id = rc.item_id
+      `, {
+        replacements: { itemIds: allItemIds },
+        type: sequelize.QueryTypes.SELECT
+      });
+
+      for (const stat of stats) {
+        buyerStatsMap[stat.item_id] = {
+          normalCount: parseInt(stat.normal_count, 10) || 0,
+          totalAmount: parseFloat(stat.total_amount) || 0,
+          reviewCount: parseInt(stat.review_count, 10) || 0,
+          imageCount: parseInt(stat.image_count, 10) || 0
+        };
+      }
+    }
+
+    // ✅ Step 4: 통계 합쳐서 응답
+    const result = monthlyBrands.map(mb => {
+      const mbData = mb.toJSON();
+      if (mbData.campaigns) {
+        mbData.campaigns = mbData.campaigns.map(campaign => {
+          if (campaign.items) {
+            campaign.items = campaign.items.map(item => {
+              const stats = buyerStatsMap[item.id] || { normalCount: 0, totalAmount: 0, reviewCount: 0, imageCount: 0 };
+              return {
+                ...item,
+                normalBuyerCount: stats.normalCount,
+                reviewCompletedCount: stats.reviewCount,
+                totalImageCount: stats.imageCount,
+                totalAmount: stats.totalAmount
+              };
+            });
+          }
+          return campaign;
+        });
+      }
+      return mbData;
+    });
+
+    res.json({ success: true, data: result });
   } catch (error) {
     console.error('Get brand monthly brands error:', error);
     res.status(500).json({

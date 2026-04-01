@@ -68,18 +68,9 @@ function BrandItemTable({ isAdminMode = false, viewAsUserId = null }) {
     let totalAmount = 0;
 
     items.forEach(item => {
-      const buyers = item.buyers || [];
-      const realBuyers = buyers.filter(b => !b.is_temporary);
-      totalBuyers += realBuyers.length;
-
-      realBuyers.forEach(buyer => {
-        if (buyer.images && buyer.images.length > 0) {
-          totalImages += buyer.images.length;
-        }
-        if (buyer.amount) {
-          totalAmount += Number(buyer.amount) || 0;
-        }
-      });
+      totalBuyers += item.normalBuyerCount || 0;
+      totalImages += item.totalImageCount || 0;
+      totalAmount += item.totalAmount || 0;
     });
 
     return { totalBuyers, totalImages, totalAmount };
@@ -133,14 +124,14 @@ function BrandItemTable({ isAdminMode = false, viewAsUserId = null }) {
         aValue = a.product_name?.toLowerCase() || '';
         bValue = b.product_name?.toLowerCase() || '';
       } else if (orderBy === 'buyers_count') {
-        aValue = (a.buyers || []).filter(b => !b.is_temporary).length;
-        bValue = (b.buyers || []).filter(b => !b.is_temporary).length;
+        aValue = a.normalBuyerCount || 0;
+        bValue = b.normalBuyerCount || 0;
       } else if (orderBy === 'platform') {
         aValue = a.platform || '';
         bValue = b.platform || '';
       } else if (orderBy === 'total_amount') {
-        aValue = (a.buyers || []).filter(b => !b.is_temporary).reduce((sum, buyer) => sum + (Number(buyer.amount) || 0), 0);
-        bValue = (b.buyers || []).filter(b => !b.is_temporary).reduce((sum, buyer) => sum + (Number(buyer.amount) || 0), 0);
+        aValue = a.totalAmount || 0;
+        bValue = b.totalAmount || 0;
       } else {
         aValue = a[orderBy];
         bValue = b[orderBy];
@@ -187,14 +178,12 @@ function BrandItemTable({ isAdminMode = false, viewAsUserId = null }) {
 
   // 품목별 금액 합계
   const getItemTotalAmount = (item) => {
-    const buyers = item.buyers || [];
-    return buyers.filter(b => !b.is_temporary).reduce((sum, buyer) => sum + (Number(buyer.amount) || 0), 0);
+    return item.totalAmount || 0;
   };
 
   // 품목별 이미지 수
   const getItemImageCount = (item) => {
-    const buyers = item.buyers || [];
-    return buyers.filter(b => !b.is_temporary).reduce((sum, buyer) => sum + (buyer.images?.length || 0), 0);
+    return item.totalImageCount || 0;
   };
 
   if (loading) {
@@ -385,7 +374,7 @@ function BrandItemTable({ isAdminMode = false, viewAsUserId = null }) {
             <TableBody>
               {filteredItems.length > 0 ? (
                 filteredItems.map((item) => {
-                  const buyerCount = (item.buyers || []).filter(b => !b.is_temporary).length;
+                  const buyerCount = item.normalBuyerCount || 0;
                   const imageCount = getItemImageCount(item);
                   const totalAmount = getItemTotalAmount(item);
 
