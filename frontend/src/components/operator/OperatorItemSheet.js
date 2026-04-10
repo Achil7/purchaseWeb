@@ -465,6 +465,17 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // 필터 조건 저장 (데이터 리로드 시 복원용)
   const filterConditionsRef = useRef(null);
 
+  // 컬럼 필터로 숨길 행 인덱스 캐시
+  const filterHiddenIndicesRef = useRef([]);
+
+  // 리뷰샷 필터 숨김 행 인덱스 캐시 (hiddenRows 방식)
+  const reviewHiddenIndicesRef = useRef([]);
+  const reviewFilterRef = useRef('all');
+  const reviewBtnContainerRef = useRef(null);
+
+  // hiddenRows 통합 트리거 (필터/리뷰샷 필터 변경 시 useEffect 실행용)
+  const [hiddenRowsTrigger, setHiddenRowsTrigger] = useState(0);
+
   // 접힌 품목 ID Set (localStorage에서 초기화)
   const [collapsedItems, setCollapsedItems] = useState(() => {
     try {
@@ -598,6 +609,108 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     snackbarEl.style.visibility = 'hidden';
   }, []);
 
+  // 리뷰샷 필터로 숨길 BUYER_DATA 행 인덱스 계산
+  const computeReviewHiddenRows = useCallback((filter, tableData) => {
+    if (filter === 'all') return [];
+    const hidden = [];
+    for (let i = 0; i < tableData.length; i++) {
+      const row = tableData[i];
+      if (row?._rowType !== ROW_TYPES.BUYER_DATA) continue;
+      const hasReview = row._reviewImages && row._reviewImages.length > 0;
+      if (filter === 'with_review' && !hasReview) hidden.push(i);
+      else if (filter === 'without_review' && hasReview) hidden.push(i);
+    }
+    return hidden;
+  }, []);
+
+  // 모든 구매자가 숨겨진 그룹의 제품 헤더/구분선도 숨김
+  const computeEmptyGroupHiddenRows = useCallback((hiddenBuyerSet, tableData) => {
+    if (hiddenBuyerSet.size === 0) return [];
+
+    const groups = new Map();
+    for (let i = 0; i < tableData.length; i++) {
+      const row = tableData[i];
+      if (!row || row._itemId === undefined || row._dayGroup === undefined) continue;
+      const groupKey = `${row._itemId}_${row._dayGroup}`;
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, { nonBuyerIndices: [], buyerIndices: [] });
+      }
+      const group = groups.get(groupKey);
+      if (row._rowType === ROW_TYPES.BUYER_DATA) {
+        group.buyerIndices.push(i);
+      } else {
+        group.nonBuyerIndices.push(i);
+      }
+    }
+
+    const groupHidden = [];
+    for (const [, group] of groups) {
+      const allBuyersHidden = group.buyerIndices.length === 0 ||
+          group.buyerIndices.every(idx => hiddenBuyerSet.has(idx));
+      if (allBuyersHidden) {
+        groupHidden.push(...group.nonBuyerIndices);
+      }
+    }
+
+    // 첫 번째 보이는 행이 ITEM_SEPARATOR이면 숨김
+    const allHiddenForCheck = new Set([...hiddenBuyerSet, ...groupHidden]);
+    for (let i = 0; i < tableData.length; i++) {
+      if (!allHiddenForCheck.has(i)) {
+        if (tableData[i]?._rowType === ROW_TYPES.ITEM_SEPARATOR) {
+          groupHidden.push(i);
+        }
+        break;
+      }
+    }
+
+    return groupHidden;
+  }, []);
+
+  // 리뷰샷 필터 버튼 DOM 직접 스타일 업데이트 (React re-render 방지)
+  const updateReviewFilterButtonsDOM = useCallback((filter) => {
+    const container = reviewBtnContainerRef.current;
+    if (!container) return;
+    const buttons = container.querySelectorAll('button');
+    buttons.forEach(btn => {
+      const btnFilter = btn.dataset.filter;
+      const isActive = btnFilter === filter;
+      btn.style.fontWeight = isActive ? 'bold' : 'normal';
+      if (btnFilter === 'all') {
+        btn.style.backgroundColor = isActive ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)';
+      } else if (btnFilter === 'with_review') {
+        btn.style.backgroundColor = isActive ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.15)';
+      } else if (btnFilter === 'without_review') {
+        btn.style.backgroundColor = isActive ? 'rgba(244,67,54,0.5)' : 'rgba(255,255,255,0.15)';
+      }
+    });
+  }, []);
+
+  // 리뷰샷 필터 변경 핸들러
+  // setReviewFilter() 사용 금지! React re-render → HotTable updatePlugin → 필터 플러그인 리셋
+  const handleReviewFilterChange = useCallback((newFilter) => {
+    reviewFilterRef.current = newFilter;
+    updateReviewFilterButtonsDOM(newFilter);
+
+    const tableData = tableDataRef.current;
+    const reviewHidden = computeReviewHiddenRows(newFilter, tableData);
+    reviewHiddenIndicesRef.current = reviewHidden;
+
+    const filterHidden = filterHiddenIndicesRef.current;
+    const collapseIndices = hiddenRowIndicesRef.current;
+    const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
+    const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableData);
+    const allHidden = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
+    const allHiddenSet = new Set(allHidden);
+    const visibleBuyer = [];
+    for (let i = 0; i < tableData.length; i++) {
+      if (tableData[i]?._rowType === ROW_TYPES.BUYER_DATA && !allHiddenSet.has(i)) {
+        visibleBuyer.push(i);
+      }
+    }
+    setFilteredRows((filterHidden.length > 0 || reviewHidden.length > 0) ? visibleBuyer : null);
+    setHiddenRowsTrigger(prev => prev + 1);
+  }, [computeReviewHiddenRows, computeEmptyGroupHiddenRows, updateReviewFilterButtonsDOM]);
+
   // 캠페인별 배정된 슬롯 데이터 로드 (Operator 전용)
   // 성능 최적화: 의존성 배열을 비워서 함수 재생성 방지, campaignId는 파라미터로 전달
   // preserveCollapsedState: true면 현재 접기 상태 유지 (행 추가/삭제 시 사용)
@@ -615,6 +728,13 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
       hasUnsavedChangesRef.current = false;
+
+      // 필터 상태 초기화
+      filterHiddenIndicesRef.current = [];
+      reviewHiddenIndicesRef.current = [];
+      reviewFilterRef.current = 'all';
+      setFilteredRows(null);
+      filterConditionsRef.current = null;
 
       // preserveCollapsedState가 true면 현재 접기 상태 유지
       if (!preserveCollapsedState) {
@@ -674,6 +794,13 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         changedSlotsRef.current = {};
         changedItemsRef.current = {};
         hasUnsavedChangesRef.current = false;
+
+        // 필터 상태 초기화
+        filterHiddenIndicesRef.current = [];
+        reviewHiddenIndicesRef.current = [];
+        reviewFilterRef.current = 'all';
+        setFilteredRows(null);
+        filterConditionsRef.current = null;
 
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: newSlots, timestamp: Date.now() });
@@ -1105,39 +1232,65 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   const hiddenRowIndicesRef = useRef(hiddenRowIndices);
   hiddenRowIndicesRef.current = hiddenRowIndices;
 
-  // collapsedItems 변경 시 hiddenRows 플러그인 수동 업데이트
-  // (HotTable의 hiddenRows prop은 data 변경 시에만 적용되고, 동적 변경은 감지 못함)
+  // hiddenRows 통합 적용 (접기 + 컬럼 필터 + 리뷰샷 필터 + 빈 그룹)
+  // collapsedItems 변경 또는 hiddenRowsTrigger 변경 시 실행
+  // ValueComponent state 직접 백업/복원으로 필터 체크박스 상태 보존
   useEffect(() => {
     const hot = hotRef.current?.hotInstance;
     if (!hot) return;
 
     const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
+    const filtersPlugin = hot.getPlugin('filters');
     if (!hiddenRowsPlugin) return;
 
-    // 현재 숨겨진 행과 새로 숨길 행 비교
-    const currentHidden = new Set(hiddenRowsPlugin.getHiddenRows());
-    const newHidden = new Set(hiddenRowIndices);
+    // 접기 인덱스 + 컬럼 필터 + 리뷰샷 필터 인덱스 합치기
+    const collapseIndices = hiddenRowIndicesRef.current;
+    const filterHidden = filterHiddenIndicesRef.current;
+    const reviewHidden = reviewHiddenIndicesRef.current;
 
-    // 변경이 없으면 스킵
-    if (currentHidden.size === newHidden.size &&
-        [...currentHidden].every(r => newHidden.has(r))) {
-      return;
+    let allHidden;
+    if (filterHidden.length > 0 || reviewHidden.length > 0) {
+      const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
+      const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableDataRef.current);
+      allHidden = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
+    } else {
+      allHidden = collapseIndices;
     }
 
-    // 차이점만 업데이트 (batch로 묶어서 한 번에 렌더링)
-    hot.batch(() => {
-      const rowsToShow = [...currentHidden].filter(r => !newHidden.has(r));
-      const rowsToHide = [...newHidden].filter(r => !currentHidden.has(r));
+    // ValueComponent state 직접 백업 (conditionCollection/importConditions 우회)
+    const backupStates = new Map();
+    if (filtersPlugin) {
+      try {
+        const valueComponent = filtersPlugin.components.get('filter_by_value');
+        if (valueComponent && valueComponent.state) {
+          const entries = valueComponent.state.getEntries();
+          entries.forEach(([physicalCol, stateObj]) => {
+            if (stateObj) backupStates.set(physicalCol, stateObj);
+          });
+        }
+      } catch(e) {}
+    }
 
-      if (rowsToShow.length > 0) {
-        hiddenRowsPlugin.showRows(rowsToShow);
-      }
-      if (rowsToHide.length > 0) {
-        hiddenRowsPlugin.hideRows(rowsToHide);
-      }
-    });
-    hot.render(); // 20차: 토글 아이콘(▶/▼) 업데이트를 위해 렌더링 트리거
-  }, [hiddenRowIndices]);
+    // 전체 리셋 + 재적용
+    hiddenRowsPlugin.showRows(hiddenRowsPlugin.getHiddenRows());
+    if (allHidden.length > 0) {
+      hiddenRowsPlugin.hideRows(allHidden);
+    }
+
+    // ValueComponent state 직접 복원 (체크박스 상태 유지)
+    if (backupStates.size > 0 && filtersPlugin) {
+      try {
+        const valueComponent = filtersPlugin.components.get('filter_by_value');
+        if (valueComponent && valueComponent.state) {
+          backupStates.forEach((stateObj, physicalCol) => {
+            valueComponent.state.setValueAtIndex(physicalCol, stateObj);
+          });
+        }
+      } catch(e) {}
+    }
+
+    hot.render();
+  }, [collapsedItems, hiddenRowsTrigger, computeEmptyGroupHiddenRows]);
 
   // 성능 최적화: tableData를 ref로 참조하여 렌더러/cellsRenderer 재생성 방지
   const tableDataRef = useRef(tableData);
@@ -1641,6 +1794,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       // 필터 상태 초기화 (삭제 후 필터가 유효하지 않을 수 있음)
       setFilteredRows(null);
       filterConditionsRef.current = null;
+      filterHiddenIndicesRef.current = [];
+      reviewHiddenIndicesRef.current = [];
+      reviewFilterRef.current = 'all';
 
       // 삭제된 품목/그룹의 접기 상태 제거 (collapsedItems 정리)
       if (type === 'group') {
@@ -2362,13 +2518,26 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
     if (!hiddenRowsPlugin) return;
 
-    const indices = hiddenRowIndicesRef.current;
-    if (indices.length === 0) return;
+    // 접기 + 컬럼 필터 + 리뷰샷 필터 합산
+    const collapseIndices = hiddenRowIndicesRef.current;
+    const filterHidden = filterHiddenIndicesRef.current;
+    const reviewHidden = reviewHiddenIndicesRef.current;
+
+    let allTarget;
+    if (filterHidden.length > 0 || reviewHidden.length > 0) {
+      const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
+      const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, tableDataRef.current);
+      allTarget = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
+    } else {
+      allTarget = collapseIndices;
+    }
+
+    if (allTarget.length === 0) return;
 
     // 현재 숨겨진 행 확인
     const currentHidden = hiddenRowsPlugin.getHiddenRows();
     const currentSet = new Set(currentHidden);
-    const targetSet = new Set(indices);
+    const targetSet = new Set(allTarget);
 
     // 이미 올바르게 숨겨져 있으면 스킵 (무한 루프 방지)
     if (currentSet.size === targetSet.size &&
@@ -2381,9 +2550,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
       if (currentHidden.length > 0) {
         hiddenRowsPlugin.showRows(currentHidden);
       }
-      hiddenRowsPlugin.hideRows(indices);
+      hiddenRowsPlugin.hideRows(allTarget);
     });
-  }, []);
+  }, [computeEmptyGroupHiddenRows]);
 
   const afterFilterHandler = useCallback((conditionsStack) => {
     console.log('[OperatorItemSheet] afterFilter called:', conditionsStack);
@@ -2394,41 +2563,42 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     // 필터 조건 저장
     filterConditionsRef.current = conditionsStack && conditionsStack.length > 0 ? [...conditionsStack] : null;
 
-    // hiddenRows 플러그인 가져오기
-    const hiddenRowsPlugin = hot.getPlugin('hiddenRows');
-    if (!hiddenRowsPlugin) {
-      console.log('[OperatorItemSheet] hiddenRows plugin not available');
-      return;
-    }
+    const currentTableData = tableDataRef.current;
 
-    // 먼저 모든 hiddenRows 초기화
-    const currentHidden = hiddenRowsPlugin.getHiddenRows();
-    if (currentHidden.length > 0) {
-      hiddenRowsPlugin.showRows(currentHidden);
-    }
-
-    // 필터 조건이 없으면 전체 표시
+    // 필터 조건이 없으면 컬럼 필터 hidden 초기화
     if (!conditionsStack || conditionsStack.length === 0) {
       console.log('[OperatorItemSheet] No filter conditions, showing all');
-      setFilteredRows(null);
-      hot.render();
+      filterHiddenIndicesRef.current = [];
+
+      // 리뷰샷 필터가 활성화된 경우 해당 필터만 유지
+      const reviewHidden = reviewHiddenIndicesRef.current;
+      if (reviewHidden.length > 0) {
+        const buyerHiddenSet = new Set(reviewHidden);
+        const allHiddenSet = new Set([...hiddenRowIndicesRef.current, ...reviewHidden, ...computeEmptyGroupHiddenRows(buyerHiddenSet, currentTableData)]);
+        const visibleBuyer = [];
+        for (let i = 0; i < currentTableData.length; i++) {
+          if (currentTableData[i]?._rowType === ROW_TYPES.BUYER_DATA && !allHiddenSet.has(i)) {
+            visibleBuyer.push(i);
+          }
+        }
+        setFilteredRows(visibleBuyer);
+      } else {
+        setFilteredRows(null);
+      }
+
+      setHiddenRowsTrigger(prev => prev + 1);
       return;
     }
 
-    // 조건에 따라 직접 필터링
-    const visibleRows = [];
-    const hiddenRows = [];
-    const currentTableData = tableDataRef.current;
+    // 조건에 따라 직접 필터링 (BUYER_DATA만 대상)
+    const filterHidden = [];
     const dataRowCount = currentTableData.length;
 
     for (let physicalRow = 0; physicalRow < dataRowCount; physicalRow++) {
       const rowData = currentTableData[physicalRow];
 
-      // 구매자 데이터 행만 필터링 대상, 나머지는 숨기기
-      if (rowData?._rowType !== ROW_TYPES.BUYER_DATA) {
-        hiddenRows.push(physicalRow);
-        continue;
-      }
+      // 구매자 데이터 행만 필터링 대상
+      if (rowData?._rowType !== ROW_TYPES.BUYER_DATA) continue;
 
       // 필터 조건 확인 - 각 컬럼별 조건 체크
       let passesFilter = true;
@@ -2436,10 +2606,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
         if (!passesFilter) return;
 
         const col = condition.column;
-        const colName = `col${col}`; // col0, col1, ...
+        const colName = `col${col}`;
         const cellValue = rowData[colName] ?? null;
 
-        // 필터 조건 타입에 따라 체크
         if (condition.conditions && condition.conditions.length > 0) {
           condition.conditions.forEach(cond => {
             if (!passesFilter) return;
@@ -2447,7 +2616,6 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
             const { name, args } = cond;
             const filterValue = args && args[0];
 
-            // by_value 필터 체크
             if (name === 'by_value' && args) {
               const allowedValues = args[0];
               if (Array.isArray(allowedValues)) {
@@ -2456,51 +2624,48 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
                   passesFilter = false;
                 }
               }
-            }
-            // 조건 필터 체크
-            else if (name === 'eq' && filterValue !== undefined) {
-              if (String(cellValue) !== String(filterValue)) {
-                passesFilter = false;
-              }
+            } else if (name === 'eq' && filterValue !== undefined) {
+              if (String(cellValue) !== String(filterValue)) passesFilter = false;
             } else if (name === 'contains' && filterValue) {
-              if (!String(cellValue ?? '').includes(String(filterValue))) {
-                passesFilter = false;
-              }
+              if (!String(cellValue ?? '').includes(String(filterValue))) passesFilter = false;
             } else if (name === 'not_contains' && filterValue) {
-              if (String(cellValue ?? '').includes(String(filterValue))) {
-                passesFilter = false;
-              }
+              if (String(cellValue ?? '').includes(String(filterValue))) passesFilter = false;
             } else if (name === 'empty') {
-              if (cellValue !== null && cellValue !== undefined && cellValue !== '') {
-                passesFilter = false;
-              }
+              if (cellValue !== null && cellValue !== undefined && cellValue !== '') passesFilter = false;
             } else if (name === 'not_empty') {
-              if (cellValue === null || cellValue === undefined || cellValue === '') {
-                passesFilter = false;
-              }
+              if (cellValue === null || cellValue === undefined || cellValue === '') passesFilter = false;
             }
           });
         }
       });
 
-      if (passesFilter) {
-        visibleRows.push(physicalRow);
-      } else {
-        hiddenRows.push(physicalRow);
+      if (!passesFilter) {
+        filterHidden.push(physicalRow);
       }
     }
 
-    console.log('[OperatorItemSheet] visibleRows:', visibleRows.length, 'hiddenRows:', hiddenRows.length, 'totalDataRows:', dataRowCount);
+    filterHiddenIndicesRef.current = filterHidden;
 
-    // 필터링된 행 숨기기 (hiddenRows 플러그인 사용)
-    if (hiddenRows.length > 0) {
-      hiddenRowsPlugin.hideRows(hiddenRows);
+    // 리뷰샷 필터 + 컬럼 필터 합산하여 visible buyer 계산
+    const reviewHidden = reviewHiddenIndicesRef.current;
+    const collapseIndices = hiddenRowIndicesRef.current;
+    const buyerHiddenSet = new Set([...filterHidden, ...reviewHidden]);
+    const emptyGroupHidden = computeEmptyGroupHiddenRows(buyerHiddenSet, currentTableData);
+    const allHidden = [...new Set([...collapseIndices, ...filterHidden, ...reviewHidden, ...emptyGroupHidden])];
+    const allHiddenSet = new Set(allHidden);
+
+    const visibleBuyer = [];
+    for (let i = 0; i < currentTableData.length; i++) {
+      if (currentTableData[i]?._rowType === ROW_TYPES.BUYER_DATA && !allHiddenSet.has(i)) {
+        visibleBuyer.push(i);
+      }
     }
 
-    hot.render();
+    console.log('[OperatorItemSheet] filterHidden:', filterHidden.length, 'reviewHidden:', reviewHidden.length, 'visibleBuyer:', visibleBuyer.length);
 
-    setFilteredRows(visibleRows.length > 0 && visibleRows.length < dataRowCount ? visibleRows : null);
-  }, []);
+    setFilteredRows((filterHidden.length > 0 || reviewHidden.length > 0) ? visibleBuyer : null);
+    setHiddenRowsTrigger(prev => prev + 1);
+  }, [computeEmptyGroupHiddenRows]);
 
   // enterMoves, tabMoves 안정화 (매 렌더마다 새 객체 생성 방지)
   const enterMovesConfig = useMemo(() => ({ row: 1, col: 0 }), []);
@@ -2616,6 +2781,60 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
               }}
             >
               모두 접기
+            </Button>
+          </Box>
+          {/* 리뷰샷 필터 버튼 (DOM 직접 조작 - React re-render 방지로 필터 플러그인 보존) */}
+          <Box ref={reviewBtnContainerRef} sx={{ display: 'flex', gap: 0.5 }}>
+            <Button
+              size="small"
+              data-filter="all"
+              onClick={() => handleReviewFilterChange('all')}
+              sx={{
+                color: 'white',
+                bgcolor: 'rgba(255,255,255,0.3)',
+                fontSize: '0.7rem',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.3,
+                fontWeight: 'bold',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+              }}
+            >
+              전체
+            </Button>
+            <Button
+              size="small"
+              data-filter="with_review"
+              onClick={() => handleReviewFilterChange('with_review')}
+              sx={{
+                color: 'white',
+                bgcolor: 'rgba(255,255,255,0.15)',
+                fontSize: '0.7rem',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.3,
+                fontWeight: 'normal',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+              }}
+            >
+              리뷰샷 있음
+            </Button>
+            <Button
+              size="small"
+              data-filter="without_review"
+              onClick={() => handleReviewFilterChange('without_review')}
+              sx={{
+                color: 'white',
+                bgcolor: 'rgba(255,255,255,0.15)',
+                fontSize: '0.7rem',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.3,
+                fontWeight: 'normal',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+              }}
+            >
+              리뷰샷 없음
             </Button>
           </Box>
           <Box sx={{ fontSize: '0.75rem', opacity: 0.8 }}>

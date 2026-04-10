@@ -63,7 +63,9 @@
       "Bash(git revert:*)",
       "Bash(git reset:*)",
       "Bash(node:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "Bash(python3)",
+      "Bash(wc -l /c/Users/achil/Desktop/purchaseweb/backend/src/controllers/*.js)"
     ],
     "deny": [],
     "ask": []
