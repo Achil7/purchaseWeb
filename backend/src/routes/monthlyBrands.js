@@ -168,7 +168,8 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
  */
 router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
   try {
-    // Admin 진행자 배정용: 숨긴 연월브랜드/캠페인 제외 (성능 최적화)
+    // 24차 최적화: 4단계 JOIN → 분리 쿼리로 데카르트곱 제거
+    // Step 1: MonthlyBrand + Campaign (Item/ItemSlot include 제거)
     const monthlyBrands = await MonthlyBrand.findAll({
       where: { is_hidden: false },
       include: [
@@ -193,16 +194,6 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
               model: User,
               as: 'creator',
               attributes: ['id', 'name']
-            },
-            {
-              model: Item,
-              as: 'items',
-              attributes: ['id', 'product_name', 'daily_purchase_count'],
-              include: [{
-                model: ItemSlot,
-                as: 'slots',
-                attributes: ['day_group', 'is_suspended']
-              }]
             }
           ]
         }
@@ -214,71 +205,116 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
       ]
     });
 
-    // Step 1: 모든 캠페인 ID 수집
+    // Step 2: 모든 캠페인 ID 수집
     const allCampaignIds = monthlyBrands
       .flatMap(mb => (mb.campaigns || []).map(c => c.id))
       .filter(Boolean);
 
-    // Step 2: 배정 상태를 단일 쿼리로 한 번에 조회 (N+1 쿼리 문제 해결)
-    let assignmentMap = new Map();
-    if (allCampaignIds.length > 0) {
-      const assignmentCounts = await CampaignOperator.findAll({
-        attributes: ['campaign_id', 'item_id', 'day_group'],
-        where: {
-          campaign_id: { [Op.in]: allCampaignIds }
-        },
-        group: ['campaign_id', 'item_id', 'day_group'],
-        raw: true
-      });
-
-      // Map으로 변환하여 O(1) 조회
-      assignmentCounts.forEach(row => {
-        const key = `${row.campaign_id}_${row.item_id}_${row.day_group}`;
-        assignmentMap.set(key, true);
+    if (allCampaignIds.length === 0) {
+      return res.json({
+        success: true,
+        data: monthlyBrands.map(mb => mb.toJSON())
       });
     }
 
-    // Step 3: 배정 상태 계산 (DB 조회 없이 메모리에서 처리)
+    // Step 3: Item 기본 정보를 별도 쿼리로 조회 (JOIN 없이)
+    const items = await Item.findAll({
+      where: { campaign_id: { [Op.in]: allCampaignIds } },
+      attributes: ['id', 'campaign_id', 'product_name', 'daily_purchase_count'],
+      raw: true
+    });
+
+    const allItemIds = items.map(i => i.id);
+
+    // Step 4: Active day_group을 GROUP BY로 조회 (전체 슬롯 로드 대신)
+    let activeDayGroupMap = new Map(); // key: item_id → Set of day_groups
+    if (allItemIds.length > 0) {
+      const activeDayGroups = await ItemSlot.findAll({
+        attributes: ['item_id', 'day_group'],
+        where: {
+          item_id: { [Op.in]: allItemIds },
+          is_suspended: false
+        },
+        group: ['item_id', 'day_group'],
+        raw: true
+      });
+
+      activeDayGroups.forEach(row => {
+        if (!activeDayGroupMap.has(row.item_id)) {
+          activeDayGroupMap.set(row.item_id, new Set());
+        }
+        activeDayGroupMap.get(row.item_id).add(row.day_group);
+      });
+    }
+
+    // Step 5: Item을 campaign_id별로 그룹화
+    const itemsByCampaign = new Map();
+    items.forEach(item => {
+      if (!itemsByCampaign.has(item.campaign_id)) {
+        itemsByCampaign.set(item.campaign_id, []);
+      }
+      itemsByCampaign.get(item.campaign_id).push(item);
+    });
+
+    // Step 6: 배정 상태를 단일 쿼리로 조회
+    let assignmentMap = new Map();
+    const assignmentCounts = await CampaignOperator.findAll({
+      attributes: ['campaign_id', 'item_id', 'day_group'],
+      where: {
+        campaign_id: { [Op.in]: allCampaignIds }
+      },
+      group: ['campaign_id', 'item_id', 'day_group'],
+      raw: true
+    });
+
+    assignmentCounts.forEach(row => {
+      const key = `${row.campaign_id}_${row.item_id}_${row.day_group}`;
+      assignmentMap.set(key, true);
+    });
+
+    // Step 7: 배정 상태 계산 (메모리에서 처리)
     const monthlyBrandsWithAssignment = monthlyBrands.map(mb => {
       const mbData = mb.toJSON();
 
       if (mbData.campaigns && mbData.campaigns.length > 0) {
         mbData.campaigns = mbData.campaigns.map(campaign => {
-          // 품목이 없으면 배정 완료로 간주 (배정할 것이 없음)
-          if (!campaign.items || campaign.items.length === 0) {
+          const campaignItems = itemsByCampaign.get(campaign.id) || [];
+
+          // 품목이 없으면 배정 완료로 간주
+          if (campaignItems.length === 0) {
             return {
               ...campaign,
+              items: [],
               isFullyAssigned: true,
               assignmentStatus: 'no_items'
             };
           }
 
-          // 각 품목별 day_group 수 계산 (실제 ItemSlot 기준, 중단된 슬롯 제외)
           let totalRequiredSlots = 0;
           let assignedCount = 0;
 
-          for (const item of campaign.items) {
-            const slots = item.slots || [];
-            const activeSlots = slots.filter(s => !s.is_suspended);
-            const uniqueActiveDayGroups = [...new Set(
-              activeSlots.map(s => s.day_group).filter(d => d != null)
-            )];
+          const itemsWithSlots = campaignItems.map(item => {
+            const dayGroups = activeDayGroupMap.get(item.id) || new Set();
+            totalRequiredSlots += dayGroups.size;
 
-            totalRequiredSlots += uniqueActiveDayGroups.length;
-
-            // 메모리에서 배정 여부 확인 (DB 조회 없음)
-            for (const dayGroup of uniqueActiveDayGroups) {
+            for (const dayGroup of dayGroups) {
               const key = `${campaign.id}_${item.id}_${dayGroup}`;
               if (assignmentMap.has(key)) {
                 assignedCount++;
               }
             }
-          }
+
+            return {
+              ...item,
+              slots: [...dayGroups].map(dg => ({ day_group: dg, is_suspended: false }))
+            };
+          });
 
           const isFullyAssigned = assignedCount >= totalRequiredSlots;
 
           return {
             ...campaign,
+            items: itemsWithSlots,
             isFullyAssigned,
             assignmentStatus: isFullyAssigned ? 'complete' : 'incomplete',
             totalRequiredSlots,

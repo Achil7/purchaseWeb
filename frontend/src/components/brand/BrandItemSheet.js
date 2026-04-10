@@ -101,7 +101,7 @@ const createBrandProductDataRenderer = (tableDataRef, collapsedItemsRef, toggleI
     const rowData = tableDataRef.current[r];
     const isSuspended = rowData._isSuspended;
     td.className = 'product-data-row';
-    // 중단된 경우 빨간 배경, 아닌 경우 기본 노란 배경
+    td.style.cssText = '';
     td.style.backgroundColor = isSuspended ? '#ffcdd2' : '#fff8e1';
     td.style.fontSize = '11px';
     if (isSuspended) {
@@ -178,6 +178,7 @@ const createBrandBuyerDataRenderer = (tableDataRef, columnAlignmentsRef) => {
     const hasReviewImage = rowData._reviewImageUrl;
     const isSuspended = rowData._isSuspended;
     td.className = hasReviewImage ? 'has-review' : 'no-review';
+    td.style.cssText = '';
     td.style.fontSize = '11px';
 
     // 중단된 행은 맨 마지막에 스타일 강제 적용

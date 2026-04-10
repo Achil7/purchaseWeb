@@ -111,7 +111,7 @@ const createSalesProductDataRenderer = (tableDataRef, collapsedItemsRef, toggleI
     const rowData = tableDataRef.current[r];
     const isSuspended = rowData._isSuspended;
     td.className = 'product-data-row';
-    // 중단된 경우 빨간 배경, 아닌 경우 기본 노란 배경
+    td.style.cssText = '';
     td.style.backgroundColor = isSuspended ? '#ffcdd2' : '#fff8e1';
     td.style.fontSize = '11px';
     if (isSuspended) {
@@ -185,7 +185,7 @@ const createSalesUploadLinkBarRenderer = (tableDataRef) => {
     const rowData = tableDataRef.current[r];
     const isSuspended = rowData._isSuspended;
     td.className = 'upload-link-bar';
-    // 중단된 경우 빨간 배경
+    td.style.cssText = '';
     td.style.backgroundColor = isSuspended ? '#d32f2f' : '#424242';
     td.style.color = 'white';
     td.style.cursor = 'pointer';
@@ -209,6 +209,7 @@ const createSalesBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, co
     const dayGroup = rowData._dayGroup || 1;
     const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
     td.className = dayClass;
+    td.style.cssText = '';
     td.style.fontSize = '11px';
 
     // 중단된 경우 빨간 배경 강제 적용

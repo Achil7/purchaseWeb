@@ -1557,6 +1557,47 @@ const handleCompositionEnd = () => {
 
 ---
 
+### 24차 최적화 (2026-04-02) - 시트 스크롤 흔들림 + Admin 로딩 최적화
+
+**적용 내용:**
+
+#### Part 1: 시트 스크롤 흔들림 방지
+- 모든 렌더러 시작 시 `td.style.cssText = ''` 추가 (이전 렌더링 잔여 스타일 초기화)
+- Handsontable이 셀을 재사용할 때 이전 행의 인라인 스타일이 남아있어 스크롤 중 레이아웃 재계산 발생 → 초기화로 방지
+
+**수정 파일 (Part 1):**
+- `OperatorItemSheet.js` ✅ (createProductDataRenderer, createUploadLinkBarRenderer, createBuyerDataRenderer)
+- `SalesItemSheet.js` ✅ (동일 3개 렌더러)
+- `BrandItemSheet.js` ✅ (createBrandProductDataRenderer, createBrandBuyerDataRenderer)
+
+#### Part 2: Admin 컨트롤 타워 로딩 최적화
+- `GET /api/monthly-brands/all` 쿼리 구조 변경
+- **기존**: MonthlyBrand ← Campaign ← Item ← ItemSlot 4단계 JOIN (데카르트곱)
+- **변경**: 3개 분리 쿼리로 전환:
+  1. MonthlyBrand + Campaign + User (JOIN 2단계만)
+  2. Item 별도 쿼리 (campaign_id IN ...)
+  3. Active day_group GROUP BY 쿼리 (item_id IN ..., is_suspended=false)
+  4. CampaignOperator 배정 상태 (기존과 동일)
+- 메모리에서 조합하여 동일한 응답 구조 반환
+
+**수정 파일 (Part 2):**
+- `backend/src/routes/monthlyBrands.js` ✅ (GET /all 엔드포인트)
+
+**빌드:** ✅ 성공
+
+**테스트 항목:**
+- [ ] Admin 컨트롤 타워 로딩 속도 개선
+- [ ] 진행자 배정 탭: 연월브랜드/캠페인 목록 정상 표시
+- [ ] 배정 상태(완료/미완료) 정상 계산
+- [ ] 캠페인 정렬(미배정 우선) 정상 동작
+- [ ] 시트 스크롤 흔들림 개선 여부
+- [ ] 접기/펼치기 정상 동작
+- [ ] 한글 입력 정상 동작
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### 템플릿
 
 ### n차 최적화 (날짜)
