@@ -52,7 +52,9 @@ exports.getBuyersByItem = async (req, res) => {
           as: 'images',
           where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
           required: false,
-          attributes: ['id', 's3_url', 'file_name', 'order_number', 'created_at']
+          attributes: ['id', 's3_url', 'file_name', 'order_number', 'created_at'],
+          separate: true,  // 별도 쿼리로 분리하여 행 중복 방지
+          order: [['created_at', 'DESC']]
         },
         {
           model: User,
@@ -96,13 +98,20 @@ exports.getBuyer = async (req, res) => {
         {
           model: Item,
           as: 'item',
-          include: [{ model: Campaign, as: 'campaign' }]
+          attributes: ['id', 'product_name', 'campaign_id'],
+          include: [{
+            model: Campaign,
+            as: 'campaign',
+            attributes: ['id', 'name', 'status']
+          }]
         },
         {
           model: Image,
           as: 'images',
           where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
-          required: false
+          required: false,
+          attributes: ['id', 's3_url', 'file_name', 'created_at'],
+          separate: true
         }
       ]
     });
@@ -422,6 +431,22 @@ exports.createBuyersBulk = async (req, res) => {
     const createdBuyers = [];
     const errors = [];
 
+    // 임시 Buyer를 한 번에 조회 (N+1 방지: mergeTempBuyer의 findOne N번 → findAll 1번)
+    const tempBuyers = await Buyer.findAll({
+      where: {
+        item_id: itemId,
+        is_temporary: true,
+        account_normalized: { [Op.ne]: null }
+      },
+      transaction
+    });
+    const tempBuyerMap = new Map();
+    for (const tb of tempBuyers) {
+      if (tb.account_normalized) {
+        tempBuyerMap.set(tb.account_normalized, tb);
+      }
+    }
+
     for (let i = 0; i < buyersData.length; i++) {
       const data = buyersData[i];
 
@@ -452,8 +477,16 @@ exports.createBuyersBulk = async (req, res) => {
           is_temporary: false
         }, { transaction });
 
-        // 임시 Buyer 병합 (선 업로드 케이스)
-        await mergeTempBuyer(itemId, buyer, transaction);
+        // 임시 Buyer 병합 (Map에서 즉시 조회 - DB 쿼리 없음)
+        if (account_normalized && tempBuyerMap.has(account_normalized)) {
+          const tempBuyer = tempBuyerMap.get(account_normalized);
+          await Image.update(
+            { buyer_id: buyer.id },
+            { where: { buyer_id: tempBuyer.id }, transaction }
+          );
+          await tempBuyer.destroy({ transaction });
+          tempBuyerMap.delete(account_normalized);  // 사용 후 제거
+        }
 
         createdBuyers.push(buyer);
       } catch (itemError) {
@@ -618,21 +651,32 @@ exports.updateTrackingNumbersBulk = async (req, res) => {
       });
     }
 
-    // 순서대로 송장번호 (및 택배사) 업데이트
-    const updatedBuyers = [];
-    for (let i = 0; i < buyers.length; i++) {
-      const updateData = { tracking_number: trackingList[i] };
-      if (courier_company) {
-        updateData.courier_company = courier_company;
-      }
-      await buyers[i].update(updateData, { transaction });
-      updatedBuyers.push({
-        id: buyers[i].id,
-        buyer_name: buyers[i].buyer_name,
-        tracking_number: trackingList[i],
-        courier_company: courier_company || buyers[i].courier_company
-      });
+    // 벌크 UPDATE: CASE WHEN으로 한 번의 쿼리로 모든 송장번호 업데이트
+    const caseWhen = buyers.map((buyer, i) =>
+      `WHEN ${buyer.id} THEN $${i + 1}`
+    ).join(' ');
+    const buyerIds = buyers.map(b => b.id);
+
+    let updateQuery = `UPDATE buyers SET tracking_number = CASE id ${caseWhen} END`;
+    const bindValues = trackingList.slice();
+
+    if (courier_company) {
+      updateQuery += `, courier_company = $${bindValues.length + 1}`;
+      bindValues.push(courier_company);
     }
+
+    const idPlaceholders = buyerIds.map((_, i) => `$${bindValues.length + 1 + i}`).join(',');
+    bindValues.push(...buyerIds);
+    updateQuery += ` WHERE id IN (${idPlaceholders})`;
+
+    await sequelize.query(updateQuery, { bind: bindValues, transaction });
+
+    const updatedBuyers = buyers.map((buyer, i) => ({
+      id: buyer.id,
+      buyer_name: buyer.buyer_name,
+      tracking_number: trackingList[i],
+      courier_company: courier_company || buyer.courier_company
+    }));
 
     await transaction.commit();
 
@@ -716,10 +760,34 @@ exports.getBuyersByMonth = async (req, res) => {
     // KST 기준으로 해당 월의 시작과 끝 계산 (dateUtils 사용)
     const { start: startDateKST, end: endDateKST } = getKSTMonthRange(yearInt, monthInt);
 
-    // 해당 월에 이미지가 업로드된 구매자 조회
-    // Image.created_at이 해당 범위에 속하는 구매자
+    // 1단계: 해당 월에 승인 이미지가 있는 buyer_id 목록 조회 (중복 제거)
+    const buyerIdsWithImages = await Image.findAll({
+      where: {
+        created_at: {
+          [Op.gte]: startDateKST,
+          [Op.lt]: endDateKST
+        },
+        status: 'approved'
+      },
+      attributes: [[sequelize.fn('DISTINCT', sequelize.col('buyer_id')), 'buyer_id']],
+      raw: true
+    });
+    const buyerIds = buyerIdsWithImages.map(r => r.buyer_id).filter(Boolean);
+
+    if (buyerIds.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        count: 0,
+        totalAmount: 0,
+        period: { year: yearInt, month: monthInt }
+      });
+    }
+
+    // 2단계: buyer 정보 + 이미지 별도 쿼리로 조회 (행 중복 방지)
     const buyers = await Buyer.findAll({
       where: {
+        id: { [Op.in]: buyerIds },
         is_temporary: false
       },
       include: [
@@ -731,10 +799,12 @@ exports.getBuyersByMonth = async (req, res) => {
               [Op.gte]: startDateKST,
               [Op.lt]: endDateKST
             },
-            status: 'approved'  // pending 상태의 재제출 이미지는 제외
+            status: 'approved'
           },
-          required: true, // INNER JOIN - 이미지가 있는 구매자만
-          attributes: ['id', 's3_url', 'file_name', 'created_at']
+          required: false,
+          attributes: ['id', 's3_url', 'file_name', 'created_at'],
+          separate: true,  // 별도 쿼리로 분리하여 행 중복 방지
+          order: [['created_at', 'DESC']]
         },
         {
           model: Item,
@@ -749,7 +819,7 @@ exports.getBuyersByMonth = async (req, res) => {
           ]
         }
       ],
-      order: [[{ model: Image, as: 'images' }, 'created_at', 'DESC']]
+      order: [['created_at', 'DESC']]
     });
 
     // 총 금액 계산
@@ -875,7 +945,9 @@ exports.getBuyersByDate = async (req, res) => {
           as: 'images',
           where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
           required: false,  // LEFT JOIN - 이미지가 없어도 조회
-          attributes: ['id', 's3_url', 'file_name', 'created_at']
+          attributes: ['id', 's3_url', 'file_name', 'created_at'],
+          separate: true,  // 별도 쿼리로 분리하여 행 중복 방지
+          order: [['created_at', 'DESC']]
         },
         {
           model: Item,

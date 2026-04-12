@@ -105,8 +105,9 @@ function AdminLayout() {
   useEffect(() => {
     loadNotifications();
     loadPendingImageCount();
-    // 30초마다 알림 갱신
+    // 30초마다 알림 갱신 (탭 비활성 시 중지)
     const interval = setInterval(() => {
+      if (document.hidden) return;
       loadNotifications();
       loadPendingImageCount();
     }, 30000);

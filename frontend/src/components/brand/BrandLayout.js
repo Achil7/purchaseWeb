@@ -262,10 +262,14 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   useEffect(() => {
     loadMonthlyBrands();
     loadNotifications();
-    // 30초마다 알림 갱신
-    const interval = setInterval(loadNotifications, 30000);
+    // 30초마다 알림 갱신 - Admin embedded 모드에서는 폴링 비활성화
+    if (isAdminMode) return;
+    const interval = setInterval(() => {
+      if (document.hidden) return;  // 탭 비활성 시 폴링 중지
+      loadNotifications();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [loadMonthlyBrands]);
+  }, [loadMonthlyBrands, isAdminMode]);
 
   // 연월브랜드 확장/축소 토글 (localStorage 저장 디바운스로 성능 최적화)
   const handleMonthlyBrandToggle = useCallback((monthlyBrandId) => {

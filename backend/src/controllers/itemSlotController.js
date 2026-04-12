@@ -134,11 +134,28 @@ exports.updateSlotsBulk = async (req, res) => {
     // 구매자 필드 (Buyer 모델 기준)
     const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status', 'deposit_name', 'date'];
 
+    // 슬롯 일괄 조회 (N+1 방지: findByPk N번 → findAll 1번)
+    const slotIds = slots.map(s => s.id).filter(Boolean);
+    const existingSlots = await ItemSlot.findAll({
+      where: { id: { [Op.in]: slotIds } }
+    });
+    const slotMap = new Map(existingSlots.map(s => [s.id, s]));
+
+    // 기존 buyer 일괄 조회 (N+1 방지)
+    const buyerIdsToFetch = existingSlots.map(s => s.buyer_id).filter(Boolean);
+    let buyerMap = new Map();
+    if (buyerIdsToFetch.length > 0) {
+      const existingBuyers = await Buyer.findAll({
+        where: { id: { [Op.in]: buyerIdsToFetch } }
+      });
+      buyerMap = new Map(existingBuyers.map(b => [b.id, b]));
+    }
+
     const results = [];
     for (const slotData of slots) {
       if (!slotData.id) continue;
 
-      const slot = await ItemSlot.findByPk(slotData.id);
+      const slot = slotMap.get(slotData.id);
       if (!slot) continue;
 
       // 슬롯 데이터 필터링
@@ -167,7 +184,7 @@ exports.updateSlotsBulk = async (req, res) => {
       if (hasBuyerData && (slot.buyer_id || hasNonEmptyBuyerData)) {
         // 기존 buyer가 있으면 수정, 없으면 생성
         if (slot.buyer_id) {
-          const existingBuyer = await Buyer.findByPk(slot.buyer_id);
+          const existingBuyer = buyerMap.get(slot.buyer_id);
           if (existingBuyer) {
             // account_info가 변경되면 account_normalized도 재계산
             if (buyerData.account_info !== undefined) {
@@ -1176,27 +1193,29 @@ exports.splitDayGroup = async (req, res) => {
       }
     });
 
-    // 새 day_group에 대한 배정 생성
-    for (const assignment of existingAssignments) {
-      // 중복 확인 후 생성
-      const existing = await CampaignOperator.findOne({
-        where: {
-          campaign_id: item.campaign_id,
-          item_id: item_id,
-          day_group: newDayGroup,
-          operator_id: assignment.operator_id
-        }
-      });
-
-      if (!existing) {
-        await CampaignOperator.create({
-          campaign_id: item.campaign_id,
-          item_id: item_id,
-          day_group: newDayGroup,
-          operator_id: assignment.operator_id,
-          assigned_at: new Date()
-        });
+    // 새 day_group에 이미 배정된 진행자 일괄 조회 (N+1 방지)
+    const existingNewAssignments = await CampaignOperator.findAll({
+      where: {
+        campaign_id: item.campaign_id,
+        item_id: item_id,
+        day_group: newDayGroup
       }
+    });
+    const existingOperatorIds = new Set(existingNewAssignments.map(a => a.operator_id));
+
+    // 새 day_group에 대한 배정 생성 (중복 제외)
+    const newAssignments = existingAssignments
+      .filter(a => !existingOperatorIds.has(a.operator_id))
+      .map(a => ({
+        campaign_id: item.campaign_id,
+        item_id: item_id,
+        day_group: newDayGroup,
+        operator_id: a.operator_id,
+        assigned_at: new Date()
+      }));
+
+    if (newAssignments.length > 0) {
+      await CampaignOperator.bulkCreate(newAssignments);
     }
 
     res.json({

@@ -31,6 +31,21 @@ app.use(cors({
 // Logging
 app.use(morgan('dev'));
 
+// API 응답 시간 측정 (브라우저 Network 탭 X-Response-Time 헤더로 확인)
+app.use((req, res, next) => {
+  const start = process.hrtime.bigint();
+  const originalJson = res.json.bind(res);
+  res.json = function(data) {
+    const ms = Number(process.hrtime.bigint() - start) / 1e6;
+    if (ms > 200) {
+      console.warn(`[SLOW] ${req.method} ${req.originalUrl} - ${ms.toFixed(1)}ms`);
+    }
+    res.set('X-Response-Time', `${ms.toFixed(1)}ms`);
+    return originalJson(data);
+  };
+  next();
+});
+
 // Body parser - 파일 업로드를 위해 limit 증가
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));

@@ -35,7 +35,12 @@ module.exports = {
     host: process.env.DB_HOST,
     port: dbPort,
     dialect: 'postgres',
-    logging: false,
+    benchmark: true,
+    logging: (sql, timing) => {
+      if (timing > 100) {
+        console.warn(`[SLOW QUERY] ${timing}ms - ${sql.substring(0, 200)}`);
+      }
+    },
     pool: {
       max: 20,
       min: 5,

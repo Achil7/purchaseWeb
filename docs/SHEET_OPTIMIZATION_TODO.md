@@ -1598,9 +1598,71 @@ const handleCompositionEnd = () => {
 
 ---
 
-### 템플릿
+### 25차 최적화 (2026-04-10) - 전사 DB 부하 최적화 (쿼리 중복/N+1/폴링)
 
-### n차 최적화 (날짜)
+**적용 내용:**
+
+#### Part 1: 프론트엔드 폴링 최적화
+- **BrandLayout**: `isAdminMode`일 때 30초 알림 폴링 비활성화 (Admin embedded 모드에서 불필요한 폴링 제거)
+- **AdminLayout / OperatorLayout / BrandLayout**: 모든 setInterval 폴링에 `document.hidden` 체크 추가 (탭 비활성 시 폴링 중지)
+
+#### Part 2: Sequelize LEFT JOIN 행 중복 방지 (`separate: true`)
+- `getBuyersByDate`: Image include에 `separate: true` 추가 → 입금관리 총액 오류 재발 방지
+- `getBuyersByItem`: Image include에 `separate: true` 추가
+- `getBuyersByMonth`: 2단계 쿼리로 전환 (1단계: Image에서 DISTINCT buyer_id 조회, 2단계: Buyer + Image separate 조회)
+- `getItemsByBrand`: Buyer include에 `separate: true` 추가
+- `getBuyer`: Image include에 `separate: true` + Item/Campaign attributes 지정
+
+#### Part 3: getMyMonthlyBrands 쿼리 4→1개 통합
+- **기존**: 4개 별도 Sequelize GROUP BY 쿼리 (구매자 수, 리뷰 수, day_group별 구매자 수, day_group별 리뷰 수)
+- **변경**: 단일 raw SQL `FILTER (WHERE ...)` 절로 1개 쿼리에서 모든 통계 계산
+- JS 레벨에서 item_id별 합산 + day_group별 분류 동시 처리
+
+#### Part 4: 벌크 처리 최적화
+- `updateTrackingNumbersBulk`: for 루프 개별 UPDATE N회 → `CASE WHEN` raw SQL 1회로 전환
+- `updateSlotsBulk`: `findByPk` N회 → `findAll({ where: { id: { [Op.in]: ids } } })` 1회 + Buyer도 일괄 조회 Map 매핑
+- `createBuyersBulk`: `mergeTempBuyer` 내부 `findOne` N회 → 임시 Buyer `findAll` 1회 + Map 매칭
+
+#### Part 5: N+1 쿼리 제거 및 기타
+- `splitDayGroup`: 진행자 배정 중복 체크 `findOne` N회 → `findAll` 1회 + Set 매칭 + `bulkCreate`
+- `assignOperatorToItem`: 운영 환경에 남아있던 디버그 쿼리(findAll + console.log) 제거
+
+**수정 파일:**
+- `frontend/src/components/admin/AdminLayout.js` ✅ (비활성 탭 폴링 중지)
+- `frontend/src/components/operator/OperatorLayout.js` ✅ (비활성 탭 폴링 중지)
+- `frontend/src/components/brand/BrandLayout.js` ✅ (embedded 폴링 비활성화 + 비활성 탭 폴링 중지)
+- `backend/src/controllers/buyerController.js` ✅ (separate:true, 벌크 UPDATE, N+1 제거, attributes 지정)
+- `backend/src/controllers/itemController.js` ✅ (4→1 쿼리 통합, separate:true, 디버그 쿼리 제거)
+- `backend/src/controllers/itemSlotController.js` ✅ (벌크 조회, N+1 제거, bulkCreate)
+
+**빌드:** ✅ 성공 (프론트엔드 + 백엔드 모두)
+
+**테스트 항목:**
+- [ ] Admin 컨트롤 타워: embedded 진행자/브랜드사 대시보드 보기 시 Network 탭에서 불필요한 폴링 없음 확인
+- [ ] 탭 비활성 상태에서 Network 탭 폴링 중지 확인
+- [ ] 일별 입금관리(AdminDailyPayments): 총액 정상 표시, 비정상 값 재발 없음
+- [ ] 월별 입금관리: 총액 정상, 이미지 있는 구매자만 표시
+- [ ] 진행자 사이드바: 캠페인별 구매자 수/리뷰 완료 수 정상 (getMyMonthlyBrands)
+- [ ] 진행자 시트: Ctrl+S 저장 정상 (updateSlotsBulk)
+- [ ] Admin 송장번호 일괄 입력 정상 (updateTrackingNumbersBulk)
+- [ ] 진행자 구매자 일괄 추가(슬래시 파싱) 정상 + 선 업로드 병합 정상 (createBuyersBulk)
+- [ ] 일마감(splitDayGroup) 정상: 진행자 자동 배정 포함
+- [ ] 브랜드사 대시보드: 품목별 buyer 수 정상 (getItemsByBrand)
+
+**예상 효과:**
+- Admin embedded 모드 DB 부하 50%↓
+- 비활성 탭 폴링 부하 70%↓
+- getMyMonthlyBrands 응답 속도 ~4배↑ (쿼리 4→1)
+- 대량 저장/송장입력 속도 N배↑ (N개 쿼리→1개)
+- LEFT JOIN 행 중복으로 인한 일시적 총액 오류 재발 방지
+
+**결론:** ⏳ 테스트 대기
+
+---
+
+### 템플릿 (26차부터 적용)
+
+### n차 최적화 (날짜) - 제목
 
 **적용 내용:**
 -
@@ -1608,38 +1670,54 @@ const handleCompositionEnd = () => {
 **수정 파일:**
 -
 
-**테스트 환경:**
-- 품목 수:
-- 구매자 수:
+**빌드:** ⏳ / ✅ / ❌
 
-**테스트 결과:**
-- 초기 로딩:
-- 스크롤:
-- 입력 반응:
-- 슬래시 복붙:
+---
+
+#### 성능 측정
+
+**측정 환경:**
+- 페이지: (예: 진행자 시트, Admin 컨트롤 타워)
+- 데이터: (예: 캠페인 ID xxx, 품목 N개, 구매자 N명)
+- 브라우저: Chrome
+- 서버: test.kwad.co.kr / kwad.co.kr
+
+**API 응답 시간 (X-Response-Time 헤더):**
+
+| API | 이전 (n-1차) | 이후 (n차) | 변화 |
+|-----|:---:|:---:|:---:|
+| GET /api/monthly-brands/all | ms | ms | |
+| GET /api/item-slots/campaign/:id | ms | ms | |
+| GET /api/items/my-monthly-brands | ms | ms | |
+| GET /api/buyers/by-date | ms | ms | |
+
+**프론트엔드 (브라우저 콘솔):**
+
+| 항목 | 이전 (n-1차) | 이후 (n차) | 변화 |
+|------|:---:|:---:|:---:|
+| 시트 스크롤 FPS (5초 평균) | fps | fps | |
+| [SLOW API] 경고 수 | 개 | 개 | |
+
+**서버 로그:**
+
+| 항목 | 이전 (n-1차) | 이후 (n차) | 변화 |
+|------|:---:|:---:|:---:|
+| [SLOW] 200ms 초과 API 수 | 개 | 개 | |
+| [SLOW QUERY] 100ms 초과 쿼리 수 | 개 | 개 | |
+
+---
+
+**기능 검증:**
+- [ ] 데이터 표시 정상
+- [ ] 편집/저장 정상
+- [ ] 접기/펼치기 + localStorage 복원 정상
+- [ ] 한글 입력 정상
+- [ ] (해당 시) 추가 검증 항목
 
 **결론:** ⏳ 테스트 대기 / ✅ 채택 / ❌ 기각
 
 **비고:**
 -
-- **기능 검증**:
-  - [ ] 데이터 표시 정상
-  - [ ] 편집 기능 정상
-  - [ ] 저장 기능 정상
-  - [ ] 접기/펼치기 정상
-- **결론**: [ ] 채택 / [ ] 기각 / [ ] 추가 테스트 필요
-- **비고**:
-
----
-
-### 테스트 #3
-- **날짜**: ____-__-__
-- **적용한 방안**:
-- **테스트 환경**:
-- **측정 결과**:
-- **기능 검증**:
-- **결론**:
-- **비고**:
 
 ---
 

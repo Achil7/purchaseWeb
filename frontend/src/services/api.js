@@ -31,13 +31,14 @@ const apiClient = axios.create({
   },
 });
 
-// 요청 인터셉터 - JWT 토큰 추가
+// 요청 인터셉터 - JWT 토큰 추가 + 성능 측정 시작
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    config._startTime = performance.now();
     return config;
   },
   (error) => {
@@ -47,7 +48,16 @@ apiClient.interceptors.request.use(
 
 // 응답 인터셉터 - 에러 처리 및 토큰 자동 갱신
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.config._startTime) {
+      const duration = (performance.now() - response.config._startTime).toFixed(1);
+      const url = response.config.url;
+      if (duration > 500) {
+        console.warn(`[SLOW API] ${url} - ${duration}ms`);
+      }
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
 

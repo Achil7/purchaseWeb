@@ -188,6 +188,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
     if (isAdminMode) return;
 
     const interval = setInterval(() => {
+      if (document.hidden) return;  // 탭 비활성 시 폴링 중지
       // 현재 선택된 캠페인 ID 유지하면서 백그라운드 새로고침 (isPolling = true)
       loadMonthlyBrands(selectedCampaign?.id, true);
     }, 60000); // 60초
@@ -199,7 +200,10 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   useEffect(() => {
     if (isAdminMode) return;
     loadPreUploads();
-    const interval = setInterval(loadPreUploads, 30000);
+    const interval = setInterval(() => {
+      if (document.hidden) return;  // 탭 비활성 시 폴링 중지
+      loadPreUploads();
+    }, 30000);
     return () => clearInterval(interval);
   }, [isAdminMode, loadPreUploads]);
 
