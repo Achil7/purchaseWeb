@@ -596,21 +596,14 @@ exports.getMyMonthlyBrands = async (req, res) => {
       operatorId = req.user.id;
     }
 
-    // 진행자에게 배정된 품목들 조회 (buyers/images 제외 - 성능 최적화)
+    // 26차: ItemSlot include 제거 (3단계 JOIN → 2단계로 축소, 데카르트곱 방지)
     const assignments = await CampaignOperator.findAll({
       where: { operator_id: operatorId },
       include: [
         {
           model: Item,
           as: 'item',
-          attributes: ['id', 'product_name', 'status', 'keyword', 'total_purchase_count', 'courier_service_yn'],
-          include: [
-            {
-              model: ItemSlot,
-              as: 'slots',
-              attributes: ['id', 'date', 'day_group']
-            }
-          ]
+          attributes: ['id', 'product_name', 'status', 'keyword', 'total_purchase_count', 'courier_service_yn']
         },
         {
           model: Campaign,
@@ -635,12 +628,27 @@ exports.getMyMonthlyBrands = async (req, res) => {
     // 품목별 구매자 통계를 별도 쿼리로 조회 (COUNT만 - 훨씬 가벼움)
     const itemIds = [...new Set(assignments.map(a => a.item?.id).filter(Boolean))];
 
+    // 26차: ItemSlot을 별도 쿼리로 조회 (JOIN 분리)
+    let slotsByItem = {};
+    if (itemIds.length > 0) {
+      const slots = await ItemSlot.findAll({
+        where: { item_id: { [Op.in]: itemIds } },
+        attributes: ['id', 'item_id', 'date', 'day_group'],
+        raw: true
+      });
+      for (const slot of slots) {
+        if (!slotsByItem[slot.item_id]) slotsByItem[slot.item_id] = [];
+        slotsByItem[slot.item_id].push(slot);
+      }
+    }
+
     let buyerStats = {};
     let dayGroupBuyerStats = {};
     let dayGroupReviewStats = {};
 
     if (itemIds.length > 0) {
-      // 단일 raw SQL로 item_id + day_group별 구매자/리뷰 통계를 한번에 조회 (기존 4개 쿼리 → 1개)
+      // 단일 raw SQL로 item_id + day_group별 구매자/리뷰 통계를 한번에 조회
+      // LEFT JOIN images 대신 EXISTS 서브쿼리 사용 (행 수 폭증 방지)
       const placeholders = itemIds.map((_, i) => `$${i + 1}`).join(',');
       const combinedStats = await sequelize.query(`
         SELECT
@@ -649,10 +657,12 @@ exports.getMyMonthlyBrands = async (req, res) => {
           COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.id IS NOT NULL) AS total_count,
           COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.is_temporary = true) AS temp_count,
           COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.is_temporary = false) AS normal_count,
-          COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.is_temporary = false AND i.id IS NOT NULL) AS review_count
+          COUNT(DISTINCT s.buyer_id) FILTER (
+            WHERE b.is_temporary = false
+            AND EXISTS (SELECT 1 FROM images i WHERE i.buyer_id = b.id AND i.status = 'approved')
+          ) AS review_count
         FROM item_slots s
         INNER JOIN buyers b ON b.id = s.buyer_id
-        LEFT JOIN images i ON i.buyer_id = b.id AND i.status = 'approved'
         WHERE s.item_id IN (${placeholders})
           AND s.buyer_id IS NOT NULL
         GROUP BY s.item_id, s.day_group
@@ -734,7 +744,8 @@ exports.getMyMonthlyBrands = async (req, res) => {
 
       // 배정된 day_group의 슬롯만 필터링 (day_group이 null이면 전체 품목 배정)
       const assignedDayGroup = assignment.day_group;
-      const assignedSlots = (item.slots || []).filter(s =>
+      const itemSlots = slotsByItem[item.id] || [];
+      const assignedSlots = itemSlots.filter(s =>
         assignedDayGroup === null || s.day_group === assignedDayGroup
       );
 

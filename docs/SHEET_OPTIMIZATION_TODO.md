@@ -1656,7 +1656,117 @@ const handleCompositionEnd = () => {
 - 대량 저장/송장입력 속도 N배↑ (N개 쿼리→1개)
 - LEFT JOIN 행 중복으로 인한 일시적 총액 오류 재발 방지
 
+**측정 결과 (main 서버, 2026-04-12):**
+
+| API | 수치 |
+|-----|------|
+| `GET /api/monthly-brands/all` | 228~310ms |
+| `GET /api/monthly-brands?viewAsUserId=60` | 1,646~1,974ms 🔴 |
+| `GET /api/items/my-monthly-brands` | 4,477~4,826ms 🔴 |
+| `POST /api/images/upload` | 761~2,572ms 🔴 |
+| 시트 스크롤 FPS | 60.4fps ✅ |
+
+**느린 쿼리 (SLOW QUERY):**
+| 쿼리 | 수치 |
+|------|------|
+| MonthlyBrand SELECT | 781ms |
+| review_count (item별) | 115ms |
+| review_count (day_group별) | 118ms |
+| START TRANSACTION | 643ms |
+
+**결론:** 🟡 부분 채택 — 폴링/N+1 최적화는 유효하나, 대규모 데이터에서 API 속도 추가 개선 필요
+
+---
+
+### 26차 최적화 (2026-04-12) - 느린 API 3개 최적화 + DB 인덱스 추가
+
+**적용 내용:**
+
+#### Part 1: DB 인덱스 3개 추가 (마이그레이션)
+- `idx_images_buyer_id_status` — 리뷰 통계 쿼리 최적화
+- `idx_item_slots_buyer_id_item_id` — 구매자 통계 쿼리 최적화
+- `idx_item_slots_upload_link_token` — 토큰 검색 최적화
+
+#### Part 2: `my-monthly-brands` (4.8초 → 목표 500ms)
+- raw SQL의 `LEFT JOIN images` → `EXISTS` 서브쿼리로 전환
+- LEFT JOIN은 행 수를 폭증시키지만, EXISTS는 행 수 유지
+
+#### Part 3: `monthly-brands?viewAsUserId` (1.9초 → 목표 500ms)
+- Include 4단계(MonthlyBrand→Campaign→Item→ItemSlot) → 2단계로 축소
+- Item, ItemSlot 별도 쿼리로 분리
+- 통계 4개 Sequelize 쿼리 → 1개 raw SQL 통합 (EXISTS 서브쿼리)
+
+#### Part 4: `images/upload` (2.5초 → 목표 1초)
+- 루프 내 `Buyer.findByPk` N+1 제거 (이미 조회한 데이터 재사용)
+- S3 업로드 순차 → `Promise.all` 병렬화
+
+**수정 파일:**
+- `backend/migrations/20260412000001-add-performance-indexes.js` ✅ (신규)
+- `backend/src/controllers/itemController.js` ✅ (EXISTS 서브쿼리)
+- `backend/src/routes/monthlyBrands.js` ✅ (Include 분리 + 쿼리 통합)
+- `backend/src/controllers/imageController.js` ✅ (N+1 제거 + S3 병렬)
+- `backend/src/models/index.js` ✅ (benchmark 옵션 전달)
+
+**빌드:** ✅ 성공
+
+**측정 (25차 베이스라인 - main 서버):**
+
+| API | 수치 |
+|-----|------|
+| `GET /api/items/my-monthly-brands` | 4,477~4,826ms |
+| `GET /api/monthly-brands?viewAsUserId` | 1,646~1,974ms |
+| `POST /api/images/upload` | 761~2,572ms |
+| `GET /api/monthly-brands/all` | 228~310ms |
+| 시트 스크롤 FPS | 60.4fps |
+
+**측정 (26차 적용 후):** ⏳ 배포 후 측정 필요
+
 **결론:** ⏳ 테스트 대기
+
+⚠️ **배포 후 마이그레이션 필요:**
+```bash
+docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
+```
+
+---
+
+### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
+
+**목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선
+
+**현재 문제:**
+- 렌더러에서 `td.style.xxx = ...`로 셀마다 5~6개 인라인 스타일을 JS로 직접 설정
+- 스크롤 시 수천 셀에 대해 매번 실행 → 렌더러 처리 지연 → 빈 셀이 보였다가 채워짐
+- 브라우저가 각 `td.style.xxx` 설정마다 스타일 재계산 트리거 가능 (layout thrashing)
+
+**변경 방향:**
+```javascript
+// 현재: 셀마다 JS로 스타일 5~6개 설정
+td.style.backgroundColor = '#fff8e1';
+td.style.fontSize = '11px';
+td.style.fontWeight = 'bold';
+td.style.color = '#1565c0';
+
+// 변경: CSS 클래스 1개만 할당
+td.className = 'product-data-row col-platform';
+```
+- CSS 파일에 클래스 정의 → 브라우저가 스타일 캐싱
+- 렌더러는 `td.className = '...'` 1줄만 실행 → 처리 속도 대폭 감소
+
+**변경 범위:**
+- 3개 시트 × 3~4개 렌더러 = ~10개 함수
+- OperatorItemSheet.js: itemSeparatorRenderer, productHeaderRenderer, createBuyerHeaderRenderer, createProductDataRenderer, createUploadLinkBarRenderer, createBuyerDataRenderer
+- SalesItemSheet.js: 동일 구조 (Sales 접두사)
+- BrandItemSheet.js: brandItemSeparatorRenderer, brandProductHeaderRenderer, createBrandBuyerHeaderRenderer, createBrandProductDataRenderer, createBrandBuyerDataRenderer
+
+**주의:**
+- UI/기능 변경 없음 (화면 동일, 기능 동일)
+- 변경 범위가 크므로 반드시 test 서버에서 먼저 검증
+- 문제 시 22차 상태로 롤백 가능
+
+**상세 계획:** `docs/CSS_CLASS_MIGRATION_PLAN.md` 참조 (작성 예정)
+
+**상태:** 📋 대기 (test 서버에서 별도 배포/검증 후 진행)
 
 ---
 

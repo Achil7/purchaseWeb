@@ -728,4 +728,47 @@ height="calc(100vh - 210px)"
 
 ---
 
-**최종 업데이트**: 2026-02-07
+## 최적화 후 성능 테스트 방법
+
+매 최적화 적용 후 아래 2가지를 측정하여 수치를 Claude에게 전달하면 `docs/SHEET_OPTIMIZATION_TODO.md`에 기록한다.
+
+### 체크 1: 서버에서 느린 API/쿼리 확인
+
+브라우저에서 테스트할 페이지를 사용하면서, 서버 터미널에서 실시간 로그 확인:
+
+```bash
+docker logs -f test-app-1 2>&1 | grep --line-buffered "\[SLOW"
+```
+
+- `[SLOW] GET /api/xxx - 565.6ms` → 200ms 초과 API
+- `[SLOW QUERY] 150ms - SELECT ...` → 100ms 초과 DB 쿼리
+- `Ctrl+C`로 종료
+
+### 체크 2: 브라우저에서 시트 스크롤 FPS 측정
+
+1. 시트 페이지 접속 (데이터가 많은 캠페인)
+2. `F12` → Console 탭 → 아래 코드 붙여넣기 + Enter
+3. **5초 동안 시트를 위아래로 스크롤**
+4. 콘솔에 출력된 FPS 값 확인
+
+```javascript
+(function(){let f=0,s=performance.now();requestAnimationFrame(function c(){f++;performance.now()-s<5000?requestAnimationFrame(c):console.log("Average FPS: "+(f/5).toFixed(1))})})();
+```
+
+**기준**: 60fps = 완벽, 30fps 이상 = 사용 가능, 30fps 미만 = 개선 필요
+
+### 보고 형식
+
+Claude에게 아래 형식으로 전달하면 TODO.md에 자동 기록:
+
+```
+[SLOW] 로그:
+GET /api/monthly-brands - 565ms
+GET /api/item-slots/campaign/1 - 416ms
+
+FPS: 60.4
+```
+
+---
+
+**최종 업데이트**: 2026-04-12

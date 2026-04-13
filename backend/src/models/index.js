@@ -13,6 +13,7 @@ const sequelize = new Sequelize(
     port: dbConfig.port,
     dialect: dbConfig.dialect,
     logging: dbConfig.logging,
+    benchmark: dbConfig.benchmark || false,
     pool: dbConfig.pool,
     dialectOptions: dbConfig.dialectOptions || {}
   }

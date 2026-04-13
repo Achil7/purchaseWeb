@@ -304,29 +304,27 @@ exports.uploadImages = async (req, res) => {
       }
     }
 
-    for (let i = 0; i < req.files.length; i++) {
-      const file = req.files[i];
-      const buyerId = buyerIds[i];
+    // 26차: S3 업로드를 병렬로 실행 (순차 → Promise.all)
+    const s3Results = await Promise.all(req.files.map((file, i) => {
+      const timestamp = Date.now();
+      const randomSuffix = Math.random().toString(36).substring(2, 8);
+      const s3Key = `uploads/${item.id}/${timestamp}_${i}_${randomSuffix}_${file.originalname}`;
+      return uploadToS3(file.buffer, s3Key, file.mimetype).then(s3Url => ({ s3Key, s3Url, file, buyerId: buyerIds[i] }));
+    }));
+
+    for (const { s3Key, s3Url, file, buyerId } of s3Results) {
       const targetBuyer = buyerMap[buyerId];
 
       if (!targetBuyer) {
         continue;
       }
 
-      const timestamp = Date.now();
-      const randomSuffix = Math.random().toString(36).substring(2, 8);
-      const s3Key = `uploads/${item.id}/${timestamp}_${randomSuffix}_${file.originalname}`;
-
-      // S3에 업로드
-      const s3Url = await uploadToS3(file.buffer, s3Key, file.mimetype);
-
       // 기존 이미지가 있는지 확인 (재제출 여부)
       const hasExistingImage = targetBuyer.images && targetBuyer.images.length > 0;
       const previousImageId = hasExistingImage ? targetBuyer.images[0].id : null;
 
-      // 입금 확인 여부 확인 (재제출 시 중요)
-      const fullBuyer = await Buyer.findByPk(targetBuyer.id, { transaction });
-      const isPaymentConfirmed = fullBuyer && fullBuyer.payment_status === 'completed';
+      // 입금 확인 여부 확인 (재제출 시 중요) — 이미 조회한 buyer 데이터 재사용 (N+1 제거)
+      const isPaymentConfirmed = targetBuyer.payment_status === 'completed';
 
       // DB에 이미지 레코드 생성
       // 재제출인 경우: 무조건 status='pending', previous_image_id 설정 (승인 필요)
