@@ -287,8 +287,11 @@ const createBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, columnA
         td.innerHTML = `<span class="status-chip status-${displayStatus}">${label}</span>`;
       }
     } else if (prop === 'col19') {
-      // col19: 입금명
+      // col19: 입금명 - 빈 값이면 빨간 배경
       td.textContent = value ?? '';
+      if (!value || !String(value).trim()) {
+        td.classList.add('duplicate-order');
+      }
     } else if (prop === 'col20') {
       // col20: 입금여부 - 이미 포맷된 값이면 Date 파싱 스킵
       td.style.textAlign = 'center';
@@ -320,8 +323,8 @@ const createBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, columnA
       if (value && duplicateOrderNumbersRef.current.has(value)) {
         td.classList.add('duplicate-order');
       }
-    } else if (prop === 'col18' || prop === 'col19') {
-      // col18: 리뷰비, col19: 입금명 - 빈 값이면 빨간 배경
+    } else if (prop === 'col18') {
+      // col18: 리뷰비 - 빈 값이면 빨간 배경
       td.textContent = value ?? '';
       if (!value || !String(value).trim()) {
         td.classList.add('duplicate-order');
