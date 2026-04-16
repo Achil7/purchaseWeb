@@ -306,6 +306,12 @@ const createSalesBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, co
       if (value && duplicateOrderNumbersRef.current.has(value)) {
         td.classList.add('duplicate-order');
       }
+    } else if (prop === 'col18') {
+      // col18: 입금명 - 빈 값이면 빨간 배경
+      td.textContent = value ?? '';
+      if (!value || !String(value).trim()) {
+        td.classList.add('duplicate-order');
+      }
     } else {
       td.textContent = value ?? '';
     }

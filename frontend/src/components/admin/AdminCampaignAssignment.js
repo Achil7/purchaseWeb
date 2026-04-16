@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
-  CircularProgress, Alert, Button, IconButton, Grid,
+  CircularProgress, Alert, Button, IconButton, Grid, Checkbox,
   FormControl, InputLabel, Select, MenuItem, Chip, TableContainer, Link, Breadcrumbs,
   Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
@@ -10,6 +10,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import GroupAddIcon from '@mui/icons-material/GroupAdd';
+import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
 import InfoIcon from '@mui/icons-material/Info';
 import CloseIcon from '@mui/icons-material/Close';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
@@ -40,6 +41,9 @@ function AdminCampaignAssignment() {
   const [bulkAssignDialogOpen, setBulkAssignDialogOpen] = useState(false);
   const [bulkOperatorId, setBulkOperatorId] = useState('');
 
+  // 체크박스 선택 상태 (배정된 항목만 선택 가능)
+  const [selectedKeys, setSelectedKeys] = useState(new Set());
+
   // 데이터 로드
   const loadData = useCallback(async () => {
     try {
@@ -57,6 +61,7 @@ function AdminCampaignAssignment() {
       setOperators(operatorsResponse.data || []);
       setPendingAssignments({});
       setReassignMode({});
+      setSelectedKeys(new Set());
     } catch (err) {
       console.error('Failed to load data:', err);
       setError('데이터를 불러오는데 실패했습니다.');
@@ -94,6 +99,28 @@ function AdminCampaignAssignment() {
     if (confirmed) {
       const key = getAssignmentKey(itemId, dayGroup);
       setReassignMode(prev => ({ ...prev, [key]: true }));
+    }
+  };
+
+  // 개별 배정 취소 핸들러
+  const handleUnassignOperator = async (itemId, dayGroup, operatorName, operatorId) => {
+    const confirmed = window.confirm(
+      `⚠️ 진행자 배정 취소\n\n` +
+      `배정된 진행자: ${operatorName}\n` +
+      `일자 그룹: ${dayGroup}일차\n\n` +
+      `배정을 취소하면 해당 진행자에게 더 이상 표시되지 않습니다.\n` +
+      `정말 배정을 취소하시겠습니까?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await itemService.unassignOperator(itemId, operatorId, dayGroup);
+      alert('진행자 배정이 취소되었습니다.');
+      await loadData();
+    } catch (err) {
+      console.error('Failed to unassign operator:', err);
+      alert('배정 취소에 실패했습니다: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -277,6 +304,70 @@ function AdminCampaignAssignment() {
     alert(`${unassignedRows.length}개 항목에 진행자가 일괄 배정되었습니다. 저장 버튼을 눌러주세요.`);
   };
 
+  // 배정된 항목 목록 가져오기 (중단된 항목 제외)
+  const getAssignedRows = () => {
+    return assignmentRows.filter(({ item, dayGroup }) => {
+      const assignedOperator = getAssignedOperatorForDayGroup(item, dayGroup);
+      const isSuspended = isDayGroupSuspended(item, dayGroup);
+      return !!assignedOperator && !isSuspended;
+    });
+  };
+
+  const assignedCount = getAssignedRows().length;
+
+  // 체크박스 토글
+  const handleToggleSelect = (key) => {
+    setSelectedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  // 배정된 항목 전체 선택/해제
+  const handleToggleSelectAll = () => {
+    const assignedRows = getAssignedRows();
+    const allKeys = assignedRows.map(({ item, dayGroup }) => getAssignmentKey(item.id, dayGroup));
+    const allSelected = allKeys.length > 0 && allKeys.every(k => selectedKeys.has(k));
+    if (allSelected) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(allKeys));
+    }
+  };
+
+  const selectedCount = selectedKeys.size;
+
+  // 선택건 취소 핸들러
+  const handleSelectedUnassign = async () => {
+    if (selectedCount === 0) return;
+
+    try {
+      setSaving(true);
+      let successCount = 0;
+
+      for (const key of selectedKeys) {
+        const row = assignmentRows.find(({ item, dayGroup }) => getAssignmentKey(item.id, dayGroup) === key);
+        if (!row) continue;
+        const assignedOperator = getAssignedOperatorForDayGroup(row.item, row.dayGroup);
+        if (assignedOperator?.operator?.id) {
+          await itemService.unassignOperator(row.item.id, assignedOperator.operator.id, row.dayGroup);
+          successCount++;
+        }
+      }
+
+      alert(`${successCount}개 항목의 진행자 배정이 취소되었습니다.`);
+      await loadData();
+    } catch (err) {
+      console.error('Failed to unassign selected:', err);
+      alert('선택 취소에 실패했습니다: ' + (err.response?.data?.message || err.message));
+      await loadData();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
@@ -379,6 +470,22 @@ function AdminCampaignAssignment() {
           >
             일괄 배정 ({unassignedCount}건)
           </Button>
+          {selectedCount > 0 && (
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <PersonRemoveIcon />}
+              onClick={() => {
+                if (window.confirm(`선택한 ${selectedCount}개 항목의 진행자 배정을 취소하시겠습니까?`)) {
+                  handleSelectedUnassign();
+                }
+              }}
+              disabled={saving}
+              sx={{ fontWeight: 'bold' }}
+            >
+              선택 취소 ({selectedCount}건)
+            </Button>
+          )}
           <Button
             variant="contained"
             color="error"
@@ -408,8 +515,18 @@ function AdminCampaignAssignment() {
                     <Typography variant="body2" sx={{ fontWeight: 'bold' }}>건수</Typography>
                   </Box>
                 </TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e3f2fd', width: '220px' }}>
-                  진행자 배정 (필수)
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: '#e3f2fd', width: '280px' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Checkbox
+                      size="small"
+                      checked={assignedCount > 0 && getAssignedRows().every(({ item, dayGroup }) => selectedKeys.has(getAssignmentKey(item.id, dayGroup)))}
+                      indeterminate={selectedCount > 0 && selectedCount < assignedCount}
+                      onChange={handleToggleSelectAll}
+                      disabled={assignedCount === 0}
+                      sx={{ p: 0.25 }}
+                    />
+                    진행자 배정 (필수)
+                  </Box>
                 </TableCell>
                 <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#f8f9fa', width: '100px' }}>상태</TableCell>
                 <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: '#fff3e0', width: '80px' }}>중단</TableCell>
@@ -503,7 +620,14 @@ function AdminCampaignAssignment() {
                       </TableCell>
                       <TableCell sx={{ bgcolor: (isAssigned || hasPendingChange) ? '#f1f8e9' : 'inherit' }}>
                         {isAssigned && !hasPendingChange && !isInReassignMode ? (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Checkbox
+                              size="small"
+                              checked={selectedKeys.has(key)}
+                              onChange={() => handleToggleSelect(key)}
+                              disabled={isSuspended}
+                              sx={{ p: 0.25 }}
+                            />
                             <Typography variant="body2" color="text.secondary">
                               {assignedOperator.operator?.name}
                             </Typography>
@@ -515,6 +639,15 @@ function AdminCampaignAssignment() {
                               sx={{ minWidth: 'auto', px: 1, py: 0.5, fontSize: '0.7rem' }}
                             >
                               변경
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="error"
+                              onClick={() => handleUnassignOperator(item.id, dayGroup, assignedOperator.operator?.name, assignedOperator.operator?.id)}
+                              sx={{ minWidth: 'auto', px: 1, py: 0.5, fontSize: '0.7rem' }}
+                            >
+                              취소
                             </Button>
                           </Box>
                         ) : (
