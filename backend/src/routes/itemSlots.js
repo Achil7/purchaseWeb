@@ -39,6 +39,13 @@ router.get('/operator/my-assigned', authenticate, authorize(['operator', 'admin'
 router.get('/by-date', authenticate, authorize(['operator', 'sales', 'admin']), itemSlotController.getSlotsByDate);
 
 /**
+ * @route   POST /api/item-slots/adjust-daily-count
+ * @desc    일건수 조정 (day_group별 슬롯 수 변경)
+ * @access  Private (Sales, Admin)
+ */
+router.post('/adjust-daily-count', authenticate, authorize(['sales', 'admin']), itemSlotController.adjustDailyCount);
+
+/**
  * @route   POST /api/item-slots
  * @desc    슬롯 추가 (구매자 행 추가)
  * @access  Private (Sales, Admin, Operator)

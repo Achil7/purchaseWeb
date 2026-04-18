@@ -36,8 +36,14 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   const [monthlyBrands, setMonthlyBrands] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 선택된 캠페인 (오른쪽에 시트 표시)
+  // 선택된 캠페인 (오른쪽에 시트 표시) - localStorage에서 ID 복원
   const [selectedCampaign, setSelectedCampaign] = useState(null);
+  const pendingCampaignIdRef = React.useRef((() => {
+    try {
+      const saved = localStorage.getItem('operator_selected_campaign_id');
+      return saved ? parseInt(saved, 10) : null;
+    } catch { return null; }
+  })());
 
   // 시트 탭 상태 (0: 기본 시트, 1: 날짜별 작업)
   const [sheetTab, setSheetTab] = useState(0);
@@ -148,15 +154,17 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
       setMonthlyBrands(data);
       // 모든 연월브랜드는 기본적으로 접힌 상태로 시작
 
-      // 선택된 캠페인 업데이트
-      if (selectedCampaignId) {
+      // 선택된 캠페인 업데이트 (품목 변경 후 또는 새로고침 복원)
+      const restoreId = selectedCampaignId || pendingCampaignIdRef.current;
+      if (restoreId) {
         for (const mb of data) {
-          const campaign = mb.campaigns?.find(c => c.id === selectedCampaignId);
+          const campaign = mb.campaigns?.find(c => c.id === restoreId);
           if (campaign) {
             setSelectedCampaign(campaign);
             break;
           }
         }
+        if (pendingCampaignIdRef.current) pendingCampaignIdRef.current = null;
       }
     } catch (err) {
       console.error('Failed to load monthly brands:', err);
@@ -283,6 +291,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   // 캠페인 클릭 - 오른쪽에 시트 표시 (useCallback으로 함수 재생성 방지)
   const handleCampaignClick = useCallback((campaign) => {
     setSelectedCampaign(campaign);
+    try { localStorage.setItem('operator_selected_campaign_id', String(campaign.id)); } catch {}
     // 새로 추가된 캠페인 하이라이트 제거
     if (newlyAddedCampaignIds.has(campaign.id)) {
       setNewlyAddedCampaignIds(prev => {
@@ -385,7 +394,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
             component="div"
             sx={{ fontWeight: 'bold', cursor: 'pointer' }}
             onClick={() => {
-              setSelectedCampaign(null);
+              setSelectedCampaign(null); try { localStorage.removeItem('operator_selected_campaign_id'); } catch {}
               navigate(basePath);
             }}
           >

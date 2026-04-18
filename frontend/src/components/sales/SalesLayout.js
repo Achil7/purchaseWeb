@@ -83,8 +83,14 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     }
   });
 
-  // 선택된 캠페인 (오른쪽에 시트 표시)
+  // 선택된 캠페인 (오른쪽에 시트 표시) - localStorage에서 ID 복원
   const [selectedCampaign, setSelectedCampaign] = useState(null);
+  const pendingCampaignIdRef = useRef((() => {
+    try {
+      const saved = localStorage.getItem('sales_selected_campaign_id');
+      return saved ? parseInt(saved, 10) : null;
+    } catch { return null; }
+  })());
 
   // 숨김 항목 표시 모드
   const [showHidden, setShowHidden] = useState(false);
@@ -230,15 +236,18 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       setMonthlyBrands(data);
       // 모든 연월브랜드는 기본적으로 접힌 상태로 시작
 
-      // 선택된 캠페인 업데이트 (품목 추가/수정/삭제 후)
-      if (selectedCampaignId) {
+      // 선택된 캠페인 업데이트 (품목 추가/수정/삭제 후 또는 새로고침 복원)
+      const restoreId = selectedCampaignId || pendingCampaignIdRef.current;
+      if (restoreId) {
         for (const mb of data) {
-          const campaign = mb.campaigns?.find(c => c.id === selectedCampaignId);
+          const campaign = mb.campaigns?.find(c => c.id === restoreId);
           if (campaign) {
             setSelectedCampaign(campaign);
             break;
           }
         }
+        // pending은 최초 1회만 사용
+        if (pendingCampaignIdRef.current) pendingCampaignIdRef.current = null;
       }
     } catch (err) {
       console.error('Failed to load monthly brands:', err);
@@ -406,6 +415,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   // 캠페인 클릭 - 오른쪽에 시트 표시
   const handleCampaignClick = (campaign) => {
     setSelectedCampaign(campaign);
+    try { localStorage.setItem('sales_selected_campaign_id', String(campaign.id)); } catch {}
     // Embedded 모드가 아닐 때만 네비게이션 처리
     if (!isEmbedded && location.pathname !== basePathOnly && location.pathname !== `${basePathOnly}/`) {
       navigate(basePath);
@@ -591,7 +601,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       return newHidden;
     });
     if (selectedCampaign?.id === campaign.id) {
-      setSelectedCampaign(null);
+      setSelectedCampaign(null); try { localStorage.removeItem('sales_selected_campaign_id'); } catch {}
     }
   }, [selectedCampaign]);
 
@@ -623,7 +633,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         // 캠페인 삭제 후 연월브랜드 삭제
         await monthlyBrandService.deleteMonthlyBrand(monthlyBrand.id);
         if (selectedCampaign && campaigns.some(c => c.id === selectedCampaign.id)) {
-          setSelectedCampaign(null);
+          setSelectedCampaign(null); try { localStorage.removeItem('sales_selected_campaign_id'); } catch {}
         }
         loadMonthlyBrands();
       } catch (err) {
@@ -645,7 +655,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       try {
         await campaignService.deleteCampaign(campaign.id);
         if (selectedCampaign?.id === campaign.id) {
-          setSelectedCampaign(null);
+          setSelectedCampaign(null); try { localStorage.removeItem('sales_selected_campaign_id'); } catch {}
         }
         loadMonthlyBrands();
       } catch (err) {
@@ -791,7 +801,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             component="div"
             sx={{ fontWeight: 'bold', cursor: 'pointer' }}
             onClick={() => {
-              setSelectedCampaign(null);
+              setSelectedCampaign(null); try { localStorage.removeItem('sales_selected_campaign_id'); } catch {}
               navigate(basePath);
             }}
           >

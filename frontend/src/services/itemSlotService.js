@@ -141,6 +141,17 @@ export const resumeDayGroup = async (itemId, dayGroup) => {
   return response.data;
 };
 
+/**
+ * 일건수 조정 (day_group별 슬롯 수 변경)
+ * @param itemId - 품목 ID
+ * @param dayGroup - 대상 day_group 번호
+ * @param newCount - 새로운 일건수
+ */
+export const adjustDailyCount = async (itemId, dayGroup, newCount) => {
+  const response = await api.post('/item-slots/adjust-daily-count', { itemId, dayGroup, newCount });
+  return response.data;
+};
+
 const itemSlotService = {
   getSlotsByItem,
   getSlotsByCampaign,
@@ -156,7 +167,8 @@ const itemSlotService = {
   splitDayGroup,
   getSlotsByDate,
   suspendDayGroup,
-  resumeDayGroup
+  resumeDayGroup,
+  adjustDailyCount
 };
 
 export default itemSlotService;

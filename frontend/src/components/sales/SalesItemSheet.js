@@ -381,6 +381,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   const changedItemsRef = useRef({});
   // 12차 최적화: hasUnsavedChanges state 제거 - ref만 사용하여 리렌더링 완전 제거
   const hasUnsavedChangesRef = useRef(false);
+  // 일건수 조정 API 호출 중 중복 방지
+  const adjustingDailyCountRef = useRef(false);
+  // campaignId ref (stale API 응답 방지용)
+  const campaignIdRef = useRef(campaignId);
+  campaignIdRef.current = campaignId;
   // 선택된 셀 개수 표시용 ref (DOM 직접 업데이트로 리렌더링 방지)
   const selectedCellCountRef = useRef(null);
   // 8차 최적화: IME 조합 상태 추적 (한글 입력 깨짐 방지)
@@ -641,6 +646,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     if (!skipLoading) setLoading(true);
     try {
       const response = await itemSlotService.getSlotsByCampaign(targetCampaignId);
+      // stale 응답 방지: API 응답 시점에 현재 campaignId와 다르면 무시
+      if (campaignIdRef.current !== targetCampaignId) {
+        console.log('[DEBUG] loadSlots - stale response ignored:', { targetCampaignId, current: campaignIdRef.current });
+        return;
+      }
       if (response.success) {
         const newSlots = response.data || [];
         setSlots(newSlots);
@@ -950,8 +960,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
           shipping_type: localChanges.shipping_type ?? firstSlot.shipping_type ?? item.shipping_type ?? '',
           keyword: localChanges.keyword ?? firstSlot.keyword ?? item.keyword ?? '',
           product_price: localChanges.product_price ?? firstSlot.product_price ?? item.product_price ?? '',
-          total_purchase_count: localChanges.total_purchase_count ?? firstSlot.total_purchase_count ?? item.total_purchase_count ?? '',
-          daily_purchase_count: localChanges.daily_purchase_count ?? firstSlot.daily_purchase_count ?? item.daily_purchase_count ?? '',
+          total_purchase_count: String(Object.values(itemGroup.dayGroups).reduce((sum, dg) => sum + dg.slots.length, 0)),
+          daily_purchase_count: String(groupData.slots.length),
           purchase_option: localChanges.purchase_option ?? firstSlot.purchase_option ?? item.purchase_option ?? '',
           courier_service_yn: localChanges.courier_service_yn ?? firstSlot.courier_service_yn ?? item.courier_service_yn ?? '',
           courier_name: (() => {
@@ -1343,7 +1353,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // 성능 최적화: afterChange 콜백을 useCallback으로 분리하여 재생성 방지
   const handleAfterChange = useCallback((changes, source) => {
     // 유효하지 않은 변경이면 무시
-    if (!changes || source === 'loadData' || source === 'syncBuyerDate') return;
+    if (!changes || source === 'loadData' || source === 'syncBuyerDate' || source === 'revertDailyCount') return;
 
     const currentTableData = tableDataRef.current;
 
@@ -1380,6 +1390,43 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         if (!fieldName) return;
 
         const dayGroup = rowData._dayGroup || 1;  // 기본값 1
+
+        // 총건수(col8)는 자동 계산이므로 수정 무시
+        if (fieldName === 'total_purchase_count') return;
+
+        // 일건수(col9) 변경 시 즉시 API 호출하여 슬롯 추가/삭제
+        if (fieldName === 'daily_purchase_count') {
+          const hot = hotRef.current?.hotInstance;
+          const col9Index = parseInt(String(prop).replace('col', ''), 10);
+          const parsedCount = parseInt(newValue, 10);
+          if (isNaN(parsedCount) || parsedCount < 1) {
+            if (hot) hot.setDataAtCell(row, col9Index, oldValue, 'revertDailyCount');
+            showSnackbar('1 이상의 숫자를 입력해주세요');
+            return;
+          }
+          // 같은 값이면 무시
+          if (String(parsedCount) === String(oldValue)) return;
+          // 중복 호출 방지
+          if (adjustingDailyCountRef.current) {
+            if (hot) hot.setDataAtCell(row, col9Index, oldValue, 'revertDailyCount');
+            showSnackbar('처리 중입니다');
+            return;
+          }
+          adjustingDailyCountRef.current = true;
+          itemSlotService.adjustDailyCount(itemId, dayGroup, parsedCount)
+            .then(() => {
+              showSnackbar(`일건수가 ${parsedCount}건으로 변경되었습니다`);
+              slotsCache.clear();
+              loadSlots(campaignId, true, true, true);
+            })
+            .catch((error) => {
+              const hotInst = hotRef.current?.hotInstance;
+              if (hotInst) hotInst.setDataAtCell(row, col9Index, oldValue, 'revertDailyCount');
+              showSnackbar(error.response?.data?.message || '일건수 변경 실패');
+            })
+            .finally(() => { adjustingDailyCountRef.current = false; });
+          return;  // changedItemsRef 저장 건너뛰기
+        }
 
         // ref에 저장 (day_group별 키 형식 통일) - 성능 최적화: state 업데이트 제거
         const dayGroupKey = `${itemId}_${dayGroup}`;
@@ -1671,7 +1718,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
         break;
 
       case ROW_TYPES.PRODUCT_DATA:
-        cellProperties.readOnly = (col === 0 || col === 14);  // col0=토글, col14=상세보기
+        cellProperties.readOnly = (col === 0 || col === 8 || col === 14);  // col0=토글, col8=총건수(자동계산), col14=상세보기
         cellProperties.renderer = productDataRendererRef.current;
         break;
 
@@ -1790,8 +1837,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   toggleItemCollapseRef.current = toggleItemCollapse;
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
-  const campaignIdRef = useRef(campaignId);
-  campaignIdRef.current = campaignId;
+  // campaignIdRef는 상단에서 이미 선언됨 (loadSlots에서 stale 응답 방지용)
   const handleAfterChangeRef = useRef(handleAfterChange);
   handleAfterChangeRef.current = handleAfterChange;
 
@@ -2795,8 +2841,21 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
                   { label: '구매 옵션', value: getValue('purchase_option') },
                   { label: '희망 키워드', value: getValue('keyword') },
                   { label: '출고 유형', value: getValue('shipping_type') },
-                  { label: '총 구매 건수', value: getValue('total_purchase_count') },
-                  { label: '일 구매 건수', value: getValue('daily_purchase_count') },
+                  { label: '총 구매 건수', value: (() => {
+                    const itemId = productDetailPopup.item?.id;
+                    if (!itemId) return '-';
+                    const itemSlots = slots.filter(s => s.item_id === itemId);
+                    return itemSlots.length > 0 ? String(itemSlots.length) : '-';
+                  })() },
+                  { label: '일 구매 건수', value: (() => {
+                    const itemId = productDetailPopup.item?.id;
+                    if (!itemId) return '-';
+                    const itemSlots = slots.filter(s => s.item_id === itemId);
+                    const dayGroupMap = {};
+                    itemSlots.forEach(s => { const dg = s.day_group || 1; dayGroupMap[dg] = (dayGroupMap[dg] || 0) + 1; });
+                    const sorted = Object.keys(dayGroupMap).sort((a, b) => a - b);
+                    return sorted.length > 0 ? sorted.map(dg => dayGroupMap[dg]).join('/') : '-';
+                  })() },
                   { label: '제품 가격', value: formatPrice(getValue('product_price')) },
                   { label: '출고 마감 시간', value: getValue('shipping_deadline') },
                   { label: '택배대행 Y/N', value: getValue('courier_service_yn') },

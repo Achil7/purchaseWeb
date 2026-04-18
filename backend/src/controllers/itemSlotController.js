@@ -1604,3 +1604,195 @@ exports.resumeDayGroup = async (req, res) => {
     });
   }
 };
+
+/**
+ * 일건수 조정 - day_group별 슬롯 수 변경
+ * 구매자 데이터가 입력된 day_group은 변경 불가
+ */
+exports.adjustDailyCount = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { itemId, dayGroup, newCount } = req.body;
+
+    if (!itemId || !dayGroup || newCount === undefined || newCount === null) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: 'itemId, dayGroup, newCount는 필수입니다' });
+    }
+
+    const parsedCount = parseInt(newCount, 10);
+    if (isNaN(parsedCount) || parsedCount < 1) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: '1 이상의 숫자를 입력해주세요' });
+    }
+
+    // 1. Item 조회
+    const item = await Item.findByPk(itemId, { transaction: t });
+    if (!item) {
+      await t.rollback();
+      return res.status(404).json({ success: false, message: '품목을 찾을 수 없습니다' });
+    }
+
+    // 2. 해당 day_group의 슬롯 조회 (buyer 포함)
+    const currentSlots = await ItemSlot.findAll({
+      where: { item_id: itemId, day_group: dayGroup },
+      include: [{ model: Buyer, as: 'buyer', attributes: ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount'] }],
+      order: [['slot_number', 'ASC']],
+      transaction: t
+    });
+
+    const currentCount = currentSlots.length;
+    if (parsedCount === currentCount) {
+      await t.rollback();
+      return res.json({ success: true, message: '변경 사항이 없습니다', data: { previousCount: currentCount, newCount: parsedCount, slotsAdded: 0, slotsRemoved: 0 } });
+    }
+
+    // 3. 검증: 줄일 때만 구매자 데이터 수 체크
+    // - 늘리기: 항상 허용 (데이터 손실 없음)
+    // - 줄이기: 새 일건수가 구매자 데이터 수 이상이어야 함
+    const buyerDataFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount'];
+    let buyersWithData = 0;
+    for (const slot of currentSlots) {
+      if (slot.buyer && slot.buyer_id) {
+        const buyer = slot.buyer;
+        const hasData = buyerDataFields.some(field => buyer[field] && String(buyer[field]).trim() !== '');
+        if (hasData) buyersWithData++;
+      }
+    }
+    if (parsedCount < currentCount && parsedCount < buyersWithData) {
+      await t.rollback();
+      return res.status(400).json({
+        success: false,
+        message: `현재 구매자 데이터가 ${buyersWithData}명 있습니다. ${buyersWithData} 이상의 값을 입력해주세요`
+      });
+    }
+
+    let slotsAdded = 0;
+    let slotsRemoved = 0;
+
+    if (parsedCount > currentCount) {
+      // 4. 슬롯 추가
+      const addCount = parsedCount - currentCount;
+
+      // 최대 slot_number 조회 (soft delete 포함)
+      const maxSlotResult = await ItemSlot.findOne({
+        where: { item_id: itemId, day_group: dayGroup },
+        attributes: [[fn('MAX', col('slot_number')), 'maxSlot']],
+        paranoid: false,
+        transaction: t
+      });
+      let nextSlotNumber = (maxSlotResult?.dataValues?.maxSlot || 0) + 1;
+
+      // upload_link_token 재사용
+      const existingToken = currentSlots[0]?.upload_link_token || uuidv4();
+
+      // 첫 슬롯에서 제품 정보 복사
+      const firstSlot = currentSlots[0] || {};
+      const productInfo = {
+        product_name: firstSlot.product_name || item.product_name,
+        purchase_option: firstSlot.purchase_option || item.purchase_option,
+        keyword: firstSlot.keyword || item.keyword,
+        product_price: firstSlot.product_price || item.product_price,
+        notes: firstSlot.notes || item.notes,
+        platform: firstSlot.platform || item.platform,
+        shipping_type: firstSlot.shipping_type || item.shipping_type,
+        courier_service_yn: firstSlot.courier_service_yn || item.courier_service_yn,
+        courier_name: firstSlot.courier_name || item.courier_name,
+        product_url: firstSlot.product_url || item.product_url,
+        date: firstSlot.date || ''
+      };
+
+      const newSlots = [];
+      for (let i = 0; i < addCount; i++) {
+        newSlots.push({
+          item_id: itemId,
+          slot_number: nextSlotNumber + i,
+          day_group: dayGroup,
+          upload_link_token: existingToken,
+          status: 'active',
+          ...productInfo
+        });
+      }
+      await ItemSlot.bulkCreate(newSlots, { transaction: t });
+      slotsAdded = addCount;
+
+    } else {
+      // 5. 슬롯 삭제 (데이터 있는 buyer는 절대 삭제 안 함)
+      const removeCount = currentCount - parsedCount;
+
+      // 슬롯을 3가지로 분류 (slot_number 내림차순):
+      // 1) buyer 없음 (buyer_id null) - 가장 먼저 삭제
+      // 2) buyer 있지만 데이터 비어있음 - 다음에 삭제
+      // 3) buyer 데이터 있음 - 절대 삭제 안 함 (검증 통과 시 여기까지 안 옴)
+      const slotHasBuyerData = (slot) => {
+        if (!slot.buyer || !slot.buyer_id) return false;
+        return buyerDataFields.some(f => slot.buyer[f] && String(slot.buyer[f]).trim() !== '');
+      };
+      const noBuyer = currentSlots.filter(s => !s.buyer_id).sort((a, b) => b.slot_number - a.slot_number);
+      const emptyBuyer = currentSlots.filter(s => s.buyer_id && !slotHasBuyerData(s)).sort((a, b) => b.slot_number - a.slot_number);
+      const removalOrder = [...noBuyer, ...emptyBuyer];
+
+      const slotsToRemove = removalOrder.slice(0, removeCount);
+      const slotIdsToRemove = slotsToRemove.map(s => s.id);
+      const buyerIdsToRemove = slotsToRemove.map(s => s.buyer_id).filter(Boolean);
+
+      if (buyerIdsToRemove.length > 0) {
+        await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIdsToRemove } }, transaction: t });
+        await Buyer.destroy({ where: { id: { [Op.in]: buyerIdsToRemove } }, transaction: t });
+      }
+      await ItemSlot.destroy({ where: { id: { [Op.in]: slotIdsToRemove } }, transaction: t });
+      slotsRemoved = removeCount;
+    }
+
+    // 6. 전체 day_group 재계산
+    const allSlots = await ItemSlot.findAll({
+      where: { item_id: itemId },
+      attributes: ['day_group'],
+      transaction: t
+    });
+
+    const dayGroupCounts = {};
+    allSlots.forEach(s => {
+      const dg = s.day_group || 1;
+      dayGroupCounts[dg] = (dayGroupCounts[dg] || 0) + 1;
+    });
+
+    const sortedDayGroups = Object.keys(dayGroupCounts).sort((a, b) => Number(a) - Number(b));
+    const newDailyPurchaseCount = sortedDayGroups.map(dg => dayGroupCounts[dg]).join('/');
+    const newTotalPurchaseCount = String(allSlots.length);
+
+    // Item 레코드 업데이트
+    await Item.update(
+      { daily_purchase_count: newDailyPurchaseCount, total_purchase_count: newTotalPurchaseCount },
+      { where: { id: itemId }, transaction: t }
+    );
+
+    // 모든 슬롯의 daily_purchase_count, total_purchase_count 업데이트
+    await ItemSlot.update(
+      { daily_purchase_count: newDailyPurchaseCount, total_purchase_count: newTotalPurchaseCount },
+      { where: { item_id: itemId }, transaction: t }
+    );
+
+    await t.commit();
+
+    res.json({
+      success: true,
+      message: `일건수가 ${parsedCount}건으로 변경되었습니다`,
+      data: {
+        previousCount: currentCount,
+        newCount: parsedCount,
+        slotsAdded,
+        slotsRemoved,
+        newTotalPurchaseCount,
+        newDailyPurchaseCount
+      }
+    });
+  } catch (error) {
+    await t.rollback();
+    console.error('Adjust daily count error:', error);
+    res.status(500).json({
+      success: false,
+      message: '일건수 조정 실패',
+      error: error.message
+    });
+  }
+};

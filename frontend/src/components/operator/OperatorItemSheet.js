@@ -1019,8 +1019,8 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
           shipping_type: localChanges.shipping_type ?? firstSlot.shipping_type ?? mergedItem.shipping_type ?? '',
           keyword: localChanges.keyword ?? firstSlot.keyword ?? mergedItem.keyword ?? '',
           product_price: localChanges.product_price ?? firstSlot.product_price ?? mergedItem.product_price ?? '',
-          total_purchase_count: localChanges.total_purchase_count ?? firstSlot.total_purchase_count ?? mergedItem.total_purchase_count ?? '',
-          daily_purchase_count: localChanges.daily_purchase_count ?? firstSlot.daily_purchase_count ?? mergedItem.daily_purchase_count ?? '',
+          total_purchase_count: String(Object.values(itemGroup.dayGroups).reduce((sum, dg) => sum + dg.slots.length, 0)),
+          daily_purchase_count: String(groupData.slots.length),
           purchase_option: localChanges.purchase_option ?? firstSlot.purchase_option ?? mergedItem.purchase_option ?? '',
           courier_service_yn: localChanges.courier_service_yn ?? firstSlot.courier_service_yn ?? mergedItem.courier_service_yn ?? '',
           courier_name: (() => {
