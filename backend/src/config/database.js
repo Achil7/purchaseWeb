@@ -42,10 +42,10 @@ module.exports = {
       }
     },
     pool: {
-      max: 20,
-      min: 5,
+      max: 50,
+      min: 10,
       acquire: 30000,
-      idle: 10000
+      idle: 30000
     },
     dialectOptions: {
       ssl: {

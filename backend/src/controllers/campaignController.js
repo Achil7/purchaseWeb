@@ -397,17 +397,10 @@ exports.deleteCampaignCascade = async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
+    // 27차: include 전부 제거 - 권한 체크용 최소 필드만 조회
     const campaign = await Campaign.findByPk(id, {
-      include: [
-        {
-          model: Item,
-          as: 'items',
-          include: [
-            { model: Buyer, as: 'buyers', include: [{ model: Image, as: 'images', where: { status: 'approved' }, required: false }] },
-            { model: ItemSlot, as: 'slots' }
-          ]
-        }
-      ]
+      attributes: ['id', 'name', 'created_by'],
+      transaction
     });
 
     if (!campaign) {
@@ -430,7 +423,8 @@ exports.deleteCampaignCascade = async (req, res) => {
       if (userRole === 'operator') {
         // operator는 배정받은 캠페인만 삭제 가능
         const isAssigned = await CampaignOperator.findOne({
-          where: { campaign_id: id, operator_id: userId }
+          where: { campaign_id: id, operator_id: userId },
+          transaction
         });
         if (!isAssigned) {
           await transaction.rollback();
@@ -451,47 +445,49 @@ exports.deleteCampaignCascade = async (req, res) => {
       operators: 0
     };
 
-    // 1. 캠페인 진행자 배정 삭제
+    // 27차: raw SQL로 직접 삭제 (include 4단계 JOIN + JS 루프 제거)
+    // 순서: images → buyers → item_slots → items → campaign_operators → campaign
+
+    // 1. images 삭제 (buyers → items → campaign 경로)
+    const [, imageCount] = await sequelize.query(`
+      DELETE FROM images
+      WHERE id IN (
+        SELECT i.id FROM images i
+        INNER JOIN buyers b ON i.buyer_id = b.id
+        INNER JOIN items it ON b.item_id = it.id
+        WHERE it.campaign_id = :campaignId
+      )
+    `, { replacements: { campaignId: id }, transaction });
+    deletedStats.images = imageCount.rowCount || 0;
+
+    // 2. buyers 삭제
+    const [, buyerCount] = await sequelize.query(`
+      DELETE FROM buyers
+      WHERE item_id IN (SELECT id FROM items WHERE campaign_id = :campaignId)
+    `, { replacements: { campaignId: id }, transaction });
+    deletedStats.buyers = buyerCount.rowCount || 0;
+
+    // 3. item_slots 삭제
+    const [, slotCount] = await sequelize.query(`
+      DELETE FROM item_slots
+      WHERE item_id IN (SELECT id FROM items WHERE campaign_id = :campaignId)
+    `, { replacements: { campaignId: id }, transaction });
+    deletedStats.slots = slotCount.rowCount || 0;
+
+    // 4. items 삭제
+    const [, itemCount] = await sequelize.query(`
+      DELETE FROM items WHERE campaign_id = :campaignId
+    `, { replacements: { campaignId: id }, transaction });
+    deletedStats.items = itemCount.rowCount || 0;
+
+    // 5. campaign_operators 삭제
     const operatorCount = await CampaignOperator.destroy({
       where: { campaign_id: id },
       transaction
     });
     deletedStats.operators = operatorCount;
 
-    // 2. 품목별로 관련 데이터 삭제
-    for (const item of campaign.items || []) {
-      // 2-1. 구매자의 이미지 삭제
-      for (const buyer of item.buyers || []) {
-        const imageCount = await Image.destroy({
-          where: { buyer_id: buyer.id },
-          transaction
-        });
-        deletedStats.images += imageCount;
-      }
-
-      // 2-2. 구매자 삭제
-      const buyerCount = await Buyer.destroy({
-        where: { item_id: item.id },
-        transaction
-      });
-      deletedStats.buyers += buyerCount;
-
-      // 2-3. 품목 슬롯 삭제
-      const slotCount = await ItemSlot.destroy({
-        where: { item_id: item.id },
-        transaction
-      });
-      deletedStats.slots += slotCount;
-    }
-
-    // 3. 품목 삭제
-    const itemCount = await Item.destroy({
-      where: { campaign_id: id },
-      transaction
-    });
-    deletedStats.items = itemCount;
-
-    // 4. 캠페인 삭제
+    // 6. campaign 삭제
     await campaign.destroy({ transaction });
 
     await transaction.commit();

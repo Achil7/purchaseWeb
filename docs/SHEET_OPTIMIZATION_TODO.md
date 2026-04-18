@@ -1719,14 +1719,108 @@ const handleCompositionEnd = () => {
 | `GET /api/monthly-brands/all` | 228~310ms |
 | 시트 스크롤 FPS | 60.4fps |
 
-**측정 (26차 적용 후):** ⏳ 배포 후 측정 필요
+**측정 (26차 적용 후 - main 서버, 2026-04-12):**
 
-**결론:** ⏳ 테스트 대기
+| API | 25차 (이전) | 26차 (이후) | 개선율 |
+|-----|:---:|:---:|:---:|
+| `GET /api/items/my-monthly-brands` | 4,477~7,778ms | **252~533ms** | **약 90% ↓** 🎉 |
+| `GET /api/monthly-brands?viewAsUserId` | 1,646~1,974ms | **268~370ms** | **약 80% ↓** 🎉 |
+| `POST /api/images/upload` | 761~2,572ms | **207~266ms** | **약 90% ↓** 🎉 |
+| `GET /api/monthly-brands/all` | 228~310ms | 202~273ms | 유지 |
+
+**SLOW QUERY 분석 (26차 적용 후):**
+- 대부분의 쿼리가 100~130ms 수준 (이전 1,400~5,800ms에서 대폭 감소)
+- `CampaignOperator` 쿼리: 5,789ms → **115ms** (50배 개선)
+- `Buyer` 쿼리: 1,276ms → 211ms (6배 개선)
+- `ItemSlot IN (...)` 쿼리: 102~138ms (새로 추가된 쿼리, 수용 가능)
+
+**결론:** ✅ 채택 — 목표 대비 모든 API가 기대 이상 개선
+
+**주요 성공 요인:**
+1. **DB 인덱스 3개 추가** — CampaignOperator 쿼리 50배 개선 (idx_item_slots_buyer_id_item_id 효과)
+2. **Include 분리** — Item + ItemSlot을 별도 쿼리로 분리해 데카르트곱 방지
+3. **EXISTS 서브쿼리** — images LEFT JOIN 제거로 행 수 폭증 방지
+4. **N+1 제거 + S3 병렬화** — 이미지 업로드 대폭 개선
+
+---
+
+### 27차 최적화 (2026-04-13) - DB 커넥션 풀 증설 + 캐스케이드 삭제 raw SQL + 잔여 병목 제거
+
+**배경:**
+26차 이후 대부분 API 500~700ms대로 개선되었으나 **사용자가 조금만 늘어도 느려지는 현상** 발생.
+전수조사 결과 근본 원인 확인:
+1. DB 커넥션 풀 20개로 부족 (동시 사용자 5+ 시 connection wait)
+2. 캐스케이드 삭제가 4~5단계 JOIN + 메모리 로드 + 루프 N+1 (수초 지연)
+3. `campaign_operators.campaign_id` 인덱스 누락 (groupBy 간헐 슬로우)
+
+**적용 내용:**
+
+#### Part 1: DB 커넥션 풀 증설
+- `backend/src/config/database.js` production 설정
+- `pool.max: 20 → 50`, `pool.min: 5 → 10`, `pool.idle: 10s → 30s`
+- 동시 사용자 시 connection wait 대폭 감소 예상
+
+#### Part 2: `campaign_operators` 인덱스 2개 추가 (마이그레이션 신규)
+- `idx_campaign_operators_campaign_id` (campaign_id 단일)
+- `idx_campaign_operators_campaign_item_day` (campaign_id, item_id, day_group 복합)
+
+#### Part 3-1: 캠페인 캐스케이드 삭제 raw SQL 전환
+- `backend/src/controllers/campaignController.js` `deleteCampaignCascade`
+- 기존: Campaign → Item → Buyer → Image 4단계 include + JS 중첩 루프로 N번 DELETE
+- 변경: include 제거, raw SQL `DELETE ... WHERE ... IN (SELECT ...)`로 5개 테이블 각 1번씩 삭제
+- 삭제 순서: images → buyers → item_slots → items → campaign_operators → campaign
+
+#### Part 3-2: 연월브랜드 캐스케이드 삭제 raw SQL 전환
+- `backend/src/routes/monthlyBrands.js` cascade delete
+- 기존: MonthlyBrand → Campaign → Item → Buyer → Image 5단계 include + 이중 루프
+- 변경: campaign_id 목록만 먼저 조회 → raw SQL로 각 테이블 1번씩 삭제
+
+#### Part 4: `images/upload` 트랜잭션 위치 조정
+- `backend/src/controllers/imageController.js` `uploadImages`
+- 기존: `transaction 시작` → S3 업로드 → DB 작업 → commit (S3 동안 커넥션 점유)
+- 변경: 검증/S3 업로드는 트랜잭션 밖 → S3 완료 후 짧은 트랜잭션 시작 → Image.create 루프 → commit
+- 커넥션 점유 시간 대폭 단축 → 다른 요청 대기시간도 감소
+
+**수정 파일:**
+- `backend/src/config/database.js` ✅ (pool 증설)
+- `backend/migrations/20260413000001-add-campaign-operator-indexes.js` ✅ (신규)
+- `backend/src/controllers/campaignController.js` ✅ (캠페인 캐스케이드 raw SQL)
+- `backend/src/routes/monthlyBrands.js` ✅ (연월브랜드 캐스케이드 raw SQL)
+- `backend/src/controllers/imageController.js` ✅ (트랜잭션 위치 조정)
+
+**기능/결과값 불변 보장:**
+- raw SQL DELETE은 Sequelize cascade와 동일하게 하위 데이터 삭제
+- API 응답 JSON 구조 완전 동일 (deletedStats 필드 동일)
+- 권한 체크 로직 유지 (Campaign.findByPk에서 created_by 조회, operator 배정 체크 유지)
+- 이미지 업로드 결과(uploadedImages, resubmittedImages) 동일
+- Pool 증가는 기존 쿼리 동작 완전 동일
+
+**빌드:** ✅ 백엔드 문법 검증 통과
 
 ⚠️ **배포 후 마이그레이션 필요:**
 ```bash
 docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 ```
+
+**측정 (26차 이전 vs 26차 이후):**
+
+| API | 25차 | 26차 | 27차 목표 |
+|-----|:---:|:---:|:---:|
+| `my-monthly-brands` | 4,800ms | 252~533ms | 350~450ms |
+| `monthly-brands?viewAsUserId` | 1,800ms | 268~370ms | 200~300ms |
+| `images/upload` | 2,500ms | 207~266ms | 150~200ms |
+| 캠페인 삭제 | 2~3초 | 2~3초 | 300ms 이하 |
+| 연월브랜드 삭제 | 2~3초 | 2~3초 | 300ms 이하 |
+
+**기능 검증 항목:**
+- [ ] 연월브랜드 삭제 → 하위 캠페인/품목/구매자/이미지 모두 삭제 확인
+- [ ] 캠페인 삭제 → 하위 품목/구매자/이미지 모두 삭제 확인
+- [ ] 이미지 업로드 → 정상 동작 + S3에 올라가고 DB 기록 확인
+- [ ] 이미지 재제출 → pending 상태로 Admin 알림 전송 확인
+- [ ] 진행자 사이드바 로딩 → 동일한 데이터 표시
+- [ ] 영업사 사이드바 로딩 → 동일한 데이터 표시
+
+**결론:** ⏳ 테스트 대기
 
 ---
 

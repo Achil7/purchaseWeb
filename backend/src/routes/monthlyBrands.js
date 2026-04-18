@@ -896,23 +896,10 @@ router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operat
     const userId = req.user.id;
     const userRole = req.user.role;
 
+    // 27차: include 전부 제거 - 권한 체크용 최소 필드만 조회
     const monthlyBrand = await MonthlyBrand.findByPk(id, {
-      include: [
-        {
-          model: Campaign,
-          as: 'campaigns',
-          include: [
-            {
-              model: Item,
-              as: 'items',
-              include: [
-                { model: Buyer, as: 'buyers', include: [{ model: Image, as: 'images', where: { status: 'approved' }, required: false }] },
-                { model: ItemSlot, as: 'slots' }
-              ]
-            }
-          ]
-        }
-      ]
+      attributes: ['id', 'name', 'created_by'],
+      transaction
     });
 
     if (!monthlyBrand) {
@@ -922,6 +909,15 @@ router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operat
         message: '연월브랜드를 찾을 수 없습니다'
       });
     }
+
+    // 캠페인 ID 목록 조회 (권한 체크 + 삭제용)
+    const campaigns = await Campaign.findAll({
+      where: { monthly_brand_id: id },
+      attributes: ['id'],
+      transaction,
+      raw: true
+    });
+    const campaignIds = campaigns.map(c => c.id);
 
     // 권한 확인: admin은 모두 삭제 가능, sales는 자신이 만든 연월브랜드, operator는 배정받은 연월브랜드
     if (userRole !== 'admin') {
@@ -933,14 +929,13 @@ router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operat
         });
       }
       if (userRole === 'operator') {
-        // operator는 배정받은 연월브랜드만 삭제 가능 (연월브랜드 내 캠페인에 배정되어 있는지 확인)
-        const campaignIds = (monthlyBrand.campaigns || []).map(c => c.id);
         if (campaignIds.length > 0) {
           const isAssigned = await CampaignOperator.findOne({
             where: {
               campaign_id: campaignIds,
               operator_id: userId
-            }
+            },
+            transaction
           });
           if (!isAssigned) {
             await transaction.rollback();
@@ -950,7 +945,6 @@ router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operat
             });
           }
         } else {
-          // 캠페인이 없는 연월브랜드는 operator가 삭제 불가
           await transaction.rollback();
           return res.status(403).json({
             success: false,
@@ -970,54 +964,56 @@ router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operat
       operators: 0
     };
 
-    // 캠페인별로 관련 데이터 삭제
-    for (const campaign of monthlyBrand.campaigns || []) {
-      // 1. 캠페인 진행자 배정 삭제
+    // 27차: raw SQL로 직접 삭제 (5단계 include + 중첩 루프 제거)
+    if (campaignIds.length > 0) {
+      // 1. images 삭제 (campaigns → items → buyers → images 경로)
+      const [, imageCount] = await sequelize.query(`
+        DELETE FROM images
+        WHERE id IN (
+          SELECT im.id FROM images im
+          INNER JOIN buyers b ON im.buyer_id = b.id
+          INNER JOIN items it ON b.item_id = it.id
+          WHERE it.campaign_id IN (:campaignIds)
+        )
+      `, { replacements: { campaignIds }, transaction });
+      deletedStats.images = imageCount.rowCount || 0;
+
+      // 2. buyers 삭제
+      const [, buyerCount] = await sequelize.query(`
+        DELETE FROM buyers
+        WHERE item_id IN (SELECT id FROM items WHERE campaign_id IN (:campaignIds))
+      `, { replacements: { campaignIds }, transaction });
+      deletedStats.buyers = buyerCount.rowCount || 0;
+
+      // 3. item_slots 삭제
+      const [, slotCount] = await sequelize.query(`
+        DELETE FROM item_slots
+        WHERE item_id IN (SELECT id FROM items WHERE campaign_id IN (:campaignIds))
+      `, { replacements: { campaignIds }, transaction });
+      deletedStats.slots = slotCount.rowCount || 0;
+
+      // 4. items 삭제
+      const [, itemCount] = await sequelize.query(`
+        DELETE FROM items WHERE campaign_id IN (:campaignIds)
+      `, { replacements: { campaignIds }, transaction });
+      deletedStats.items = itemCount.rowCount || 0;
+
+      // 5. campaign_operators 삭제
       const operatorCount = await CampaignOperator.destroy({
-        where: { campaign_id: campaign.id },
+        where: { campaign_id: campaignIds },
         transaction
       });
-      deletedStats.operators += operatorCount;
+      deletedStats.operators = operatorCount;
 
-      // 2. 품목별로 관련 데이터 삭제
-      for (const item of campaign.items || []) {
-        // 2-1. 구매자의 이미지 삭제
-        for (const buyer of item.buyers || []) {
-          const imageCount = await Image.destroy({
-            where: { buyer_id: buyer.id },
-            transaction
-          });
-          deletedStats.images += imageCount;
-        }
-
-        // 2-2. 구매자 삭제
-        const buyerCount = await Buyer.destroy({
-          where: { item_id: item.id },
-          transaction
-        });
-        deletedStats.buyers += buyerCount;
-
-        // 2-3. 품목 슬롯 삭제
-        const slotCount = await ItemSlot.destroy({
-          where: { item_id: item.id },
-          transaction
-        });
-        deletedStats.slots += slotCount;
-      }
-
-      // 3. 품목 삭제
-      const itemCount = await Item.destroy({
-        where: { campaign_id: campaign.id },
+      // 6. campaigns 삭제
+      const campaignCount = await Campaign.destroy({
+        where: { id: campaignIds },
         transaction
       });
-      deletedStats.items += itemCount;
-
-      // 4. 캠페인 삭제
-      await campaign.destroy({ transaction });
-      deletedStats.campaigns++;
+      deletedStats.campaigns = campaignCount;
     }
 
-    // 5. 연월브랜드 삭제
+    // 7. 연월브랜드 삭제
     await monthlyBrand.destroy({ transaction });
 
     await transaction.commit();

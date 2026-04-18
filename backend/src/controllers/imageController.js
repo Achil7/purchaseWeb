@@ -195,8 +195,7 @@ exports.searchBuyersByName = async (req, res) => {
  * - buyer_ids[i] ↔ images[i] 1:1 매칭
  */
 exports.uploadImages = async (req, res) => {
-  const transaction = await sequelize.transaction();
-
+  // 27차: 트랜잭션을 S3 업로드 이후로 이동 (커넥션 점유 시간 단축)
   try {
     const { token } = req.params;
     const { buyer_ids } = req.body;
@@ -212,7 +211,6 @@ exports.uploadImages = async (req, res) => {
     }
 
     if (!Array.isArray(buyerIds) || buyerIds.length === 0) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: '구매자를 선택해주세요'
@@ -221,7 +219,6 @@ exports.uploadImages = async (req, res) => {
 
     // 파일 확인
     if (!req.files || req.files.length === 0) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: '이미지 파일이 필요합니다'
@@ -230,26 +227,23 @@ exports.uploadImages = async (req, res) => {
 
     // buyerIds와 files 개수가 동일해야 함 (1:1 매핑이지만, 같은 buyerId 중복 가능)
     if (buyerIds.length !== req.files.length) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: `구매자 ID 수(${buyerIds.length})와 이미지 수(${req.files.length})가 일치하지 않습니다`
       });
     }
 
-    // 토큰으로 품목 조회 (ItemSlot 토큰)
+    // 토큰으로 품목 조회 (ItemSlot 토큰) — 트랜잭션 밖
     const slot = await ItemSlot.findOne({
       where: { upload_link_token: token },
       include: [{
         model: Item,
         as: 'item',
         include: [{ model: Campaign, as: 'campaign' }]
-      }],
-      transaction
+      }]
     });
 
     if (!slot || !slot.item) {
-      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: '유효하지 않은 업로드 링크입니다'
@@ -258,7 +252,7 @@ exports.uploadImages = async (req, res) => {
 
     const item = slot.item;
 
-    // 선택된 구매자들 조회 및 검증 (중복 제거한 unique buyer_id 목록)
+    // 선택된 구매자들 조회 및 검증 (중복 제거한 unique buyer_id 목록) — 트랜잭션 밖
     const uniqueBuyerIds = [...new Set(buyerIds)];
 
     const buyers = await Buyer.findAll({
@@ -273,22 +267,16 @@ exports.uploadImages = async (req, res) => {
         where: { status: 'approved' },  // 승인된 이미지만 체크 (재제출 여부 판단용)
         required: false,
         attributes: ['id']
-      }],
-      transaction
+      }]
     });
 
     // 모든 unique buyer_id가 유효한지 확인 (같은 구매자에 여러 이미지 가능)
     if (buyers.length !== uniqueBuyerIds.length) {
-      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: '일부 구매자를 찾을 수 없습니다'
       });
     }
-
-    // 이미 승인된 이미지가 있는 구매자와 없는 구매자 분리 (재제출 vs 신규)
-    const buyersWithImage = buyers.filter(b => b.images && b.images.length > 0);
-    const buyersWithoutImage = buyers.filter(b => !b.images || b.images.length === 0);
 
     // buyer_id 순서대로 매핑 생성
     const buyerMap = {};
@@ -309,7 +297,7 @@ exports.uploadImages = async (req, res) => {
       }
     }
 
-    // 26차: S3 업로드를 병렬로 실행 (순차 → Promise.all)
+    // 27차: S3 업로드를 트랜잭션 밖에서 실행 (DB 커넥션 점유 안 함)
     const s3Results = await Promise.all(req.files.map((file, i) => {
       const timestamp = Date.now();
       const randomSuffix = Math.random().toString(36).substring(2, 8);
@@ -317,6 +305,10 @@ exports.uploadImages = async (req, res) => {
       return uploadToS3(file.buffer, s3Key, file.mimetype).then(s3Url => ({ s3Key, s3Url, file, buyerId: buyerIds[i] }));
     }));
 
+    // 27차: S3 완료 후에만 짧은 DB 트랜잭션 시작
+    const transaction = await sequelize.transaction();
+
+    try {
     for (const { s3Key, s3Url, file, buyerId } of s3Results) {
       const targetBuyer = buyerMap[buyerId];
 
@@ -393,7 +385,11 @@ exports.uploadImages = async (req, res) => {
       }
     }
 
-    await transaction.commit();
+      await transaction.commit();
+    } catch (txError) {
+      await transaction.rollback();
+      throw txError;
+    }
 
     // 타겟 달성 체크 및 브랜드 알림 (신규 업로드만)
     if (uploadedImages.length > 0) {
@@ -486,7 +482,6 @@ exports.uploadImages = async (req, res) => {
       totalResubmitted: resubmittedImages.length
     });
   } catch (error) {
-    await transaction.rollback();
     console.error('Upload images error:', error);
     res.status(500).json({
       success: false,
