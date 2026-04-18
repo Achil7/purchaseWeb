@@ -13,6 +13,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import ImageSearchIcon from '@mui/icons-material/ImageSearch';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
@@ -182,6 +183,16 @@ function AdminLayout() {
             sx={{ mr: 2 }}
           >
             휴지통
+          </Button>
+
+          {/* 리뷰샷 검색 버튼 */}
+          <Button
+            color="inherit"
+            startIcon={<ImageSearchIcon />}
+            onClick={() => navigate('/admin/review-search')}
+            sx={{ mr: 2 }}
+          >
+            리뷰샷 검색
           </Button>
 
           {/* 이미지 재제출 승인 버튼 */}

@@ -18,6 +18,7 @@ import AdminCampaignAssignment from './components/admin/AdminCampaignAssignment'
 import AdminTrash from './components/admin/AdminTrash';
 import AdminImageApproval from './components/admin/AdminImageApproval';
 import AdminBrandCampaignSettlement from './components/admin/AdminBrandCampaignSettlement';
+import AdminReviewSearch from './components/admin/AdminReviewSearch';
 
 // --- 영업사 관련 페이지 ---
 import SalesLayout from './components/sales/SalesLayout';
@@ -97,6 +98,7 @@ function App() {
             <Route path="margin" element={<AdminMarginDashboard />} />
             <Route path="trash" element={<AdminTrash />} />
             <Route path="image-approval" element={<AdminImageApproval />} />
+            <Route path="review-search" element={<AdminReviewSearch />} />
             <Route path="brand-settlement" element={<AdminBrandCampaignSettlement />} />
           </Route>
 

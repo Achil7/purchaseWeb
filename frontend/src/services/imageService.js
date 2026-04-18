@@ -111,6 +111,15 @@ const rejectImage = async (imageId, reason = '') => {
   return response.data;
 };
 
+/**
+ * 리뷰샷 검색 (Admin 전용)
+ * @param {object} params - { brand_id, product_name, start_date, end_date, limit, offset }
+ */
+const searchImages = async (params) => {
+  const response = await apiClient.get('/images/search', { params });
+  return response.data;
+};
+
 const imageService = {
   getItemByToken,
   getSlotByToken,
@@ -121,7 +130,8 @@ const imageService = {
   getPendingImages,
   getPendingCount,
   approveImage,
-  rejectImage
+  rejectImage,
+  searchImages
 };
 
 export default imageService;

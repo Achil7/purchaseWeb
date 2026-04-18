@@ -46,6 +46,13 @@ router.get('/pending', authenticate, authorize(['admin']), imageController.getPe
 router.get('/pending/count', authenticate, authorize(['admin']), imageController.getPendingCount);
 
 /**
+ * @route   GET /api/images/search
+ * @desc    리뷰샷 검색 (브랜드사 필수, 제품명/기간 선택)
+ * @access  Private (Admin)
+ */
+router.get('/search', authenticate, authorize(['admin']), imageController.searchImages);
+
+/**
  * @route   POST /api/images/:id/approve
  * @desc    재제출 이미지 승인 (Admin)
  * @access  Private (Admin)

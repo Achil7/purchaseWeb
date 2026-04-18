@@ -1,4 +1,4 @@
-const { Item, Image, Campaign, Buyer, ItemSlot } = require('../models');
+const { Item, Image, Campaign, Buyer, ItemSlot, MonthlyBrand } = require('../models');
 const { sequelize, Sequelize } = require('../models');
 const { Op } = Sequelize;
 const { uploadToS3, deleteFromS3 } = require('../config/s3');
@@ -1039,6 +1039,131 @@ exports.proxyImage = async (req, res) => {
     res.status(500).json({
       success: false,
       message: '이미지 프록시 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * 리뷰샷 검색 (Admin 전용)
+ * - 브랜드사 필수, 제품명/기간 선택
+ * - approved 상태만 (pending/rejected 제외)
+ * - is_temporary 선 업로드도 포함
+ */
+exports.searchImages = async (req, res) => {
+  try {
+    const { brand_id, product_name, start_date, end_date } = req.query;
+    let limit = parseInt(req.query.limit, 10);
+    let offset = parseInt(req.query.offset, 10);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 100;
+    if (limit > 500) limit = 500;
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+    if (!brand_id) {
+      return res.status(400).json({
+        success: false,
+        message: '브랜드사(brand_id)를 선택해주세요'
+      });
+    }
+
+    const imageWhere = { status: 'approved' };
+    if (start_date || end_date) {
+      imageWhere.created_at = {};
+      if (start_date) imageWhere.created_at[Op.gte] = new Date(start_date);
+      if (end_date) {
+        const end = new Date(end_date);
+        end.setHours(23, 59, 59, 999);
+        imageWhere.created_at[Op.lte] = end;
+      }
+    }
+
+    const itemWhere = {};
+    if (product_name && product_name.trim()) {
+      itemWhere.product_name = { [Op.iLike]: `%${product_name.trim()}%` };
+    }
+
+    const { count, rows } = await Image.findAndCountAll({
+      where: imageWhere,
+      include: [
+        {
+          model: Buyer,
+          as: 'buyer',
+          required: false,
+          attributes: ['id', 'buyer_name', 'recipient_name', 'order_number', 'is_temporary']
+        },
+        {
+          model: Item,
+          as: 'item',
+          required: true,
+          attributes: ['id', 'product_name'],
+          where: Object.keys(itemWhere).length > 0 ? itemWhere : undefined,
+          include: [{
+            model: Campaign,
+            as: 'campaign',
+            required: true,
+            attributes: ['id', 'name', 'monthly_brand_id'],
+            where: { brand_id: parseInt(brand_id, 10) },
+            include: [{
+              model: MonthlyBrand,
+              as: 'monthlyBrand',
+              required: false,
+              attributes: ['id', 'name', 'year_month']
+            }]
+          }]
+        }
+      ],
+      // 같은 구매자 이미지를 연속으로 묶어 반환 (buyer_id 없는 선 업로드는 맨 뒤)
+      order: [
+        [Sequelize.literal('CASE WHEN "Image"."buyer_id" IS NULL THEN 1 ELSE 0 END'), 'ASC'],
+        ['buyer_id', 'ASC'],
+        ['created_at', 'ASC']
+      ],
+      limit,
+      offset,
+      subQuery: false,
+      distinct: true,
+      col: 'id'
+    });
+
+    const images = rows.map(img => ({
+      id: img.id,
+      s3_url: img.s3_url,
+      file_name: img.file_name,
+      created_at: img.created_at,
+      buyer: img.buyer ? {
+        id: img.buyer.id,
+        buyer_name: img.buyer.buyer_name,
+        recipient_name: img.buyer.recipient_name,
+        order_number: img.buyer.order_number,
+        is_temporary: img.buyer.is_temporary
+      } : null,
+      item: img.item ? {
+        id: img.item.id,
+        product_name: img.item.product_name
+      } : null,
+      campaign: img.item?.campaign ? {
+        id: img.item.campaign.id,
+        name: img.item.campaign.name
+      } : null,
+      monthly_brand: img.item?.campaign?.monthlyBrand ? {
+        id: img.item.campaign.monthlyBrand.id,
+        name: img.item.campaign.monthlyBrand.name,
+        year_month: img.item.campaign.monthlyBrand.year_month
+      } : null
+    }));
+
+    res.json({
+      success: true,
+      total: count,
+      limit,
+      offset,
+      data: images
+    });
+  } catch (error) {
+    console.error('Search images error:', error);
+    res.status(500).json({
+      success: false,
+      message: '리뷰샷 검색 실패',
       error: error.message
     });
   }
