@@ -13,6 +13,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import AdminUserCreate from './AdminUserCreate';
@@ -162,6 +163,16 @@ function AdminLayout() {
               마진 현황
             </Button>
           )}
+
+          {/* 브랜드 정산 버튼 */}
+          <Button
+            color="inherit"
+            startIcon={<ReceiptLongIcon />}
+            onClick={() => navigate('/admin/brand-settlement')}
+            sx={{ mr: 2 }}
+          >
+            브랜드 정산
+          </Button>
 
           {/* 휴지통 버튼 */}
           <Button
