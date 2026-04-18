@@ -1,0 +1,1120 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>CampManager 긴급 장애 대응 가이드</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "맑은 고딕", sans-serif;
+    color: #222;
+    line-height: 1.65;
+    max-width: 210mm;
+    margin: 0 auto;
+    padding: 18mm 14mm;
+    background: #fff;
+    font-size: 10.5pt;
+  }
+  h1 { font-size: 22pt; border-bottom: 3px solid #1565c0; padding-bottom: 8px; margin-top: 0; }
+  h2 { font-size: 15pt; color: #1565c0; border-bottom: 2px solid #90caf9; padding-bottom: 5px; margin-top: 28px; page-break-after: avoid; }
+  h3 { font-size: 12.5pt; color: #0d47a1; margin-top: 22px; page-break-after: avoid; }
+  h4 { font-size: 11pt; color: #37474f; margin-top: 14px; page-break-after: avoid; }
+  p { margin: 6px 0; }
+  ul, ol { padding-left: 22px; margin: 6px 0; }
+  li { margin: 4px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 10pt; }
+  th, td { border: 1px solid #bbb; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #e3f2fd; font-weight: bold; }
+  code { font-family: "Consolas", "Menlo", "D2Coding", monospace; background: #f4f4f4; padding: 1px 5px; border-radius: 3px; font-size: 10pt; }
+  pre { background: #263238; color: #eceff1; padding: 11px 14px; border-radius: 5px; font-family: "Consolas", "Menlo", "D2Coding", monospace; font-size: 10pt; overflow-x: auto; white-space: pre-wrap; word-break: break-all; line-height: 1.55; }
+  pre.result { background: #f4f4f4; color: #222; border: 1px solid #ccc; font-size: 9.5pt; }
+
+  .box-capture { border: 2px solid #1976d2; background: #e3f2fd; padding: 10px 14px; margin: 12px 0; border-radius: 4px; page-break-inside: avoid; }
+  .box-capture::before { content: "[캡처] "; font-weight: bold; color: #0d47a1; }
+
+  .box-danger { border: 2px solid #c62828; background: #ffebee; padding: 10px 14px; margin: 12px 0; border-radius: 4px; page-break-inside: avoid; }
+  .box-danger::before { content: "[금지] "; font-weight: bold; color: #b71c1c; }
+
+  .box-warning { border: 2px solid #ef6c00; background: #fff3e0; padding: 10px 14px; margin: 12px 0; border-radius: 4px; page-break-inside: avoid; }
+  .box-warning::before { content: "[주의] "; font-weight: bold; color: #e65100; }
+
+  .box-success { border: 2px solid #2e7d32; background: #e8f5e9; padding: 10px 14px; margin: 12px 0; border-radius: 4px; page-break-inside: avoid; }
+  .box-success::before { content: "[확인] "; font-weight: bold; color: #1b5e20; }
+
+  .box-llm { border: 2px solid #6a1b9a; background: #f3e5f5; padding: 10px 14px; margin: 12px 0; border-radius: 4px; page-break-inside: avoid; }
+  .box-llm::before { content: "[AI 복사용] "; font-weight: bold; color: #4a148c; }
+  .box-llm pre { background: #fff; color: #222; border: 1px dashed #9c27b0; font-size: 9.5pt; }
+
+  .flow {
+    background: #eceff1;
+    border-left: 5px solid #455a64;
+    padding: 8px 12px;
+    margin: 10px 0;
+    font-family: "Consolas", monospace;
+    font-size: 10pt;
+    white-space: pre-wrap;
+    page-break-inside: avoid;
+  }
+
+  .toc { background: #fafafa; border: 1px solid #ccc; padding: 14px 20px; border-radius: 5px; page-break-inside: avoid; }
+  .toc h2 { margin-top: 0; border-bottom: 1px solid #ccc; }
+  .toc a { color: #1565c0; text-decoration: none; }
+
+  table.diag th:nth-child(1) { width: 62%; }
+  table.diag th:nth-child(2) { width: 38%; }
+
+  .scenario { page-break-inside: avoid; margin-top: 28px; border-top: 1px solid #ccc; padding-top: 14px; }
+  .scenario h3 { background: #1565c0; color: #fff; padding: 8px 14px; border-radius: 4px; margin-top: 0; }
+
+  .cover { text-align: center; padding: 30mm 0; page-break-after: always; }
+  .cover h1 { font-size: 26pt; border: none; margin-bottom: 30px; }
+  .cover .subtitle { font-size: 13pt; color: #546e7a; margin: 16px 0; }
+
+  @media print {
+    body { padding: 12mm; font-size: 10pt; }
+    h1 { page-break-before: always; }
+    h1:first-of-type, .cover h1 { page-break-before: avoid; }
+    .scenario, .box-capture, .box-danger, .box-warning, .box-success, .box-llm, pre, .flow { page-break-inside: avoid; }
+    a { color: #222; text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 표지 -->
+<div class="cover">
+  <h1>CampManager<br>긴급 장애 대응 가이드</h1>
+  <div class="subtitle">— 개발자 부재 시 직접 대응 문서 —</div>
+  <p style="margin-top: 40px; font-size: 11pt; color: #37474f;">
+    이 문서는 서비스 장애가 발생했을 때<br>
+    기술 지식 없이도 빠르게 복구하기 위한 매뉴얼입니다.<br>
+    장애 시 목차에서 증상을 찾아 해당 섹션대로 따라 하세요.
+  </p>
+  <p style="margin-top: 60px; font-size: 10pt;">
+    문서 버전 1.0 · 2026-04-18
+  </p>
+</div>
+
+<!-- 목차 -->
+<div class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#section-1">사전 준비 (한 번만)</a></li>
+    <li><a href="#section-2">서버 접속 방법</a></li>
+    <li><a href="#section-3">증상별 진단표</a></li>
+    <li><a href="#section-4">시나리오별 대응 (10개)</a>
+      <ol>
+        <li><a href="#s-4-1">사이트가 아예 안 열림</a></li>
+        <li><a href="#s-4-2">502 / 503 / 504 에러</a></li>
+        <li><a href="#s-4-3">404 Not Found / 페이지를 찾을 수 없음</a></li>
+        <li><a href="#s-4-4">보안 경고 / 인증서 오류</a></li>
+        <li><a href="#s-4-5">로그인이 안 됨</a></li>
+        <li><a href="#s-4-6">로그인은 되는데 바로 튕기거나 자꾸 로그아웃됨</a></li>
+        <li><a href="#s-4-7">데이터가 안 보이거나 에러 팝업이 뜸</a></li>
+        <li><a href="#s-4-8">이미지 업로드 실패</a></li>
+        <li><a href="#s-4-9">전체가 느리거나 간헐적으로 안 뜸</a></li>
+        <li><a href="#s-4-10">데이터 대량 삭제·손상 의심 (긴급)</a></li>
+      </ol>
+    </li>
+    <li><a href="#section-5">명령어 치트시트</a></li>
+    <li><a href="#section-6">AI(LLM)에 질문하는 법</a></li>
+    <li><a href="#section-7">절대 하지 말 것</a></li>
+    <li><a href="#section-8">개발자에게 연락할 상황</a></li>
+  </ol>
+</div>
+
+<h2>이 문서 사용법</h2>
+<ol>
+  <li>장애가 발생하면 <strong>[3. 증상별 진단표]</strong>에서 브라우저 화면과 가장 가까운 증상을 찾습니다.</li>
+  <li>해당 시나리오(4.1~4.10)로 이동해 <strong>위에서 아래로 그대로 따라 합니다.</strong></li>
+  <li>명령어는 <strong>한 줄씩</strong> 복사해서 터미널에 붙여넣고 Enter를 칩니다.</li>
+  <li>안 풀리면 <strong>[6. AI에 질문하는 법]</strong>대로 스크린샷과 함께 AI에 물어봅니다.</li>
+  <li>그래도 해결 안 되면 <strong>[8. 개발자에게 연락할 상황]</strong>으로 이동합니다.</li>
+</ol>
+
+<div class="box-warning">
+  <strong>핵심 원칙</strong>
+  <ul style="margin: 4px 0;">
+    <li>빨간 [금지] 박스 명령은 절대 실행하지 않습니다.</li>
+    <li>명령어는 한 줄씩, 결과 확인 후 다음 줄.</li>
+    <li>확신이 없으면 먼저 AI에 물어봅니다.</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="section-1">1. 사전 준비 (한 번만)</h1>
+
+<h2>1.1 Git 설치 &amp; 문서 다운로드</h2>
+<ol>
+  <li><code>https://git-scm.com/download/win</code> 접속 → 다운로드 → 기본값(Next)으로 설치</li>
+  <li>바탕화면 우클릭 → <strong>"Git Bash Here"</strong></li>
+  <li>아래 2줄을 차례로 붙여넣고 Enter:
+<pre>cd /c/
+git clone https://github.com/Achil7/purchaseWeb.git campmanager-manual</pre>
+  </li>
+  <li>완료되면 <code>C:\campmanager-manual\docs\</code>에 이 문서가 생깁니다.</li>
+</ol>
+
+<h2>1.2 장애 시 최신 문서로 업데이트</h2>
+<pre>cd /c/campmanager-manual
+git pull</pre>
+
+<h2>1.3 VSCode + AI 확장 설치 (한 번만)</h2>
+
+<p>AI가 에러 이미지를 받는 것에 그치지 않고 <strong>실제 프로젝트 코드를 직접 보면서</strong> 답할 수 있어야 정확한 조치가 나옵니다. 따라서 코드 편집기(VSCode)에 AI 확장을 설치해 사용합니다.</p>
+
+<h3>(1) VSCode 설치</h3>
+<ol>
+  <li><code>https://code.visualstudio.com</code> 접속 → "Download for Windows" 클릭 → 기본값으로 설치</li>
+  <li>설치 완료 후 VSCode 실행</li>
+  <li>상단 메뉴 <strong>File → Open Folder</strong> → <code>C:\campmanager-manual</code> 폴더 선택 → 열기</li>
+</ol>
+
+<h3>(2) AI 확장 설치 (아래 2개 중 최소 1개)</h3>
+
+<p>VSCode 왼쪽 사이드바의 <strong>네모 4개 모양(Extensions)</strong> 아이콘 클릭 → 검색창에 이름 입력 → <strong>Install</strong> 버튼.</p>
+
+<table>
+  <tr><th>확장 이름</th><th>검색어</th><th>필요한 구독</th></tr>
+  <tr><td><strong>Claude Code</strong> (1순위 추천)</td><td><code>Claude Code</code></td><td>Claude Pro/Max (claude.ai)</td></tr>
+  <tr><td><strong>Codex</strong> (대안)</td><td><code>Codex</code></td><td>ChatGPT Plus (chatgpt.com)</td></tr>
+</table>
+
+<div class="box-success">
+  <strong>Claude Code 권장</strong>: 코드 분석·프로젝트 탐색·터미널 실행까지 한 번에 되며, 이미지 붙여넣기로 에러 화면을 바로 보여줄 수 있습니다. Codex는 대안으로 둡니다.
+</div>
+
+<h3>(3) 로그인</h3>
+<p>확장 설치 후 VSCode 좌측 사이드바에 해당 확장 아이콘이 생깁니다. 클릭하면 로그인 버튼이 보입니다.</p>
+<ul>
+  <li><strong>Claude Code</strong> → "Sign in with Claude" → 브라우저로 이동해 claude.ai 계정 로그인 → VSCode로 돌아오면 자동 연결</li>
+  <li><strong>Codex</strong> → "Sign in" → 브라우저로 이동해 ChatGPT 계정 로그인 → VSCode로 돌아오면 자동 연결</li>
+</ul>
+
+<h3>(4) 동작 확인 (테스트)</h3>
+<ol>
+  <li>VSCode에서 AI 확장 패널 열기</li>
+  <li>채팅창에 <code>안녕</code> 입력 → 답이 오면 정상</li>
+  <li>아무 이미지나 채팅창에 <strong>Ctrl+V</strong>로 붙여넣기 → 이미지가 보이면 OK</li>
+</ol>
+
+<!-- ============================================================ -->
+<h1 id="section-2">2. 서버 접속 방법</h1>
+
+<p>서버 명령은 브라우저의 AWS 콘솔 웹 터미널에서 실행합니다. 별도 프로그램이나 키 파일은 필요 없습니다.</p>
+
+<h2>2.1 접속 절차</h2>
+<ol>
+  <li><code>https://aws.amazon.com</code> 접속 → 우측 상단 <strong>"콘솔에 로그인"</strong></li>
+  <li>상단 검색창에 <code>EC2</code> 입력 → <strong>EC2</strong> 클릭</li>
+  <li>우측 상단 리전이 <strong>서울(ap-northeast-2)</strong>인지 확인</li>
+  <li>왼쪽 메뉴 <strong>"인스턴스(실행 중)"</strong> → CampManager 서버 체크박스 클릭</li>
+  <li>상단 주황색 <strong>"연결"</strong> 버튼 클릭</li>
+  <li><strong>"EC2 Instance Connect"</strong> 탭 선택 → 아래쪽 <strong>"연결"</strong> 버튼 클릭
+    <div class="box-warning" style="margin: 6px 0;">"SSH 클라이언트" 탭이 아닙니다.</div>
+  </li>
+  <li>검은 터미널 창이 열립니다. 아래와 비슷하면 성공:
+<pre class="result">ubuntu@ip-172-31-XX-XX:~$</pre>
+  </li>
+</ol>
+
+<h2>2.2 터미널 사용법</h2>
+<table>
+  <tr><th>할 일</th><th>방법</th></tr>
+  <tr><td>명령어 붙여넣기</td><td>터미널 안에서 <strong>마우스 우클릭</strong></td></tr>
+  <tr><td>명령 실행</td><td><strong>Enter</strong></td></tr>
+  <tr><td>실행 중단</td><td><strong>Ctrl + C</strong></td></tr>
+  <tr><td>화면 지우기</td><td><code>clear</code> + Enter</td></tr>
+  <tr><td>터미널 캡처</td><td><strong>F11</strong>(브라우저 전체화면) → <strong>Win+Shift+S</strong> → 드래그</td></tr>
+</table>
+
+<div class="box-warning">
+  세션이 자동 종료될 수 있습니다. 닫혔다고 데이터 손실은 없으니 2.1의 4번부터 다시 하면 됩니다.
+</div>
+
+<!-- ============================================================ -->
+<h1 id="section-3">3. 증상별 진단표</h1>
+
+<p>브라우저 화면에서 가장 가까운 증상을 찾아 오른쪽 시나리오로 이동합니다. <strong>모든 증상은 브라우저에서 직접 보이는 것</strong>을 기준으로 했습니다.</p>
+
+<table class="diag">
+  <tr><th>브라우저 화면에서 이런 것이 보인다면</th><th>이동</th></tr>
+  <tr><td>주소를 쳐도 아예 안 열림 / "이 페이지에 연결할 수 없음" / 무한 로딩</td><td><a href="#s-4-1">시나리오 4.1</a></td></tr>
+  <tr><td>"502 Bad Gateway" / "503 Service Unavailable" / "504 Gateway Timeout" 글자</td><td><a href="#s-4-2">시나리오 4.2</a></td></tr>
+  <tr><td>"404 Not Found" / "페이지를 찾을 수 없음"</td><td><a href="#s-4-3">시나리오 4.3</a></td></tr>
+  <tr><td>주소창 자물쇠가 빨간색 / "이 연결은 비공개가 아닙니다" / NET::ERR_CERT</td><td><a href="#s-4-4">시나리오 4.4</a></td></tr>
+  <tr><td>로그인 버튼을 눌러도 "아이디/비밀번호" 류 오류 메시지</td><td><a href="#s-4-5">시나리오 4.5</a></td></tr>
+  <tr><td>로그인은 성공인데 대시보드에 머물지 못하고 바로 로그아웃됨 / 자꾸 튕김</td><td><a href="#s-4-6">시나리오 4.6</a></td></tr>
+  <tr><td>로그인은 되는데 목록이 비어있음 / 빨간 에러 팝업 / "데이터 불러오기 실패"</td><td><a href="#s-4-7">시나리오 4.7</a></td></tr>
+  <tr><td>리뷰 이미지 업로드가 실패 / "업로드 실패" / "파일이 너무 큽니다"</td><td><a href="#s-4-8">시나리오 4.8</a></td></tr>
+  <tr><td>사이트가 극도로 느림 / 시트 버벅 / 가끔 안 뜨다가 다시 뜨다가 반복</td><td><a href="#s-4-9">시나리오 4.9</a></td></tr>
+  <tr><td>데이터가 통째로 사라졌다 / 어제까지 있던 것들이 싹 없어짐</td><td><a href="#s-4-10">시나리오 4.10 긴급</a></td></tr>
+</table>
+
+<div class="box-warning">
+  위 표에 없는 증상이면 <a href="#section-6">[6. AI에 질문하는 법]</a>으로 이동해 AI에 먼저 물어봅니다. AI 답변으로도 해결 안 되면 개발자에게 연락합니다.
+</div>
+
+<!-- ============================================================ -->
+<h1 id="section-4">4. 시나리오별 대응</h1>
+
+<p>모든 시나리오는 동일한 순서를 따릅니다:</p>
+<ol>
+  <li>① 증상 — 브라우저에서 보이는 것</li>
+  <li>② 캡처 — 나중에 AI에 보낼 자료 미리 찍기</li>
+  <li>③ 서버 상태 체크 — 터미널에서 명령 실행</li>
+  <li>④ 결과 분기 — 체크 결과에 따라 다음 단계 선택</li>
+  <li>⑤ 대응(해결)</li>
+  <li>⑥ 안 풀리면 AI에 질문</li>
+  <li>⑦ 복구 확인</li>
+</ol>
+
+<!-- 4.1 -->
+<div class="scenario" id="s-4-1">
+<h3>4.1 사이트가 아예 안 열림</h3>
+
+<h4>① 증상</h4>
+<pre class="result">이 페이지에 연결할 수 없습니다
+또는: ERR_CONNECTION_TIMED_OUT
+또는: ERR_CONNECTION_REFUSED
+또는: 하얀 화면에서 로딩만 계속</pre>
+
+<h4>② 캡처</h4>
+<div class="box-capture">
+  <ol>
+    <li>브라우저 에러 화면 (주소창 포함)</li>
+    <li>같은 PC에서 다른 사이트(예: <code>naver.com</code>)는 열리는지 확인 후 그 화면
+      <ul><li>다른 사이트도 안 열리면 → 내 PC 인터넷 문제. 공유기 재시작부터.</li></ul>
+    </li>
+  </ol>
+</div>
+
+<h4>③ 서버 상태 체크 (터미널에서 한 줄씩)</h4>
+<pre>docker ps</pre>
+<p>예상 결과: <code>campmanager-app</code>이 목록에 있고 STATUS가 <code>Up ...</code>이면 정상.</p>
+
+<pre>sudo systemctl status nginx</pre>
+<p>예상 결과: 초록색 <code>active (running)</code>이 보이면 정상.</p>
+
+<pre>curl http://localhost:5000/health</pre>
+<p>예상 결과: <code>{"status":"OK"}</code>이면 정상.</p>
+
+<h4>④ 결과 분기</h4>
+<div class="flow">
+[docker ps 에서 campmanager-app 이]
+  목록에 없음 또는 Exited       → ⑤-A
+  Restarting                    → 시나리오 4.9
+
+[systemctl status nginx 가]
+  active (running) 이 아님      → ⑤-B
+
+[위 둘 다 정상인데 사이트 안 열림]
+                                → ⑤-C
+</div>
+
+<h4>⑤ 대응</h4>
+<p><strong>A. 서비스 기동</strong></p>
+<pre>cd ~
+docker compose up -d</pre>
+<p>예상 결과: <code>Started</code> 메시지, 10초 뒤 사이트 복구.</p>
+
+<p><strong>B. 웹서버 재시작</strong></p>
+<pre>sudo systemctl restart nginx</pre>
+
+<p><strong>C. 일반 재시도</strong></p>
+<pre>docker restart campmanager-app</pre>
+<p>20초 대기 후 브라우저 새로고침.</p>
+
+<h4>⑥ 안 풀리면 AI에 질문</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+사이트가 아예 안 열립니다. ②에서 찍은 캡처와 ③의 명령 실행 결과를 올립니다.
+원인과 실행할 명령어를 알려주세요.</pre>
+</div>
+
+<h4>⑦ 복구 확인</h4>
+<ul>
+  <li>브라우저에서 서비스 주소 접속 시 정상 로딩</li>
+  <li>로그인 성공</li>
+</ul>
+</div>
+
+<!-- 4.2 -->
+<div class="scenario" id="s-4-2">
+<h3>4.2 502 / 503 / 504 에러</h3>
+
+<h4>① 증상</h4>
+<pre class="result">502 Bad Gateway
+또는: 503 Service Unavailable
+또는: 504 Gateway Timeout</pre>
+
+<h4>② 캡처</h4>
+<div class="box-capture">
+  <ol>
+    <li>브라우저의 에러 화면 (글자·코드 번호 잘 보이게)</li>
+    <li>몇 번 새로고침해 봤을 때 간헐적으로 뜨는지 / 항상 뜨는지 기록</li>
+  </ol>
+</div>
+
+<h4>③ 서버 상태 체크</h4>
+<pre>docker ps</pre>
+<pre>curl http://localhost:5000/health</pre>
+<pre>docker logs --tail 100 campmanager-app</pre>
+
+<h4>④ 결과 분기</h4>
+<div class="flow">
+[docker ps 의 STATUS 가]
+  Up                               → ⑤-A (웹서버 재시작)
+  Exited / 목록에 없음              → ⑤-B (서비스 기동)
+  Restarting                        → 시나리오 4.9
+
+[curl 결과가]
+  {"status":"OK"}                  → ⑤-A
+  Connection refused / 오래 걸림   → ⑤-B
+</div>
+
+<h4>⑤ 대응</h4>
+<p><strong>A. 웹서버 재시작</strong></p>
+<pre>sudo systemctl restart nginx</pre>
+
+<p><strong>B. 서비스 재기동</strong></p>
+<pre>cd ~
+docker compose up -d</pre>
+<p>20초 대기 후 브라우저 새로고침.</p>
+
+<p><strong>C. 둘 다 해도 안 되면 완전 재시작</strong></p>
+<pre>docker restart campmanager-app
+sudo systemctl restart nginx</pre>
+
+<h4>⑥ 안 풀리면 AI에 질문</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+브라우저에 502(또는 503/504) 에러가 뜹니다. 캡처와 docker ps, docker logs 결과를 올립니다.
+원인과 실행할 명령어를 알려주세요.</pre>
+</div>
+
+<h4>⑦ 복구 확인</h4>
+<ul>
+  <li>브라우저 재접속 시 502/503/504 사라짐</li>
+  <li>로그인 성공 후 대시보드 이동</li>
+</ul>
+</div>
+
+<!-- 4.3 -->
+<div class="scenario" id="s-4-3">
+<h3>4.3 404 Not Found / 페이지를 찾을 수 없음</h3>
+
+<h4>① 증상</h4>
+<pre class="result">404 Not Found
+또는: 페이지를 찾을 수 없습니다
+또는: Cannot GET /xxx</pre>
+
+<h4>② 캡처</h4>
+<div class="box-capture">
+  <ol>
+    <li>404가 뜬 브라우저 화면 (주소창의 URL 전체가 보이게)</li>
+    <li>같은 도메인의 다른 페이지(예: 로그인 페이지)는 열리는지 확인 후 그 화면</li>
+  </ol>
+</div>
+
+<h4>③ 범위 확인 (가장 먼저)</h4>
+<ul>
+  <li>특정 페이지 1개만 404 → 사용자가 잘못된 링크를 클릭했을 가능성 큼. 메인에서 다시 진입 유도.</li>
+  <li>모든 페이지가 404 → 서버 문제. 아래 체크로 진행.</li>
+</ul>
+
+<h4>④ 서버 상태 체크</h4>
+<pre>docker ps</pre>
+<pre>curl http://localhost:5000/health</pre>
+
+<h4>⑤ 결과 분기</h4>
+<div class="flow">
+[curl 결과가]
+  {"status":"OK"}               → ⑥-A (방금 배포된 코드 문제)
+  응답 없음/다른 응답           → ⑥-B (재시작)
+</div>
+
+<h4>⑥ 대응</h4>
+<p><strong>A. 배포 직후라면 롤백 필요</strong> — 개발자 연락.</p>
+
+<p><strong>B. 일반 재시도</strong></p>
+<pre>docker restart campmanager-app</pre>
+<p>20초 대기 후 해당 페이지 재접속.</p>
+
+<h4>⑦ 안 풀리면 AI에 질문</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+특정 페이지(또는 전체)가 404로 뜹니다. URL이 보이는 캡처와 docker ps, curl 결과를 올립니다.
+최근에 배포를 한 적이 있는지도 함께 확인해주세요.</pre>
+</div>
+
+<h4>⑧ 복구 확인</h4>
+<ul>
+  <li>해당 페이지 정상 로딩</li>
+  <li>다른 페이지들도 정상</li>
+</ul>
+</div>
+
+<!-- 4.4 -->
+<div class="scenario" id="s-4-4">
+<h3>4.4 보안 경고 / 인증서 오류</h3>
+
+<h4>① 증상</h4>
+<pre class="result">이 연결은 비공개 연결이 아닙니다
+또는: NET::ERR_CERT_DATE_INVALID
+또는: 주소창 자물쇠가 빨간색/X자</pre>
+
+<h4>② 캡처</h4>
+<div class="box-capture">
+  <ol>
+    <li>브라우저 경고 화면 ("고급" 버튼 누르지 말고 그대로)</li>
+    <li>주소창 자물쇠 아이콘 클릭 → "인증서가 유효하지 않습니다" 상세 화면</li>
+  </ol>
+</div>
+
+<h4>③ 서버에서 만료일 확인</h4>
+<pre>sudo certbot certificates</pre>
+<p>예상 결과: <code>Expiry Date</code> 줄에 날짜가 보임. 오늘 날짜보다 과거면 만료.</p>
+
+<h4>④ 대응 — 인증서 갱신</h4>
+<pre>sudo certbot renew</pre>
+<pre>sudo systemctl restart nginx</pre>
+<p>예상 결과: <code>Successfully renewed</code> 메시지. 브라우저 재접속 시 자물쇠가 초록색.</p>
+
+<h4>⑤ 갱신 실패 시 AI에 질문</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+certbot renew 가 실패했습니다. 터미널 출력 전체를 캡처해서 올립니다.
+파일 편집 없이 가능한 조치만 알려주세요.</pre>
+</div>
+<p>AI도 "개발자 연락"이라고 답하면 → 개발자 연락.</p>
+
+<h4>⑥ 복구 확인</h4>
+<ul>
+  <li>주소창 자물쇠가 초록/회색(정상)</li>
+  <li><code>sudo certbot certificates</code> 만료일이 약 90일 뒤로 갱신됨</li>
+</ul>
+</div>
+
+<!-- 4.5 -->
+<div class="scenario" id="s-4-5">
+<h3>4.5 로그인이 안 됨</h3>
+
+<h4>① 증상</h4>
+<pre class="result">아이디 또는 비밀번호가 올바르지 않습니다
+또는: 인증 처리 중 오류가 발생했습니다
+또는: 로그인 버튼을 눌러도 아무 반응 없음</pre>
+
+<h4>② 캡처</h4>
+<div class="box-capture">
+  <ol>
+    <li>로그인 실패 시 브라우저 화면 (에러 문구 포함)</li>
+    <li>브라우저에서 <strong>F12</strong> → "Network" 탭 열어둔 상태로 로그인 재시도 → 빨간 줄 요청 클릭 → 오른쪽 "Response" 탭 캡처</li>
+  </ol>
+</div>
+
+<h4>③ 범위 확인</h4>
+<ul>
+  <li>나만 안 됨 (다른 직원은 됨) → ⑤-A</li>
+  <li>전 직원 안 됨 → ⑤-B</li>
+</ul>
+
+<h4>④ 서버 상태 체크 (전원 안 될 때만)</h4>
+<pre>curl http://localhost:5000/health</pre>
+<pre>docker logs --tail 100 campmanager-app</pre>
+
+<h4>⑤ 대응</h4>
+<p><strong>A. 나만 안 될 때</strong></p>
+<ol>
+  <li>브라우저 <strong>F12</strong> → "Application" 탭 → 왼쪽 "Local Storage" → 해당 도메인 선택 → <strong>Clear</strong> 버튼</li>
+  <li>같은 탭 → "Cookies" → <strong>Clear</strong></li>
+  <li>브라우저 완전히 닫고 다시 열어 로그인</li>
+  <li>그래도 안 되면 관리자 계정으로 해당 사용자 비밀번호 재설정</li>
+</ol>
+
+<p><strong>B. 전원 안 될 때</strong></p>
+<pre>docker restart campmanager-app</pre>
+<p>로그에 <code>database</code> 관련 에러가 보이면 → 내용을 캡처해서 ⑥ AI 질문으로.</p>
+
+<h4>⑥ 안 풀리면 AI에 질문</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+로그인이 전원 안 됩니다. 브라우저 Network 탭 Response와 docker logs 결과를 올립니다.
+원인과 실행할 명령어를 알려주세요.</pre>
+</div>
+
+<h4>⑦ 복구 확인</h4>
+<ul>
+  <li>로그인 후 대시보드 정상 진입</li>
+  <li>다른 직원도 로그인 가능</li>
+</ul>
+</div>
+
+<!-- 4.6 -->
+<div class="scenario" id="s-4-6">
+<h3>4.6 로그인은 되는데 바로 튕기거나 자꾸 로그아웃됨</h3>
+
+<h4>① 증상</h4>
+<ul>
+  <li>로그인 성공 직후 바로 로그인 화면으로 돌아감</li>
+  <li>페이지 이동할 때마다 세션 만료라며 로그아웃됨</li>
+  <li>몇 분 안 되어 자동 로그아웃 반복</li>
+</ul>
+
+<h4>② 캡처</h4>
+<div class="box-capture">
+  <ol>
+    <li>로그인 직후 튕기는 순간 화면 (가능하면 2장)</li>
+    <li>브라우저 <strong>F12</strong> → "Network" 탭에 빨간 줄이 있으면 그 줄 Response 캡처</li>
+  </ol>
+</div>
+
+<h4>③ 서버 상태 체크</h4>
+<pre>docker ps</pre>
+<p>예상 결과: STATUS가 <code>Up 1 minute</code>, <code>Up 2 minutes</code>처럼 아주 짧으면 <strong>서비스가 방금 재시작된 상태</strong> → 자연스럽게 세션이 풀린 것. 잠시 후 정상화.</p>
+
+<pre>docker logs --tail 100 campmanager-app</pre>
+
+<h4>④ 결과 분기</h4>
+<div class="flow">
+[docker ps STATUS 가]
+  Up 몇 초 / 몇 분 (매번 짧음)   → ⑤-A (재시작 루프, 시나리오 4.9로 가기)
+  Up 정상 (시간 제대로 카운트)   → ⑤-B
+</div>
+
+<h4>⑤ 대응</h4>
+<p><strong>A. 재시작 루프 의심</strong></p>
+<p>→ 시나리오 4.9 (느림/간헐 단속)의 체크로 이동.</p>
+
+<p><strong>B. 일반 조치</strong></p>
+<ol>
+  <li>브라우저 <strong>F12</strong> → "Application" → Local Storage / Cookies 전부 Clear</li>
+  <li>브라우저 완전히 닫고 재시작 후 로그인</li>
+  <li>여전히 튕기면 서버 측 재시작:</li>
+</ol>
+<pre>docker restart campmanager-app</pre>
+
+<h4>⑥ 안 풀리면 AI에 질문</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+로그인 직후 튕기거나 자꾸 로그아웃됩니다. 캡처와 docker ps, docker logs 결과를 올립니다.
+원인과 실행할 명령어를 알려주세요.</pre>
+</div>
+
+<h4>⑦ 복구 확인</h4>
+<ul>
+  <li>로그인 후 10분 이상 세션 유지</li>
+  <li>페이지 여러 개 이동해도 로그아웃 없음</li>
+</ul>
+</div>
+
+<!-- 4.7 -->
+<div class="scenario" id="s-4-7">
+<h3>4.7 데이터가 안 보이거나 에러 팝업이 뜸</h3>
+
+<p>로그인은 되는데 화면에 문제가 있는 모든 경우를 여기서 다룹니다.</p>
+
+<h4>① 증상 (어느 것이든)</h4>
+<ul>
+  <li>대시보드는 열렸는데 목록이 비어 있음</li>
+  <li>빨간 에러 팝업: "데이터를 불러오지 못했습니다" / "서버 오류" / 비슷한 류</li>
+  <li>로딩 스피너만 계속 돌고 결과 없음</li>
+  <li>어제까지 있던 데이터 일부가 안 보임 (통째로 사라졌으면 시나리오 4.10)</li>
+  <li>페이지에 "undefined" / "null" 같은 이상한 문자</li>
+  <li>배포 직후부터 이상 증상이 시작됨</li>
+</ul>
+
+<h4>② 캡처</h4>
+<div class="box-capture">
+  <ol>
+    <li>이상 현상이 보이는 화면</li>
+    <li>브라우저 <strong>F12</strong> → "Console" 탭: 빨간 글자 전부 (스크롤하며 여러 장 캡처)</li>
+    <li>브라우저 <strong>F12</strong> → "Network" 탭: 빨간 줄(실패 요청) 클릭 → "Response" 탭 캡처</li>
+  </ol>
+</div>
+
+<h4>③ 범위 확인</h4>
+<ul>
+  <li>전 사용자가 똑같은 이상 → ⑤-A</li>
+  <li>특정 사용자만 이상 (다른 사용자는 정상) → ⑤-B</li>
+  <li>배포 직후부터 → ⑤-C</li>
+</ul>
+
+<h4>④ 서버 상태 체크 (⑤-A 또는 ⑤-C일 때)</h4>
+<pre>curl http://localhost:5000/health</pre>
+<pre>docker logs --tail 150 campmanager-app</pre>
+<p>로그에서 다음 키워드가 보이면 심각 신호 → 캡처해 두기: <code>database</code>, <code>ECONNREFUSED</code>, <code>column "..." does not exist</code>, <code>relation "..." does not exist</code></p>
+
+<h4>⑤ 대응</h4>
+<p><strong>A. 전원 이상 — 일반 재시도</strong></p>
+<pre>docker restart campmanager-app</pre>
+<p>20초 대기 후 브라우저 새로고침.</p>
+
+<p><strong>B. 특정 사용자만 이상</strong></p>
+<ol>
+  <li>관리자 대시보드에서 해당 사용자 역할이 맞게 설정되었는지 확인</li>
+  <li>해당 사용자가 캠페인/품목에 정상 배정되어 있는지 확인</li>
+  <li>사용자에게 브라우저 Local Storage Clear + 재로그인 요청</li>
+</ol>
+
+<p><strong>C. 배포 직후부터 — 마이그레이션 시도</strong></p>
+<pre>cd ~
+docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"</pre>
+<p>예상 결과: <code>== 20260XXX-xxx: migrated</code>처럼 줄줄이 출력되면 성공.</p>
+<pre>docker restart campmanager-app</pre>
+
+<div class="box-danger">
+  마이그레이션이 <strong>에러로 실패</strong>하면 더 이상 명령 실행하지 말고 바로 개발자 연락.
+</div>
+
+<h4>⑥ 안 풀리면 AI에 질문</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+로그인은 되는데 데이터가 안 보이거나 에러 팝업이 뜹니다.
+브라우저 Console/Network 캡처와 docker logs 결과를 올립니다.
+(해당된다면) 최근 배포 여부도 함께 봐주세요.
+원인과 실행할 명령어를 알려주세요.</pre>
+</div>
+
+<div class="box-danger">
+  데이터가 <strong>통째로</strong> 사라진 것 같으면 <a href="#s-4-10">시나리오 4.10 (긴급 동결)</a>으로 즉시 이동. 임의 재시작 시도를 하지 않습니다.
+</div>
+
+<h4>⑦ 복구 확인</h4>
+<ul>
+  <li>목록/시트에 데이터 정상 출력</li>
+  <li>빨간 에러 팝업 사라짐</li>
+  <li>이미지 썸네일 정상 표시</li>
+</ul>
+</div>
+
+<!-- 4.8 -->
+<div class="scenario" id="s-4-8">
+<h3>4.8 이미지 업로드 실패</h3>
+
+<h4>① 증상</h4>
+<ul>
+  <li>"이미지 업로드 실패" 메시지</li>
+  <li>"파일 크기가 10MB를 초과했습니다"</li>
+  <li>"413 Request Entity Too Large" 화면</li>
+  <li>업로드 버튼 눌러도 아무 반응 없음</li>
+</ul>
+
+<h4>② 캡처</h4>
+<div class="box-capture">
+  <ol>
+    <li>업로드 실패 시 화면</li>
+    <li>업로드 시도한 파일의 크기 (파일 탐색기에서 파일 우클릭 → 속성)</li>
+    <li>브라우저 <strong>F12</strong> → "Console" 탭 빨간 글자</li>
+  </ol>
+</div>
+
+<h4>③ 범위 확인 (먼저 해볼 것)</h4>
+<ul>
+  <li>파일이 10MB를 넘는가? → 넘으면 크기를 줄여 재업로드. 해결.</li>
+  <li>파일 형식이 jpg/png/gif/webp가 맞는가? → 아니면 다른 파일로 재시도.</li>
+  <li>한 번에 50개를 넘지 않았는가? → 나눠서 업로드.</li>
+  <li>위 3개가 전부 OK인데 실패하면 → ⑤로 진행.</li>
+</ul>
+
+<h4>④ 서버 상태 체크</h4>
+<pre>docker ps</pre>
+<pre>docker logs --tail 100 campmanager-app</pre>
+
+<h4>⑤ 대응</h4>
+<p><strong>A. 전원 업로드 실패 — 재시작</strong></p>
+<pre>docker restart campmanager-app</pre>
+
+<p><strong>B. "413 Request Entity Too Large" 라면</strong></p>
+<pre>sudo systemctl restart nginx</pre>
+<p>그래도 지속되면 설정 파일 편집 필요 → 개발자 연락.</p>
+
+<h4>⑥ 안 풀리면 AI에 질문</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+이미지 업로드가 실패합니다. 업로드 화면, 브라우저 Console, docker logs를 올립니다.
+파일 크기/형식/개수는 모두 정상 범위입니다.
+원인과 실행할 명령어를 알려주세요.</pre>
+</div>
+
+<h4>⑦ 복구 확인</h4>
+<ul>
+  <li>10MB 이하 이미지 1장 업로드 성공</li>
+  <li>업로드된 이미지가 시트에 썸네일로 정상 표시</li>
+</ul>
+</div>
+
+<!-- 4.9 -->
+<div class="scenario" id="s-4-9">
+<h3>4.9 전체가 느리거나 간헐적으로 안 뜸</h3>
+
+<h4>① 증상</h4>
+<ul>
+  <li>페이지 로딩이 30초~1분 이상 걸림</li>
+  <li>시트 스크롤 시 심한 버벅거림, 한글 입력 깨짐</li>
+  <li>새로고침하면 뜨다가, 다시 새로고침하면 안 뜨다가 반복</li>
+  <li>저장(Ctrl+S)이 한참 뒤에야 반영됨</li>
+</ul>
+
+<h4>② 캡처</h4>
+<div class="box-capture">
+  <ol>
+    <li>느린 페이지의 주소창이 보이는 화면</li>
+    <li>브라우저 <strong>F12</strong> → "Network" 탭에서 가장 오래 걸리는 요청 행 (Time 컬럼)</li>
+  </ol>
+</div>
+
+<h4>③ 서버 상태 체크 (한 줄씩)</h4>
+<pre>docker ps</pre>
+<pre>docker stats --no-stream</pre>
+<pre>df -h</pre>
+<pre>free -h</pre>
+
+<h4>④ 결과 분기</h4>
+<div class="flow">
+[docker ps STATUS 가]
+  Restarting 반복                  → ⑤-A (재시작 루프, 심각)
+
+[docker stats 의 MEM % 가]
+  90% 이상                         → ⑤-B
+
+[df -h 의 / 사용률이]
+  90% 이상                         → ⑤-C (디스크 정리)
+
+[전부 정상 범위인데 느림]
+                                   → ⑤-D
+</div>
+
+<h4>⑤ 대응</h4>
+<p><strong>A. Restarting 루프</strong></p>
+<pre>docker logs --tail 200 campmanager-app</pre>
+<p>로그의 마지막 부분을 캡처 후 ⑥ AI 질문으로. 계속 꺼지면 개발자 연락.</p>
+
+<p><strong>B. 메모리 포화</strong></p>
+<pre>docker restart campmanager-app</pre>
+<p>임시 복구. 자주 반복되면 개발자 연락.</p>
+
+<p><strong>C. 디스크 정리 (안전한 것만)</strong></p>
+<pre>docker image prune -a -f</pre>
+<pre>docker container prune -f</pre>
+<pre>sudo journalctl --vacuum-size=500M</pre>
+<pre>df -h</pre>
+<p>예상 결과: 마지막 <code>df -h</code>의 <code>/</code> 사용률이 낮아짐.</p>
+
+<div class="box-danger">
+  절대 실행 금지: <code>docker system prune -a --volumes</code>, <code>docker volume rm/prune</code> → 데이터 영구 삭제.
+</div>
+
+<p><strong>D. 일반 재시도</strong></p>
+<pre>docker restart campmanager-app</pre>
+<pre>sudo systemctl restart nginx</pre>
+
+<h4>⑥ 안 풀리면 AI에 질문</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+사이트가 매우 느리거나 간헐적으로 안 뜹니다.
+docker ps, docker stats, df -h, free -h 결과를 올립니다.
+원인과 실행할 명령어를 알려주세요.</pre>
+</div>
+
+<h4>⑦ 복구 확인</h4>
+<ul>
+  <li>페이지 로딩 5초 이내</li>
+  <li>시트 스크롤 부드러움</li>
+  <li>새로고침 10번 연속 모두 정상 로딩</li>
+</ul>
+</div>
+
+<!-- 4.10 -->
+<div class="scenario" id="s-4-10">
+<h3>4.10 데이터 대량 삭제·손상 의심 (긴급)</h3>
+
+<div class="box-danger">
+  이 시나리오는 <strong>"아무것도 하지 않는 것"</strong>이 가장 중요합니다.
+  섣부른 재시작·재배포가 상황을 돌이킬 수 없게 만들 수 있습니다.
+</div>
+
+<h4>① 증상</h4>
+<ul>
+  <li>캠페인/구매자 목록이 통째로 비어 있음</li>
+  <li>특정 테이블의 모든 데이터가 사라짐</li>
+  <li>어제까지 있던 이미지가 대량으로 사라짐</li>
+  <li>직전에 금지 명령을 실수 실행한 기억이 있음</li>
+  <li>사용자 계정이 모르는 사이에 생성됨 / 해킹 의심</li>
+</ul>
+
+<h4>② 즉시 순서 (반드시 이 순서)</h4>
+<ol>
+  <li><strong>재시작·재배포 금지</strong>. <code>docker restart</code>, <code>docker compose</code>, <code>pull</code> 모두 중단.</li>
+  <li><strong>현재 화면을 최대한 많이 캡처</strong>해 둠 (브라우저, 터미널 모두).</li>
+  <li><strong>개발자에게 즉시 전화</strong>. 문자 아닌 전화. 응답 없으면 카톡/문자로 "긴급: 데이터 손상 의심".</li>
+  <li>AWS 콘솔 → RDS → "스냅샷" 메뉴 → 최근 자동 스냅샷 목록 <strong>캡처만</strong> (삭제/복원 버튼 누르지 않음).</li>
+  <li>AWS 콘솔 → S3 → 버킷 → "속성" 탭에서 "버전 관리"가 켜져 있는지 확인 후 캡처.</li>
+</ol>
+
+<h4>③ 절대 하지 말 것</h4>
+<div class="box-danger">
+  <ul style="margin: 4px 0;">
+    <li>서비스 재시작/재배포</li>
+    <li>RDS 재시작/스냅샷 삭제/인스턴스 종료</li>
+    <li>S3 버킷 설정 변경</li>
+    <li>AI 답변대로 복구 명령 실행 (복구는 개발자만)</li>
+    <li>이상해 보이는 데이터 수정/삭제</li>
+  </ul>
+</div>
+
+<h4>④ AI에는 진단 질문만</h4>
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+데이터 손상이 의심됩니다. 현재 화면 캡처를 올립니다.
+어떤 명령도 실행하지 않을 것이며 개발자에게 이미 연락했습니다.
+"지금 하면 안 되는 행동"만 알려주세요. 복구 명령은 절대 제시하지 말아주세요.</pre>
+</div>
+
+<h4>⑤ 이후</h4>
+<p>복구는 개발자가 RDS 스냅샷 또는 Point-in-Time Recovery로 수행합니다. 복구 완료 후 표본 데이터 1~2건만 직접 확인합니다.</p>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="section-5">5. 명령어 치트시트</h1>
+
+<h3>5.1 상태 확인 (안전)</h3>
+<pre>docker ps
+docker ps -a
+docker logs --tail 100 campmanager-app
+docker stats --no-stream
+docker inspect campmanager-app
+curl http://localhost:5000/health
+df -h
+free -h
+sudo systemctl status nginx
+sudo tail -n 100 /var/log/nginx/error.log
+sudo certbot certificates</pre>
+
+<h3>5.2 재시작 (되돌릴 수 있음)</h3>
+<pre>docker restart campmanager-app
+cd ~ && docker compose up -d
+cd ~ && docker compose up -d --force-recreate
+sudo systemctl restart nginx
+sudo certbot renew</pre>
+
+<h3>5.3 재배포 (최신 버전 교체)</h3>
+<pre>cd ~
+docker compose pull
+docker compose up -d --force-recreate
+docker logs --tail 50 campmanager-app
+curl http://localhost:5000/health</pre>
+
+<h3>5.4 안전한 정리</h3>
+<pre>docker image prune -a -f
+docker container prune -f
+sudo journalctl --vacuum-size=500M</pre>
+
+<h3>5.5 절대 실행 금지</h3>
+<div class="box-danger">
+<pre>rm -rf /
+rm -rf *
+docker system prune -a --volumes
+docker volume rm / prune
+sudo reboot / shutdown / poweroff
+DROP TABLE / DATABASE
+DELETE FROM / TRUNCATE</pre>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="section-6">6. AI(LLM)에 질문하는 법</h1>
+
+<p>명령어만으로 안 풀리는 장애는 AI에 에러 이미지를 보내 진단받습니다. <strong>VSCode 확장</strong>을 쓰면 AI가 프로젝트 코드를 직접 보면서 답하기 때문에 훨씬 정확합니다.</p>
+
+<h2>6.1 준비 확인</h2>
+<p>섹션 1.3에서 아래가 모두 끝나 있어야 합니다.</p>
+<ul>
+  <li>VSCode 설치 + <code>C:\campmanager-manual</code> 폴더 열기</li>
+  <li>Claude Code 또는 Codex 확장 설치 + 로그인 완료</li>
+  <li>테스트 채팅 동작 확인</li>
+</ul>
+
+<h2>6.2 스크린샷 찍기</h2>
+<table>
+  <tr><th>OS</th><th>단축키</th><th>결과</th></tr>
+  <tr><td>Windows</td><td><code>Win + Shift + S</code></td><td>영역 드래그 → 클립보드 복사 → AI 채팅창에서 <code>Ctrl+V</code></td></tr>
+  <tr><td>Mac</td><td><code>Cmd + Shift + 4</code></td><td>영역 드래그 → 바탕화면 저장 → AI 창에 드래그</td></tr>
+</table>
+<p>터미널 캡처 시 브라우저 <strong>F11</strong>(전체화면) 후 글자가 잘리지 않게 찍습니다.</p>
+
+<h2>6.3 질문 표준 절차 (VSCode에서)</h2>
+<ol>
+  <li>VSCode 열기 → <strong>File → Open Folder</strong> → <code>C:\campmanager-manual</code> 열려있는지 확인</li>
+  <li>왼쪽 사이드바의 Claude Code(또는 Codex) 아이콘 클릭 → 채팅 패널 열기</li>
+  <li>채팅창에 <strong>Ctrl+V</strong>로 에러 스크린샷 1~3장 붙여넣기</li>
+  <li>아래 <strong>6.4 고정 템플릿</strong>을 복사해서 채팅창에 붙여넣기</li>
+  <li>Enter → 답변 대기 (AI가 자동으로 프로젝트 코드를 탐색해 문맥 파악)</li>
+  <li>답변의 <strong>6.5 안전 체크</strong> 확인 후 명령어 실행</li>
+  <li>터미널에서 명령 실행한 결과를 다시 스크린샷 → <strong>같은 채팅창</strong>에 붙여넣고 다음 단계 받기</li>
+</ol>
+
+<div class="box-success">
+  <strong>VSCode 확장의 강점</strong>: 프로젝트 폴더를 열어둔 채로 질문하면 AI가 <code>docs/LLM_EMERGENCY_CONTEXT.md</code>를 포함한 프로젝트 파일을 자동으로 읽고 답합니다. 별도 파일 첨부가 필요 없습니다.
+</div>
+
+<h2>6.4 고정 질문 템플릿</h2>
+<p>아래 박스 전체를 <strong>마우스로 드래그</strong>해서 선택 → <strong>Ctrl+C</strong> → VSCode 채팅창에 <strong>Ctrl+V</strong>:</p>
+
+<div class="box-llm">
+<pre>docs/LLM_EMERGENCY_CONTEXT.md 를 먼저 읽어주세요.
+이 문서에 제 서비스 구조와 답변 형식이 적혀 있습니다.
+필요한 경우 프로젝트 코드도 참고해주세요.
+
+【증상】
+(한두 문장으로 — 예: "사이트에 502 Bad Gateway 에러가 뜹니다")
+
+【첨부한 이미지 설명】
+1) (예: 브라우저 502 화면)
+2) (예: docker ps 결과)
+3) (예: docker logs 결과)
+
+【요청】
+위 문서의 "ANSWER FORMAT" 대로 답해주세요:
+  1) 원인 추정 (2~3줄)
+  2) 바로 실행할 명령어 (번호 매긴 한 줄씩)
+  3) 성공 기준
+  4) 개발자 연락이 필요한가?
+
+파일 편집(vi/nano)이 필요하면 "개발자 연락"으로 답해주세요.
+rm -rf, DROP, --volumes 가 포함된 명령은 절대 제시하지 말아주세요.</pre>
+</div>
+
+<h2>6.5 AI 답변 안전 체크 (실행 전 필독)</h2>
+
+<div class="box-danger">
+  아래 단어가 답변에 하나라도 보이면 즉시 중단하고 개발자 연락:
+  <ul style="margin: 4px 0;">
+    <li><code>rm -rf</code>, <code>rm -r</code></li>
+    <li><code>--volumes</code> (docker system prune과 함께)</li>
+    <li><code>docker volume rm</code> / <code>prune</code></li>
+    <li><code>DROP</code>, <code>TRUNCATE</code>, <code>DELETE FROM</code></li>
+    <li><code>sudo reboot</code>, <code>sudo shutdown</code>, <code>sudo poweroff</code></li>
+    <li><code>vi</code>, <code>vim</code>, <code>nano</code>로 파일 편집</li>
+    <li><code>sed -i</code>, <code>awk</code>로 설정 파일 수정</li>
+    <li><code>chmod 777</code></li>
+    <li><code>git push</code>, <code>docker push</code>, <code>docker build</code></li>
+  </ul>
+</div>
+
+<div class="box-warning">
+  아래 경우도 일단 중단:
+  <ul style="margin: 4px 0;">
+    <li>답변이 "파일을 여세요"로 시작</li>
+    <li>같은 조치 3번 반복해도 동일 증상</li>
+    <li>명령 의미를 전혀 이해할 수 없음 → AI에 "이게 정확히 뭘 하는 명령인지 비전공자 기준으로 설명해주세요" 추가 질문</li>
+    <li>AI가 <strong>직접 파일을 수정하겠다고 제안</strong>할 때 — Claude Code는 실제로 파일 편집을 시도할 수 있으므로 "코드 수정 없이 서버 명령어만 알려주세요"로 다시 요청</li>
+  </ul>
+</div>
+
+<div class="box-success">
+  아래 명령만 있으면 안전하게 실행:
+  <ul style="margin: 4px 0;">
+    <li><code>docker ps</code>, <code>docker logs</code>, <code>docker stats</code>, <code>docker inspect</code></li>
+    <li><code>docker restart</code>, <code>docker compose up -d</code>, <code>docker compose pull</code></li>
+    <li><code>curl</code>, <code>df -h</code>, <code>free -h</code></li>
+    <li><code>systemctl status|restart nginx</code></li>
+    <li><code>certbot certificates|renew</code></li>
+    <li><code>docker image prune -a -f</code>, <code>docker container prune -f</code></li>
+  </ul>
+</div>
+
+<h2>6.6 대화 이어가기</h2>
+<p>명령 실행 결과 캡처를 <strong>같은 채팅창</strong>에 붙여넣고 "결과입니다. 다음 단계를 알려주세요." 멘트 추가. 새 대화를 시작하면 AI가 앞 흐름을 잊으니 반드시 이어서 진행합니다.</p>
+
+<!-- ============================================================ -->
+<h1 id="section-7">7. 절대 하지 말 것</h1>
+
+<div class="box-danger">
+  <h3 style="margin-top: 0; color: #b71c1c;">파일·데이터 삭제 계열</h3>
+  <ul>
+    <li><code>rm -rf /</code>, <code>rm -rf *</code></li>
+    <li><code>docker system prune -a --volumes</code> — 저장 데이터 영구 삭제</li>
+    <li><code>docker volume rm</code>, <code>docker volume prune</code></li>
+    <li><code>DROP TABLE</code>, <code>DROP DATABASE</code>, <code>TRUNCATE</code>, <code>DELETE FROM</code></li>
+  </ul>
+</div>
+
+<div class="box-danger">
+  <h3 style="margin-top: 0; color: #b71c1c;">서버 중지 계열</h3>
+  <ul>
+    <li><code>sudo reboot</code>, <code>sudo shutdown</code>, <code>sudo poweroff</code></li>
+    <li>AWS 콘솔 "인스턴스 종료(Terminate)" — 복구 불가</li>
+    <li>AWS 콘솔 RDS 인스턴스/스냅샷 삭제</li>
+    <li>AWS 콘솔 S3 버킷 삭제 또는 "버킷 비우기"</li>
+  </ul>
+</div>
+
+<div class="box-danger">
+  <h3 style="margin-top: 0; color: #b71c1c;">권한·설정 변경</h3>
+  <ul>
+    <li>AWS IAM에서 사용자/권한 삭제</li>
+    <li>AWS 보안 그룹 규칙 삭제</li>
+    <li>도메인(Route 53) 설정 변경</li>
+    <li><code>chmod 777</code></li>
+  </ul>
+</div>
+
+<div class="box-danger">
+  <h3 style="margin-top: 0; color: #b71c1c;">반복 재시도 금지</h3>
+  <ul>
+    <li>같은 조치 3회 이상 반복 — 원인이 다른 데 있을 가능성</li>
+    <li>"혹시 몰라" 수 초 간격 재시작 — 데이터 꼬일 수 있음</li>
+    <li>AI 답변을 안전 체크 없이 복사·붙여넣기</li>
+  </ul>
+</div>
+
+<div class="box-danger">
+  <h3 style="margin-top: 0; color: #b71c1c;">비밀 정보 노출</h3>
+  <ul>
+    <li><code>.env</code> 파일 내용을 카톡/이메일로 전송하지 않음</li>
+    <li>AWS 키, DB 비밀번호가 포함된 캡처를 AI에 업로드하지 않음
+      <ul><li><code>docker exec campmanager-app env</code> 결과에는 값이 포함되므로 AI 업로드 금지</li></ul>
+    </li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h1 id="section-8">8. 개발자에게 연락할 상황</h1>
+
+<p>아래 중 하나라도 해당하면 즉시 연락합니다. 복잡한 상황은 AI가 아닌 개발자가 처리하는 것이 빠르고 안전합니다.</p>
+
+<h2>8.1 즉시(전화) 연락</h2>
+<ul>
+  <li>데이터 손상/유실 의심 (시나리오 4.10)</li>
+  <li>섹션 7의 금지 명령을 실수로 실행한 경우</li>
+  <li>AWS 콘솔 로그인 불가 (계정 잠김, MFA 분실)</li>
+  <li>RDS/EC2/S3가 AWS 측에서 장애 상태로 표시됨</li>
+  <li>해킹 의심 징후 (비정상 트래픽, 의문의 계정 생성)</li>
+</ul>
+
+<h2>8.2 문자/카톡 (답변 대기 가능)</h2>
+<ul>
+  <li>AI가 "개발자 연락"이라고 답한 경우 (AI 답변 캡처 동봉)</li>
+  <li>같은 조치 3회 반복 후에도 복구 안 됨</li>
+  <li>파일 편집/코드 수정이 필요한 해결책만 보임 (Nginx 설정, 환경변수 등)</li>
+  <li>마이그레이션 실패</li>
+</ul>
+
+<h2>8.3 전달하면 빠른 정보</h2>
+<ul>
+  <li>증상 요약: "X시 XX분부터 로그인이 전혀 안 됩니다"</li>
+  <li>지금까지 실행한 조치: "docker restart 2번, pull 1번 했습니다"</li>
+  <li>브라우저 에러 스크린샷</li>
+  <li><code>docker ps</code> / <code>docker logs --tail 200</code> 스크린샷</li>
+  <li>AI와 대화했으면 그 답변 스크린샷</li>
+</ul>
+
+<hr style="margin: 40px 0;">
+
+<p style="text-align: center; color: #888; font-size: 9pt;">
+  CampManager 긴급 장애 대응 가이드 v1.0 · 2026-04-18<br>
+  업데이트는 <code>C:\campmanager-manual</code>에서 <code>git pull</code>로 반영됩니다.
+</p>
+
+</body>
+</html>
