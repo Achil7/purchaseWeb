@@ -7,6 +7,7 @@ const { normalizeAccountNumber } = require('../utils/accountNormalizer');
 const { createNotification } = require('./notificationController');
 const { getNextBusinessDay, formatDateToYYYYMMDD } = require('../utils/dateUtils');
 const { v4: uuidv4 } = require('uuid');
+const { extractForBuyerAsync } = require('../services/imageExtractor');
 
 // multer 설정 - 메모리 스토리지 사용 (S3로 직접 업로드)
 const storage = multer.memoryStorage();
@@ -452,6 +453,16 @@ exports.uploadImages = async (req, res) => {
       }
     }
 
+    // 리뷰 텍스트 추출 트리거 (신규 approved 업로드만)
+    // - 재제출(pending)은 승인 시 approveImage에서 처리
+    // - fire-and-forget: 에러는 내부에서 처리, 응답에 영향 없음
+    if (uploadedImages.length > 0) {
+      const newBuyerIds = [...new Set(uploadedImages.map(img => img.buyer_id))];
+      for (const buyerId of newBuyerIds) {
+        extractForBuyerAsync(buyerId);
+      }
+    }
+
     // 응답 메시지 구성
     let message = '';
     if (uploadedImages.length > 0 && resubmittedImages.length > 0) {
@@ -858,6 +869,12 @@ exports.approveImage = async (req, res) => {
     }
 
     await transaction.commit();
+
+    // 재제출 승인 완료 → 해당 구매자의 리뷰 텍스트 재추출 (force=true)
+    // 기존 이미지가 교체되었으므로 새 이미지 기준으로 다시 추출
+    if (image.buyer_id) {
+      extractForBuyerAsync(image.buyer_id, { force: true });
+    }
 
     res.json({
       success: true,

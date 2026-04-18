@@ -76,20 +76,40 @@ Step 4. PDF 보고서 생성
 |------|------|------|
 | id | SERIAL PK | |
 | buyer_id | INT FK(buyers) | 구매자 (1 buyer = 1 row, N개 이미지 합산) |
-| item_id | INT FK(items) | 품목 |
-| extracted_text | TEXT | 추출된 리뷰 텍스트 (여러 이미지면 합침) |
+| item_id | INT FK(items) | 품목 (buyer.item_id 복사, 쿼리 편의) |
+| campaign_id | INT FK(campaigns) | 캠페인 (상위 집계용) |
+| monthly_brand_id | INT FK(monthly_brands) | 브랜드 (보고서 조회용) |
+| extracted_text | TEXT | 추출된 리뷰 텍스트 (여러 이미지면 `\n\n`로 합침). NOT_A_REVIEW면 NULL |
 | image_count | INT | 추출에 사용된 이미지 수 |
 | image_ids | JSONB | 추출한 이미지 ID 배열 [101, 102, 103] |
-| extraction_status | TEXT | pending/completed/failed/skipped |
-| tokens_used | INT | GPT-4o 토큰 |
+| extraction_status | TEXT | pending / completed / not_review / failed / skipped |
+| tokens_used_input | INT | GPT-4o 입력 토큰 |
+| tokens_used_output | INT | GPT-4o 출력 토큰 |
+| cost_usd | DECIMAL(10,6) | 이번 호출 비용 |
+| model_used | TEXT | 사용한 모델명 (gpt-4o) |
+| extraction_error | TEXT | 실패 시 에러 메시지 |
+| last_image_updated_at | TIMESTAMP | 추출 시점의 최신 이미지 created_at (재추출 판단용) |
+| extracted_at | TIMESTAMP | 추출 완료 시각 |
 | created_at, updated_at | TIMESTAMP | |
 | UNIQUE(buyer_id) | | 구매자당 1개 (재제출 시 UPDATE) |
 
+**인덱스:**
+- buyer_id (UNIQUE), item_id, campaign_id, monthly_brand_id, extraction_status
+
 **설계 포인트:**
 - `image_id` 대신 `buyer_id` 기준: 1 구매자가 N장 업로드 가능하므로 구매자 단위로 합산
+- `campaign_id`, `monthly_brand_id` 중복 저장: 보고서 생성 시 JOIN 없이 빠른 조회
 - 업로드 시점에 즉시 추출 (보고서 생성과 무관하게 항상 최신 상태 유지)
 - 재제출 승인 시: 기존 row UPDATE (새 이미지 텍스트로 교체)
 - `image_ids` JSONB: 어떤 이미지에서 추출했는지 추적 가능
+- `last_image_updated_at`: 이미지가 바뀌었는지 비교해서 재추출 필요 여부 판단
+
+### 리뷰 판별 로직 (NOT_A_REVIEW)
+GPT-4o 프롬프트에 "리뷰가 아니면 NOT_A_REVIEW 출력" 지시 포함:
+- 리뷰 이미지 → 본문 텍스트 추출 → `extraction_status = 'completed'`
+- 리뷰 아닌 이미지 (영수증/상품사진/엉뚱) → `NOT_A_REVIEW` 응답 → `extraction_status = 'not_review'`, `extracted_text = NULL`
+- API 실패 → `extraction_status = 'failed'`, `extraction_error`에 메시지
+- 매칭 단계에서 `completed` 상태만 사용
 
 ### `review_crawled_texts` - 플랫폼 크롤링 리뷰
 | 컬럼 | 타입 | 설명 |
@@ -347,13 +367,13 @@ GET    /api/review-analysis/costs                 # 비용 요약
 
 | 파일 | 변경 내용 |
 |------|----------|
-| backend/src/models/index.js | 5개 새 모델 등록 |
-| backend/src/app.js | `/api/review-analysis` 라우트 등록 |
-| backend/src/controllers/imageController.js | **uploadImages()에 텍스트 추출 훅 추가** (업로드 완료 후 비동기 추출) |
-| backend/src/controllers/imageController.js | **approveImage()에 재추출 훅 추가** (승인 시 기존 텍스트 삭제 → 새 이미지 텍스트 추출) |
-| deploy/Dockerfile | `node:18-alpine` → `node:18-bullseye-slim`, Playwright 설치 |
-| deploy/docker-compose.yml | 환경변수 추가 (OPENAI_API_KEY, ANTHROPIC_API_KEY 등) |
-| frontend/src/App.js | `/admin/review-analysis` 라우트 추가 |
+| [models/index.js](backend/src/models/index.js) | 5개 새 모델 등록 |
+| [app.js](backend/src/app.js) | `/api/review-analysis` 라우트 등록 |
+| [imageController.js](backend/src/controllers/imageController.js) | **uploadImages()에 텍스트 추출 훅 추가** (업로드 완료 후 비동기 추출) |
+| [imageController.js](backend/src/controllers/imageController.js) | **approveImage()에 재추출 훅 추가** (승인 시 기존 텍스트 삭제 → 새 이미지 텍스트 추출) |
+| [Dockerfile](deploy/Dockerfile) | `node:18-alpine` → `node:18-bullseye-slim`, Playwright 설치 |
+| [docker-compose.yml](deploy/docker-compose.yml) | 환경변수 추가 (OPENAI_API_KEY, ANTHROPIC_API_KEY 등) |
+| [App.js](frontend/src/App.js) | `/admin/review-analysis` 라우트 추가 |
 | AdminLayout (toolbar) | "리뷰 분석" 네비게이션 버튼 추가 |
 
 ---
@@ -404,6 +424,56 @@ COUPANG_PROXY_URL=                 # (선택) 쿠팡 전용 프록시
 - **imageController.approveImage()** 수정: 승인 시 기존 텍스트 삭제 → 새 이미지 재추출
 - 1 구매자 N장 이미지 → GPT-4o 멀티이미지 한 번 호출 → 합산 텍스트 저장
 - 추출 실패 시 로그만 남김 (업로드 자체는 실패하지 않음, fire-and-forget)
+- 프롬프트에 "리뷰 아니면 NOT_A_REVIEW" 지시 → 리뷰 아닌 이미지 자동 구분
+
+### Phase 2.5: 기존 이미지 일회성 백필 스크립트
+- **현황**: approved 이미지 68,278장 (대부분 1인 1장, 최대 14장)
+- 스크립트: `backend/scripts/backfillExtractedTexts.js`
+  - 아직 추출 안 된 buyer만 조회 (LEFT JOIN review_extracted_texts)
+  - 동시 실행 제한 (10개씩 concurrent)
+  - 진행률 로깅 (매 100개마다: 건수, 누적 비용, 예상 남은 시간)
+  - 중단/재실행 가능 (이미 추출된 건 skip)
+  - 완료 시 요약 출력 (총 건수, 성공/실패/not_review, 총 비용)
+
+**detail 옵션별 비용 (68,278장 기준):**
+| 옵션 | 동작 | 이미지당 토큰 | 전체 비용 |
+|------|------|-------------|----------|
+| `low` (추천) | 항상 512x512 축소 | 고정 85 | **~$15 (~2만원)** |
+| `auto` | 작은 이미지는 low, 큰 이미지는 타일링 | 85~수백 | ~$100~400 |
+| `high` | 원본 해상도 타일링 | 85 + N×170 | $150~700 |
+
+**사용자 결정**: `low`로 먼저 10장 테스트 → 품질 확인 → 전체 실행
+- 리뷰 스크린샷은 글씨 크기가 충분히 커서 low로도 대부분 읽힘
+- 테스트에서 읽기 어려운 경우만 auto로 재실행
+
+**실행 방법 (단계적 권장):**
+1. `node backend/scripts/backfillExtractedTexts.js --dry-run` - 대상 수/예상 비용 확인
+2. `node backend/scripts/backfillExtractedTexts.js --limit=10 --detail=low` - 10장 품질 테스트
+3. 품질 OK → `node backend/scripts/backfillExtractedTexts.js --detail=low` - 전체 실행
+
+**스크립트 옵션:**
+- `--dry-run`: 실제 호출 없이 대상 수/예상 비용만 출력
+- `--limit=N`: 소량 실행 (기본: 오래된 순)
+- `--random`: `--limit`과 함께 쓰면 랜덤 선택 (**품질 테스트용**)
+- `--detail=low|auto|high`: 해상도 모드 (기본값 `low`)
+- `--brand-id=N`: 특정 브랜드만 (선택)
+
+**검증 쿼리** (품질 테스트 후 실행):
+```sql
+SELECT
+  ret.buyer_id,
+  b.buyer_name,
+  ret.extraction_status,
+  LEFT(ret.extracted_text, 200) as text_preview,
+  ret.image_count,
+  ret.cost_usd,
+  (SELECT s3_url FROM images WHERE buyer_id = ret.buyer_id AND status='approved' LIMIT 1) as sample_image_url
+FROM review_extracted_texts ret
+JOIN buyers b ON b.id = ret.buyer_id
+ORDER BY ret.created_at DESC
+LIMIT 10;
+```
+→ `sample_image_url`을 브라우저로 열어 원본과 `text_preview` 비교하여 품질 판단
 
 ### Phase 3: 플랫폼 크롤링 (가장 큰 작업)
 - Playwright 설치 + Dockerfile 수정
@@ -440,7 +510,161 @@ COUPANG_PROXY_URL=                 # (선택) 쿠팡 전용 프록시
 
 ---
 
-## 13. 검증 방법
+## 13. Phase 2 상세 구현 설계 (지금 바로 진행할 것)
+
+### 13.1 파일 추가/수정 목록 (Phase 2만)
+
+**추가:**
+- `backend/migrations/YYYYMMDDHHMMSS-create-review-extracted-texts.js` - 테이블 마이그레이션
+- `backend/src/models/ReviewExtractedText.js` - Sequelize 모델
+- `backend/src/services/imageExtractor.js` - GPT-4o Vision 호출 로직
+- `backend/src/config/openai.js` - OpenAI 클라이언트 싱글턴
+- `backend/scripts/backfillExtractedTexts.js` - 일회성 백필 스크립트
+
+**수정:**
+- `backend/package.json` - `openai` 의존성 추가
+- `backend/src/models/index.js` - ReviewExtractedText 모델 등록
+- `backend/src/controllers/imageController.js`:
+  - `uploadImages()` 마지막 부분: 성공 시 `imageExtractor.extractForBuyer(buyerId)` fire-and-forget 호출
+  - `approveImage()` 마지막 부분: 승인 완료 후 `imageExtractor.extractForBuyer(buyerId, { force: true })` 호출
+  - `rejectImage()`: 재추출 불필요 (기존 approved 이미지는 그대로 유지됨)
+- `deploy/docker-compose.yml` - `OPENAI_API_KEY` 환경변수 추가
+
+### 13.2 `imageExtractor.js` API 설계
+
+```javascript
+// 주요 함수 시그니처
+extractForBuyer(buyerId, options = {})
+  // options.force: true면 기존 row 강제 재추출 (approveImage 호출 시)
+  // options.force: false면 이미 있으면 skip (uploadImages 호출 시)
+  // returns: { status, text, tokensUsed, cost } (호출자는 결과 무시 가능)
+
+// 내부 로직:
+// 1. buyer + approved 이미지 조회
+// 2. 이미지 0장이면 early return
+// 3. 기존 review_extracted_texts 조회 (force=false면 존재 시 skip)
+// 4. GPT-4o Vision API 호출 (멀티이미지)
+// 5. 응답 파싱: NOT_A_REVIEW 체크
+// 6. DB upsert (buyer_id UNIQUE)
+// 7. 에러 시 DB에 failed 상태 기록 (throw 하지 않음)
+```
+
+### 13.3 GPT-4o 프롬프트
+
+```
+System:
+당신은 한국 쇼핑몰 리뷰 이미지에서 리뷰 본문을 추출하는 도구입니다. 다음 규칙을 엄격히 지키세요:
+
+1. 이미지가 쇼핑몰(쿠팡/네이버/11번가 등)의 상품 리뷰 스크린샷이 아니면 정확히 "NOT_A_REVIEW"만 출력하세요. 다른 말 추가 금지.
+   - 영수증, 상품 사진만 있는 것, 채팅창, 광고 등은 리뷰가 아님
+2. 리뷰 이미지라면 리뷰 "본문 텍스트"만 추출하세요:
+   - 작성자명, 작성일, 별점, "도움돼요" 버튼 등 메타데이터 제외
+   - 본문 그대로 (오타/맞춤법 수정 금지)
+   - 여러 리뷰가 한 이미지에 있으면 "---"로 구분
+3. 이미지 여러 장이 주어지면 모든 리뷰를 순서대로 추출하여 "\n\n"로 구분
+
+User (multi-image):
+[image_url_1]
+[image_url_2]
+...
+```
+
+### 13.4 OpenAI API 호출 파라미터
+
+```javascript
+{
+  model: "gpt-4o",
+  messages: [
+    { role: "system", content: SYSTEM_PROMPT },
+    {
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: s3Url1, detail: "low" } },
+        { type: "image_url", image_url: { url: s3Url2, detail: "low" } },
+      ]
+    }
+  ],
+  max_tokens: 2000,
+  temperature: 0,
+}
+```
+
+**detail 선택**:
+- `"low"`: 모든 이미지 고정 85 tokens → 저비용, 속도 빠름 → **백필 스크립트 기본값**
+- `"high"`: 이미지 해상도에 따라 토큰 증가 → 정확도 우선 시
+- `"auto"`: 이미지 크기에 따라 자동 → 실시간 업로드 기본값
+
+### 13.5 백필 스크립트 흐름
+
+```
+1. 인자 파싱 (--dry-run, --limit, --brand-id)
+2. 대상 buyer 조회:
+   SELECT b.id, b.item_id
+   FROM buyers b
+   WHERE EXISTS (SELECT 1 FROM images WHERE buyer_id=b.id AND status='approved' AND deleted_at IS NULL)
+     AND NOT EXISTS (SELECT 1 FROM review_extracted_texts WHERE buyer_id=b.id)
+   ORDER BY b.created_at
+   LIMIT ?
+3. 동시 실행 10개로 chunk 처리 (p-limit 또는 Promise.all with batch)
+4. 각 buyer마다 imageExtractor.extractForBuyer(id) 호출
+5. 진행률/비용 로깅 (매 100건)
+6. Ctrl+C 핸들링: 진행 상황 저장 후 종료
+```
+
+### 13.6 비용 가드 (최종 결정)
+
+**자동충전 활용 + 점진적 한도 설정 전략:**
+- 스크립트 내 비용 상한 없음 (끊김 없이 운영)
+- OpenAI 자동충전 활성화 (크레딧 소진 시 자동 충전)
+- **지금은 월 한도 미설정** (이벤트로 구매자 폭주 대비)
+- **2~3개월 후 평균 사용량 파악 후 월 한도 설정** (평균의 3~5배)
+
+**조기 감지 장치 (꼭 설정):**
+- OpenAI Dashboard → Settings → Limits → **Threshold alerts** 설정
+  - $50, $100, $200 도달 시 이메일 알림
+  - 폭주 발생 시 조기 인지 가능
+- 백필 스크립트 시작 시 대상 수/예상 비용 출력 후 5초 대기 (Ctrl+C로 취소 가능)
+- 진행 중 매 100건마다 누적 비용 로깅
+
+### 13.7 환경변수 추가 (docker-compose.yml)
+
+```yaml
+OPENAI_API_KEY: ${OPENAI_API_KEY}
+OPENAI_MODEL: gpt-4o
+OPENAI_VISION_DETAIL: low           # low/high/auto (default: low)
+EXTRACTION_ENABLED: true             # false면 훅 비활성화 (테스트용)
+```
+
+### 13.8 구현 단계 (Phase 2 내부)
+
+1. **DB 준비** (5분)
+   - 마이그레이션 파일 작성
+   - 로컬/테스트 DB에 마이그레이션 적용 확인용 SQL 제공
+
+2. **모델 + OpenAI 클라이언트** (10분)
+   - ReviewExtractedText.js
+   - config/openai.js
+
+3. **imageExtractor 서비스** (30분)
+   - 프롬프트 + 호출 로직
+   - 에러 처리 + DB upsert
+
+4. **uploadImages / approveImage 훅** (15분)
+   - fire-and-forget 호출 추가
+
+5. **백필 스크립트** (30분)
+   - --dry-run 먼저 확인
+   - 실제 실행 가이드 제공
+
+6. **검증** (사용자가 실행)
+   - --dry-run으로 대상 수/비용 확인
+   - --limit=10으로 소량 테스트
+   - 결과 SQL로 확인
+   - 전체 실행
+
+---
+
+## 14. 검증 방법
 
 1. **DB 마이그레이션**: `npx sequelize-cli db:migrate` 실행 후 테이블 확인
 2. **실시간 추출 테스트**: 이미지 업로드 → review_extracted_texts에 자동 저장 확인
@@ -452,8 +676,3 @@ COUPANG_PROXY_URL=                 # (선택) 쿠팡 전용 프록시
 5. **Claude 분석 테스트**: 리뷰 50개로 분석 결과 JSON 구조 확인
 6. **PDF 테스트**: 한국어 폰트 렌더링, 차트 표시, 페이지 레이아웃 확인
 7. **E2E 테스트**: 1개 브랜드, 2개 제품으로 전체 파이프라인 실행
-
----
-
-**작성일**: 2026-04-16
-**상태**: 계획 수립 완료 (구현 대기)
