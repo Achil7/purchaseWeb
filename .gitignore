@@ -29,3 +29,5 @@ server_rsa_key.pem
 nul
 
 margin/
+
+.claude/
