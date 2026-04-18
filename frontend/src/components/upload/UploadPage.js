@@ -10,6 +10,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import imageService from '../../services/imageService';
+import ImageSwipeViewer from '../common/ImageSwipeViewer';
 
 function UploadPage({ isSlotUpload = false }) {
   const { token } = useParams();
@@ -32,6 +33,11 @@ function UploadPage({ isSlotUpload = false }) {
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+
+  // 리뷰샷 뷰어
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerImages, setViewerImages] = useState([]);
+  const [viewerBuyerInfo, setViewerBuyerInfo] = useState(null);
 
   const fileInputRefs = useRef({});
 
@@ -345,12 +351,14 @@ function UploadPage({ isSlotUpload = false }) {
                       <TableCell>수취인</TableCell>
                       <TableCell>아이디</TableCell>
                       <TableCell>상태</TableCell>
+                      <TableCell>리뷰샷</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {searchResults.map((buyer) => {
                       const isSelected = selectedBuyers.some(b => b.id === buyer.id);
                       const hasImage = buyer.hasImage;
+                      const buyerImages = buyer.images || [];
                       return (
                         <TableRow
                           key={buyer.id}
@@ -388,6 +396,38 @@ function UploadPage({ isSlotUpload = false }) {
                               <Typography variant="caption" color="text.secondary">
                                 대기중
                               </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {buyerImages.length > 0 ? (
+                              <Box
+                                sx={{ display: 'flex', gap: 0.5, alignItems: 'center', cursor: 'pointer' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setViewerImages(buyerImages);
+                                  setViewerBuyerInfo({ buyer_name: buyer.buyer_name, order_number: buyer.order_number });
+                                  setViewerOpen(true);
+                                }}
+                              >
+                                <img
+                                  src={buyerImages[0].s3_url}
+                                  alt="리뷰샷"
+                                  style={{
+                                    width: 35,
+                                    height: 35,
+                                    objectFit: 'cover',
+                                    borderRadius: 4,
+                                    border: '1px solid #e0e0e0'
+                                  }}
+                                />
+                                {buyerImages.length > 1 && (
+                                  <Typography variant="caption" color="primary" fontWeight="bold">
+                                    +{buyerImages.length - 1}
+                                  </Typography>
+                                )}
+                              </Box>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">-</Typography>
                             )}
                           </TableCell>
                         </TableRow>
@@ -565,6 +605,15 @@ function UploadPage({ isSlotUpload = false }) {
           )}
         </Paper>
       </Container>
+
+      {/* 리뷰샷 확대 뷰어 */}
+      <ImageSwipeViewer
+        open={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+        images={viewerImages}
+        initialIndex={0}
+        buyerInfo={viewerBuyerInfo}
+      />
     </Box>
   );
 }

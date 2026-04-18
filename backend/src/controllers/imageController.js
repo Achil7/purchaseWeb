@@ -133,7 +133,7 @@ exports.searchBuyersByName = async (req, res) => {
         as: 'images',
         where: { status: 'approved' },  // pending 상태의 재제출 이미지는 제외
         required: false,
-        attributes: ['id']
+        attributes: ['id', 's3_url', 'file_name']
       }],
       order: [['created_at', 'ASC']]
     });
@@ -156,7 +156,7 @@ exports.searchBuyersByName = async (req, res) => {
       return accountName && accountName === searchName;
     });
 
-    // 결과 포맷 (hasImage 플래그 포함)
+    // 결과 포맷 (hasImage 플래그 + 이미지 목록 포함)
     const result = matchedBuyers.map(buyer => ({
       id: buyer.id,
       order_number: buyer.order_number || '',
@@ -165,6 +165,11 @@ exports.searchBuyersByName = async (req, res) => {
       recipient_name: buyer.recipient_name || '',
       user_id: buyer.user_id || '',
       hasImage: buyer.images && buyer.images.length > 0,
+      images: (buyer.images || []).map(img => ({
+        id: img.id,
+        s3_url: img.s3_url,
+        file_name: img.file_name
+      })),
       created_at: buyer.created_at
     }));
 
