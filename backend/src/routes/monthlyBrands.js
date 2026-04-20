@@ -188,7 +188,7 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
           as: 'campaigns',
           where: { is_hidden: false },
           required: false,
-          attributes: ['id', 'name', 'status', 'registered_at', 'created_at'],
+          attributes: ['id', 'name', 'status', 'registered_at', 'created_at', 'created_by', 'monthly_brand_id', 'brand_id', 'description', 'start_date', 'end_date'],
           include: [
             {
               model: User,
@@ -410,7 +410,7 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
           as: 'campaigns',
           where: { created_by: salesId },
           required: false,
-          attributes: ['id', 'name', 'status', 'registered_at', 'created_at', 'created_by']
+          attributes: ['id', 'name', 'status', 'registered_at', 'created_at', 'created_by', 'monthly_brand_id', 'brand_id', 'description', 'start_date', 'end_date']
         }
       ],
       order: [['sort_order', 'ASC'], ['created_at', 'ASC']]

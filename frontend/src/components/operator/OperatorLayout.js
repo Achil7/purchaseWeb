@@ -244,8 +244,6 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
         let totalPurchaseTarget = 0;
         let courierCount = 0;
         let emptyDateCount = 0;
-        const countedItemIds = new Set(); // 같은 item_id의 reviewCount 중복 합산 방지
-
         for (const item of items) {
           const status = getAssignmentStatus(item.assigned_at);
           if (status === 'new') {
@@ -255,11 +253,9 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
               warningCount++;
             }
           }
-          // reviewCompletedCount는 item_id 기준이므로 같은 item_id는 한 번만 합산
-          if (!countedItemIds.has(item.id)) {
-            totalReviewCompleted += item.reviewCompletedCount || 0;
-            countedItemIds.add(item.id);
-          }
+          // 백엔드가 item_id + day_group 단위로 레코드를 분리해서 보냄
+          // reviewCompletedCount/totalPurchaseCount 모두 해당 day_group 기준 값이므로 그대로 합산
+          totalReviewCompleted += item.reviewCompletedCount || 0;
           totalPurchaseTarget += item.totalPurchaseCount || 0;
           if (item.courier_service_yn === 'Y' || item.courier_service_yn === true) {
             courierCount++;
