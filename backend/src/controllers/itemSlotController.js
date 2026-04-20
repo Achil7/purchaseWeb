@@ -2,6 +2,18 @@ const { ItemSlot, Item, Buyer, CampaignOperator, Campaign, User, Image, MonthlyB
 const { Op, fn, col } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { normalizeAccountNumber } = require('../utils/accountNormalizer');
+const { deleteFromS3 } = require('../config/s3');
+
+/**
+ * 이미지 배열의 S3 파일들을 삭제하는 헬퍼 (에러는 무시하고 로그만 남김)
+ */
+async function deleteS3Files(images) {
+  for (const img of images) {
+    if (img.s3_key) {
+      try { await deleteFromS3(img.s3_key); } catch (e) { console.error('S3 delete error:', e); }
+    }
+  }
+}
 
 /**
  * 품목별 슬롯 목록 조회
@@ -865,29 +877,40 @@ exports.createSlot = async (req, res) => {
  * 개별 슬롯 삭제 (구매자도 함께 삭제)
  */
 exports.deleteSlot = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
 
-    const slot = await ItemSlot.findByPk(id);
+    const slot = await ItemSlot.findByPk(id, { transaction });
     if (!slot) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: '슬롯을 찾을 수 없습니다'
       });
     }
 
-    // 연결된 구매자가 있으면 구매자도 삭제
+    // 연결된 구매자가 있으면 image/S3/buyer 모두 hard-delete
     if (slot.buyer_id) {
-      await Buyer.destroy({ where: { id: slot.buyer_id } });
+      const images = await Image.findAll({
+        where: { buyer_id: slot.buyer_id },
+        attributes: ['id', 's3_key'],
+        transaction
+      });
+      await deleteS3Files(images);
+      await Image.destroy({ where: { buyer_id: slot.buyer_id }, transaction, force: true });
+      await Buyer.destroy({ where: { id: slot.buyer_id }, transaction, force: true });
     }
 
-    await slot.destroy();
+    await slot.destroy({ transaction, force: true });
 
+    await transaction.commit();
     res.json({
       success: true,
       message: '슬롯이 삭제되었습니다'
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Delete slot error:', error);
     res.status(500).json({
       success: false,
@@ -902,10 +925,12 @@ exports.deleteSlot = async (req, res) => {
  * - 삭제 후 해당 품목에 슬롯이 없으면 품목도 함께 삭제
  */
 exports.deleteSlotsBulk = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { slotIds } = req.body;
 
     if (!Array.isArray(slotIds) || slotIds.length === 0) {
+      await transaction.rollback();
       return res.status(400).json({
         success: false,
         message: '삭제할 슬롯 ID 목록이 필요합니다'
@@ -915,33 +940,43 @@ exports.deleteSlotsBulk = async (req, res) => {
     // 삭제할 슬롯들의 item_id, buyer_id 조회 (삭제 전에)
     const slotsToDelete = await ItemSlot.findAll({
       where: { id: { [Op.in]: slotIds } },
-      attributes: ['item_id', 'buyer_id']
+      attributes: ['item_id', 'buyer_id'],
+      transaction
     });
     const affectedItemIds = [...new Set(slotsToDelete.map(s => s.item_id))];
     const buyerIds = slotsToDelete.map(s => s.buyer_id).filter(Boolean);
 
-    // 구매자의 이미지 삭제
+    // 구매자의 이미지 S3 + DB hard-delete, 구매자 hard-delete
     if (buyerIds.length > 0) {
-      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } } });
-      // 구매자 삭제
-      await Buyer.destroy({ where: { id: { [Op.in]: buyerIds } } });
+      const images = await Image.findAll({
+        where: { buyer_id: { [Op.in]: buyerIds } },
+        attributes: ['id', 's3_key'],
+        transaction
+      });
+      await deleteS3Files(images);
+      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } }, transaction, force: true });
+      await Buyer.destroy({ where: { id: { [Op.in]: buyerIds } }, transaction, force: true });
     }
 
-    // 슬롯 삭제
+    // 슬롯 hard-delete
     const deletedCount = await ItemSlot.destroy({
-      where: { id: { [Op.in]: slotIds } }
+      where: { id: { [Op.in]: slotIds } },
+      transaction,
+      force: true
     });
 
-    // 영향받은 품목들 중 슬롯이 없는 품목 삭제
+    // 영향받은 품목들 중 슬롯이 없는 품목 삭제 + 진행자 배정 정리
     let deletedItemCount = 0;
     for (const itemId of affectedItemIds) {
-      const remainingSlots = await ItemSlot.count({ where: { item_id: itemId } });
+      const remainingSlots = await ItemSlot.count({ where: { item_id: itemId }, transaction });
       if (remainingSlots === 0) {
-        await Item.destroy({ where: { id: itemId } });
+        await CampaignOperator.destroy({ where: { item_id: itemId }, transaction });
+        await Item.destroy({ where: { id: itemId }, transaction, force: true });
         deletedItemCount++;
       }
     }
 
+    await transaction.commit();
     res.json({
       success: true,
       message: deletedItemCount > 0
@@ -951,6 +986,7 @@ exports.deleteSlotsBulk = async (req, res) => {
       deletedItemCount
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Delete slots bulk error:', error);
     res.status(500).json({
       success: false,
@@ -965,6 +1001,7 @@ exports.deleteSlotsBulk = async (req, res) => {
  * - 삭제 후 해당 품목에 슬롯이 없으면 품목도 함께 삭제
  */
 exports.deleteSlotsByGroup = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { itemId, dayGroup } = req.params;
 
@@ -972,32 +1009,42 @@ exports.deleteSlotsByGroup = async (req, res) => {
     const slots = await ItemSlot.findAll({
       where: { item_id: itemId, day_group: dayGroup },
       attributes: ['buyer_id'],
-      raw: true
+      raw: true,
+      transaction
     });
     const buyerIds = slots.map(s => s.buyer_id).filter(Boolean);
 
-    // 구매자의 이미지 삭제
+    // 구매자의 이미지 S3 + DB hard-delete, 구매자 hard-delete
     if (buyerIds.length > 0) {
-      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } } });
-      // 구매자 삭제
-      await Buyer.destroy({ where: { id: { [Op.in]: buyerIds } } });
+      const images = await Image.findAll({
+        where: { buyer_id: { [Op.in]: buyerIds } },
+        attributes: ['id', 's3_key'],
+        transaction
+      });
+      await deleteS3Files(images);
+      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } }, transaction, force: true });
+      await Buyer.destroy({ where: { id: { [Op.in]: buyerIds } }, transaction, force: true });
     }
 
     // 진행자 배정 삭제
     await CampaignOperator.destroy({
-      where: { item_id: itemId, day_group: dayGroup }
+      where: { item_id: itemId, day_group: dayGroup },
+      transaction
     });
 
-    // 해당 그룹의 슬롯들 삭제
+    // 해당 그룹의 슬롯들 hard-delete
     const deletedCount = await ItemSlot.destroy({
       where: {
         item_id: itemId,
         day_group: dayGroup
-      }
+      },
+      transaction,
+      force: true
     });
 
-    // 삭제할 슬롯이 없어도 성공으로 처리 (이미 삭제된 경우)
+    // 삭제할 슬롯이 없어도 성공으로 처리
     if (deletedCount === 0) {
+      await transaction.commit();
       return res.json({
         success: true,
         message: '이미 삭제되었거나 삭제할 슬롯이 없습니다',
@@ -1006,14 +1053,16 @@ exports.deleteSlotsByGroup = async (req, res) => {
       });
     }
 
-    // 해당 품목에 남은 슬롯이 없으면 품목도 삭제
+    // 해당 품목에 남은 슬롯이 없으면 품목도 hard-delete + 잔여 배정 정리
     let itemDeleted = false;
-    const remainingSlots = await ItemSlot.count({ where: { item_id: itemId } });
+    const remainingSlots = await ItemSlot.count({ where: { item_id: itemId }, transaction });
     if (remainingSlots === 0) {
-      await Item.destroy({ where: { id: itemId } });
+      await CampaignOperator.destroy({ where: { item_id: itemId }, transaction });
+      await Item.destroy({ where: { id: itemId }, transaction, force: true });
       itemDeleted = true;
     }
 
+    await transaction.commit();
     res.json({
       success: true,
       message: itemDeleted
@@ -1023,6 +1072,7 @@ exports.deleteSlotsByGroup = async (req, res) => {
       itemDeleted
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Delete slots by group error:', error);
     res.status(500).json({
       success: false,
@@ -1036,19 +1086,49 @@ exports.deleteSlotsByGroup = async (req, res) => {
  * 품목과 모든 슬롯 삭제
  */
 exports.deleteSlotsByItem = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { itemId } = req.params;
 
-    // 슬롯 먼저 삭제
+    // 슬롯에 연결된 buyer ID 수집
+    const slots = await ItemSlot.findAll({
+      where: { item_id: itemId },
+      attributes: ['buyer_id'],
+      raw: true,
+      transaction
+    });
+    const buyerIds = slots.map(s => s.buyer_id).filter(Boolean);
+
+    // 구매자의 이미지 S3 + DB hard-delete, 구매자 hard-delete
+    if (buyerIds.length > 0) {
+      const images = await Image.findAll({
+        where: { buyer_id: { [Op.in]: buyerIds } },
+        attributes: ['id', 's3_key'],
+        transaction
+      });
+      await deleteS3Files(images);
+      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } }, transaction, force: true });
+      await Buyer.destroy({ where: { id: { [Op.in]: buyerIds } }, transaction, force: true });
+    }
+
+    // 슬롯 hard-delete
     const deletedSlotCount = await ItemSlot.destroy({
-      where: { item_id: itemId }
+      where: { item_id: itemId },
+      transaction,
+      force: true
     });
 
-    // 품목 삭제
+    // 진행자 배정 삭제
+    await CampaignOperator.destroy({ where: { item_id: itemId }, transaction });
+
+    // 품목 hard-delete
     const deletedItemCount = await Item.destroy({
-      where: { id: itemId }
+      where: { id: itemId },
+      transaction,
+      force: true
     });
 
+    await transaction.commit();
     res.json({
       success: true,
       message: `품목과 슬롯 ${deletedSlotCount}개가 삭제되었습니다`,
@@ -1056,6 +1136,7 @@ exports.deleteSlotsByItem = async (req, res) => {
       itemDeleted: deletedItemCount > 0
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Delete slots by item error:', error);
     res.status(500).json({
       success: false,

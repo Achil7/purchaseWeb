@@ -100,7 +100,7 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
               ELSE 0
             END) AS total_amount
           FROM buyers
-          WHERE item_id IN (:itemIds) AND is_temporary = false
+          WHERE item_id IN (:itemIds) AND is_temporary = false AND deleted_at IS NULL
           GROUP BY item_id
         ) bc
         LEFT JOIN (
@@ -110,7 +110,7 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
             COUNT(i.id) AS image_count
           FROM buyers b
           INNER JOIN images i ON i.buyer_id = b.id AND i.status = 'approved'
-          WHERE b.item_id IN (:itemIds) AND b.is_temporary = false
+          WHERE b.item_id IN (:itemIds) AND b.is_temporary = false AND b.deleted_at IS NULL
           GROUP BY b.item_id
         ) rc ON bc.item_id = rc.item_id
       `, {
@@ -476,7 +476,7 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
             AND EXISTS (SELECT 1 FROM images i WHERE i.buyer_id = b.id AND i.status = 'approved')
           ) AS review_count
         FROM item_slots s
-        INNER JOIN buyers b ON b.id = s.buyer_id
+        INNER JOIN buyers b ON b.id = s.buyer_id AND b.deleted_at IS NULL
         WHERE s.item_id IN (${placeholders})
           AND s.buyer_id IS NOT NULL
         GROUP BY s.item_id, s.day_group

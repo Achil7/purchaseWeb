@@ -2,6 +2,7 @@ const { Buyer, Item, Image, User, Campaign, ItemSlot } = require('../models');
 const { sequelize, Sequelize } = require('../models');
 const { normalizeAccountNumber } = require('../utils/accountNormalizer');
 const { getKSTDateRange, getKSTMonthRange } = require('../utils/dateUtils');
+const { deleteFromS3 } = require('../config/s3');
 const { Op } = Sequelize;
 
 /**
@@ -331,24 +332,45 @@ exports.updateBuyer = async (req, res) => {
  * 구매자 삭제
  */
 exports.deleteBuyer = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
 
-    const buyer = await Buyer.findByPk(id);
+    const buyer = await Buyer.findByPk(id, { transaction });
     if (!buyer) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: '구매자를 찾을 수 없습니다'
       });
     }
 
-    await buyer.destroy();
+    // 연결된 이미지 조회 후 S3 + DB hard-delete
+    const images = await Image.findAll({
+      where: { buyer_id: id },
+      attributes: ['id', 's3_key'],
+      transaction
+    });
+    for (const img of images) {
+      if (img.s3_key) {
+        try { await deleteFromS3(img.s3_key); } catch (e) { console.error('S3 delete error:', e); }
+      }
+    }
+    await Image.destroy({ where: { buyer_id: id }, transaction, force: true });
 
+    // 슬롯의 buyer_id NULL로 초기화 (슬롯 자체는 유지)
+    await ItemSlot.update({ buyer_id: null }, { where: { buyer_id: id }, transaction });
+
+    // 구매자 hard-delete
+    await buyer.destroy({ transaction, force: true });
+
+    await transaction.commit();
     res.json({
       success: true,
       message: '구매자가 삭제되었습니다'
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Delete buyer error:', error);
     res.status(500).json({
       success: false,

@@ -599,8 +599,8 @@ exports.deleteImage = async (req, res) => {
 
     const buyerId = image.buyer_id;
 
-    // DB에서 이미지 삭제
-    await image.destroy({ transaction });
+    // DB에서 이미지 삭제 (hard-delete)
+    await image.destroy({ transaction, force: true });
 
     // Buyer의 리뷰 관련 필드 초기화
     if (buyerId) {

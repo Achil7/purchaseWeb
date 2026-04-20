@@ -2,6 +2,7 @@ const { Item, Campaign, Buyer, Image, User, CampaignOperator, ItemSlot, MonthlyB
 const { Op } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { notifyAllAdmins, createNotification } = require('./notificationController');
+const { deleteFromS3 } = require('../config/s3');
 
 /**
  * 일 구매 건수 문자열 파싱 (예: "6/6" -> [6, 6], "1/3/4/2" -> [1, 3, 4, 2])
@@ -662,7 +663,7 @@ exports.getMyMonthlyBrands = async (req, res) => {
             AND EXISTS (SELECT 1 FROM images i WHERE i.buyer_id = b.id AND i.status = 'approved')
           ) AS review_count
         FROM item_slots s
-        INNER JOIN buyers b ON b.id = s.buyer_id
+        INNER JOIN buyers b ON b.id = s.buyer_id AND b.deleted_at IS NULL
         WHERE s.item_id IN (${placeholders})
           AND s.buyer_id IS NOT NULL
         GROUP BY s.item_id, s.day_group
@@ -1498,11 +1499,13 @@ exports.updateItem = async (req, res) => {
  * 품목 삭제
  */
 exports.deleteItem = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const { id } = req.params;
 
-    const item = await Item.findByPk(id);
+    const item = await Item.findByPk(id, { transaction });
     if (!item) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: '품목을 찾을 수 없습니다'
@@ -1513,32 +1516,45 @@ exports.deleteItem = async (req, res) => {
     const slots = await ItemSlot.findAll({
       where: { item_id: id },
       attributes: ['buyer_id'],
-      raw: true
+      raw: true,
+      transaction
     });
     const buyerIds = slots.map(s => s.buyer_id).filter(Boolean);
 
-    // 구매자의 이미지 삭제
+    // 구매자의 이미지 조회 → S3 + DB hard-delete
     if (buyerIds.length > 0) {
-      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } } });
+      const images = await Image.findAll({
+        where: { buyer_id: { [Op.in]: buyerIds } },
+        attributes: ['id', 's3_key'],
+        transaction
+      });
+      for (const img of images) {
+        if (img.s3_key) {
+          try { await deleteFromS3(img.s3_key); } catch (e) { console.error('S3 delete error:', e); }
+        }
+      }
+      await Image.destroy({ where: { buyer_id: { [Op.in]: buyerIds } }, transaction, force: true });
     }
 
-    // 구매자 삭제
-    await Buyer.destroy({ where: { item_id: id } });
+    // 구매자 hard-delete
+    await Buyer.destroy({ where: { item_id: id }, transaction, force: true });
 
-    // 슬롯 삭제
-    await ItemSlot.destroy({ where: { item_id: id } });
+    // 슬롯 hard-delete
+    await ItemSlot.destroy({ where: { item_id: id }, transaction, force: true });
 
-    // 진행자 배정 삭제
-    await CampaignOperator.destroy({ where: { item_id: id } });
+    // 진행자 배정 삭제 (paranoid 아님)
+    await CampaignOperator.destroy({ where: { item_id: id }, transaction });
 
-    // 품목 삭제
-    await item.destroy();
+    // 품목 hard-delete
+    await item.destroy({ transaction, force: true });
 
+    await transaction.commit();
     res.json({
       success: true,
       message: '품목이 삭제되었습니다'
     });
   } catch (error) {
+    await transaction.rollback();
     console.error('Delete item error:', error);
     res.status(500).json({
       success: false,
