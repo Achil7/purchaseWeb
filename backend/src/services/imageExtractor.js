@@ -4,6 +4,7 @@ const {
   DEFAULT_MODEL,
   DEFAULT_DETAIL,
   EXTRACTION_ENABLED,
+  isBrandAllowed,
   calculateCost
 } = require('../config/openai');
 
@@ -143,7 +144,13 @@ async function extractForBuyer(buyerId, options = {}) {
     const campaignId = buyer.item?.campaign_id || null;
     const monthlyBrandId = buyer.item?.campaign?.monthly_brand_id || null;
 
-    // 2. 기존 추출 레코드 확인
+    // 2. 브랜드 허용 여부 체크 (EXTRACTION_ALLOWED_BRAND_IDS env)
+    //    - 옵션으로 skipBrandCheck를 넘기면 우회 (백필 스크립트의 --brand-id 지정 시 사용)
+    if (!options.skipBrandCheck && !isBrandAllowed(monthlyBrandId)) {
+      return { status: 'skipped', reason: 'brand_not_allowed', monthlyBrandId };
+    }
+
+    // 3. 기존 추출 레코드 확인
     const existing = await ReviewExtractedText.findOne({ where: { buyer_id: buyerId } });
 
     if (existing && !options.force) {

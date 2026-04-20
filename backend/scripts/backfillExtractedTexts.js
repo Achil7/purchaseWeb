@@ -23,7 +23,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const { Buyer, Image, Item, Campaign, ReviewExtractedText, sequelize, Sequelize } = require('../src/models');
 const { Op } = Sequelize;
 const { extractForBuyer } = require('../src/services/imageExtractor');
-const { calculateCost, DEFAULT_MODEL } = require('../src/config/openai');
+const { calculateCost, DEFAULT_MODEL, ALLOWED_BRAND_IDS, EXTRACTION_ENABLED } = require('../src/config/openai');
 
 // ===== 인자 파싱 =====
 function parseArgs(argv) {
@@ -57,13 +57,18 @@ function parseArgs(argv) {
 }
 
 // ===== 대상 구매자 조회 =====
+// 브랜드 필터 우선순위:
+//   1. --brand-id=N CLI 옵션: 해당 브랜드만
+//   2. EXTRACTION_ALLOWED_BRAND_IDS env:
+//      - null (미설정): 전체 종료 (실수 방지)
+//      - 'all': 필터 없음 (전체)
+//      - [1,5,10]: IN 조건
 async function findTargetBuyers(args) {
-  // 방침: approved 이미지가 있고 아직 추출 안 된 구매자만
-  // extraction_status = 'failed'는 재시도 포함 (새로 시도할 수 있도록)
   const replacements = {};
 
   let brandFilter = '';
   if (args.brandId) {
+    // CLI 옵션이 최우선 (env 무시)
     brandFilter = `
       AND EXISTS (
         SELECT 1 FROM items it
@@ -72,6 +77,26 @@ async function findTargetBuyers(args) {
       )
     `;
     replacements.brandId = args.brandId;
+  } else if (ALLOWED_BRAND_IDS === null) {
+    // env 미설정 → 모든 브랜드 대상 차단 (실수 방지)
+    console.error('\n[ERROR] EXTRACTION_ALLOWED_BRAND_IDS 환경변수가 설정되지 않았습니다.');
+    console.error('        --brand-id=N 옵션을 명시하거나 .env에 EXTRACTION_ALLOWED_BRAND_IDS를 설정하세요.');
+    console.error('        예: EXTRACTION_ALLOWED_BRAND_IDS=1,5 (특정 브랜드)');
+    console.error('        예: EXTRACTION_ALLOWED_BRAND_IDS=all (전체)');
+    process.exit(1);
+  } else if (ALLOWED_BRAND_IDS === 'all') {
+    // 전체 허용 → 필터 없음
+    brandFilter = '';
+  } else if (Array.isArray(ALLOWED_BRAND_IDS) && ALLOWED_BRAND_IDS.length > 0) {
+    // 특정 브랜드들만
+    const idList = ALLOWED_BRAND_IDS.join(',');
+    brandFilter = `
+      AND EXISTS (
+        SELECT 1 FROM items it
+        JOIN campaigns c ON it.id = b.item_id AND c.id = it.campaign_id
+        WHERE c.monthly_brand_id IN (${idList})
+      )
+    `;
   }
 
   const orderClause = args.random ? 'ORDER BY RANDOM()' : 'ORDER BY b.created_at';
@@ -137,12 +162,29 @@ function estimateCost(imageCount, detail, model) {
   return { totalInput, totalOutput, cost, buyersCount };
 }
 
+// ===== 환경 설정 출력 =====
+function describeBrandFilter(args) {
+  if (args.brandId) {
+    return `CLI --brand-id=${args.brandId} (env 무시)`;
+  }
+  if (ALLOWED_BRAND_IDS === null) {
+    return '없음 (env 미설정)';
+  }
+  if (ALLOWED_BRAND_IDS === 'all') {
+    return 'all (전체 브랜드)';
+  }
+  return `env 허용 브랜드: [${ALLOWED_BRAND_IDS.join(', ')}]`;
+}
+
 // ===== 메인 =====
 async function main() {
   const args = parseArgs(process.argv);
 
   console.log('===== Backfill Extracted Texts =====');
   console.log('Args:', args);
+  console.log('\n[환경 설정]');
+  console.log(`  EXTRACTION_ENABLED: ${EXTRACTION_ENABLED}`);
+  console.log(`  브랜드 필터: ${describeBrandFilter(args)}`);
 
   // 대상 조회
   const buyerIds = await findTargetBuyers(args);
@@ -211,7 +253,8 @@ async function main() {
     const results = await Promise.all(
       chunk.map(id => extractForBuyer(id, {
         detail: args.detail,
-        model: args.model
+        model: args.model,
+        skipBrandCheck: true  // 백필은 SQL로 이미 브랜드 필터링 했으므로 서비스 단 체크 스킵
       }))
     );
 
