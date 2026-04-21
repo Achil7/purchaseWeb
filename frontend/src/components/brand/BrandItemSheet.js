@@ -281,9 +281,14 @@ const DEFAULT_COLUMN_WIDTHS = [30, 80, 70, 150, 100, 60, 120, 80, 60, 100, 60, 6
 function BrandItemSheetInner({
   campaignId,
   campaignName = '',
-  viewAsUserId = null
+  viewAsUserId = null,
+  searchMode = false,
+  searchProductName = ''
 }) {
   const hotRef = useRef(null);
+
+  // localStorage/캐시 키로 사용할 식별자 (캠페인 모드: campaignId, 검색 모드: "search_제품명")
+  const storageKey = searchMode ? `search_${searchProductName}` : String(campaignId || '');
 
   // 슬롯 데이터
   const [slots, setSlots] = useState([]);
@@ -314,7 +319,7 @@ function BrandItemSheetInner({
   // 접힌 품목 ID Set (localStorage에서 복원)
   const [collapsedItems, setCollapsedItems] = useState(() => {
     try {
-      const saved = localStorage.getItem(`brand_itemsheet_collapsed_items_${campaignId}`);
+      const saved = localStorage.getItem(`brand_itemsheet_collapsed_items_${storageKey}`);
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch {
       return new Set();
@@ -357,14 +362,14 @@ function BrandItemSheetInner({
   const slotsRef = useRef(slots);
   slotsRef.current = slots;
 
-  // 컬럼 크기 저장 키 (캠페인별로 구분)
-  const COLUMN_WIDTHS_KEY = `brand_itemsheet_column_widths_${campaignId}`;
+  // 컬럼 크기 저장 키 (캠페인/검색 모드별로 구분)
+  const COLUMN_WIDTHS_KEY = `brand_itemsheet_column_widths_${storageKey}`;
 
-  // 접기 상태 저장 키 (캠페인별로 구분)
-  const COLLAPSED_ITEMS_KEY = `brand_itemsheet_collapsed_items_${campaignId}`;
+  // 접기 상태 저장 키 (캠페인/검색 모드별로 구분)
+  const COLLAPSED_ITEMS_KEY = `brand_itemsheet_collapsed_items_${storageKey}`;
 
-  // 컬럼 정렬 저장 키 (캠페인별로 구분)
-  const COLUMN_ALIGNMENTS_KEY = `brand_itemsheet_column_alignments_${campaignId}`;
+  // 컬럼 정렬 저장 키 (캠페인/검색 모드별로 구분)
+  const COLUMN_ALIGNMENTS_KEY = `brand_itemsheet_column_alignments_${storageKey}`;
 
   // 컬럼별 정렬 상태 (left, center, right)
   const [columnAlignments, setColumnAlignments] = useState({});
@@ -669,14 +674,14 @@ function BrandItemSheetInner({
 
     const excelData = convertBrandSlotsToExcelData(exportSlots, itemsMap);
     const isFiltered = filteredRowsRef.current !== null;
-    const fileName = campaignName || 'campaign';
+    const fileName = searchMode ? `검색_${searchProductName}` : (campaignName || 'campaign');
     const suffix = isFiltered ? '_brand_filtered' : '_brand';
     downloadExcel(excelData, `${fileName}${suffix}`, '브랜드시트');
     // DOM 기반 snackbar 사용 (React re-render 방지 → 필터 상태 보존)
     showSnackbar(isFiltered
       ? `필터된 ${exportSlots.length}건의 엑셀 파일이 다운로드되었습니다`
       : '엑셀 파일이 다운로드되었습니다');
-  }, [slots, campaignName, showSnackbar]);
+  }, [slots, campaignName, searchMode, searchProductName, showSnackbar]);
 
   // 이미지 ZIP 다운로드 핸들러
   const [zipDownloading, setZipDownloading] = useState(false);
@@ -791,7 +796,8 @@ function BrandItemSheetInner({
 
       // ZIP 파일 생성 및 다운로드
       const content = await zip.generateAsync({ type: 'blob' });
-      const zipFileName = `${campaignName || 'campaign'}_리뷰샷.zip`;
+      const zipBaseName = searchMode ? `검색_${searchProductName}` : (campaignName || 'campaign');
+      const zipFileName = `${zipBaseName}_리뷰샷.zip`;
       saveAs(content, zipFileName);
 
       const message = failCount > 0
@@ -804,30 +810,31 @@ function BrandItemSheetInner({
     } finally {
       setZipDownloading(false);
     }
-  }, [slots, campaignName]);
+  }, [slots, campaignName, searchMode, searchProductName]);
 
-  // 캠페인별 슬롯 데이터 로드 (Brand 전용)
-  // 성능 최적화: 의존성 배열을 비워서 함수 재생성 방지, campaignId는 파라미터로 전달
-  const loadSlots = useCallback(async (targetCampaignId, targetViewAsUserId, forceRefresh = false) => {
-    if (!targetCampaignId) {
+  // 슬롯 데이터 로드 (Brand 전용: 캠페인 모드 or 검색 모드)
+  // 성능 최적화: 의존성 배열을 비워서 함수 재생성 방지, 모든 값은 파라미터로 전달
+  const loadSlots = useCallback(async (opts, forceRefresh = false) => {
+    const { isSearch, targetCampaignId, targetProductName, targetViewAsUserId, targetStorageKey } = opts;
+
+    if (isSearch) {
+      if (!targetProductName) return;
+    } else if (!targetCampaignId) {
       return;
     }
 
-    // 캐시 키 생성
-    const cacheKey = `brand_${targetCampaignId}_${targetViewAsUserId || ''}`;
+    // 캐시 키 및 localStorage 키 생성 (storageKey 기반으로 통일)
+    const cacheKey = `brand_${targetStorageKey}_${targetViewAsUserId || ''}`;
+    const collapsedKey = `brand_itemsheet_collapsed_items_${targetStorageKey}`;
+    const widthKey = `brand_itemsheet_column_widths_${targetStorageKey}`;
 
-    // 캐시 확인 (forceRefresh가 아닌 경우)
-    if (!forceRefresh && slotsCache.has(cacheKey)) {
-      const cached = slotsCache.get(cacheKey);
-      setSlots(cached.slots);
-
-      // localStorage에서 접기 상태 복원 (day_group별 키 사용)
+    // 캐시에서 복원하는 공통 로직
+    const restoreFromSlots = (slotsData) => {
       const allKeys = new Set();
-      cached.slots.forEach(s => {
+      slotsData.forEach(s => {
         const key = `${s.item_id}_${s.day_group || 1}`;
         allKeys.add(key);
       });
-      const collapsedKey = `brand_itemsheet_collapsed_items_${targetCampaignId}`;
       try {
         const saved = localStorage.getItem(collapsedKey);
         if (saved) {
@@ -841,8 +848,6 @@ function BrandItemSheetInner({
         setCollapsedItems(new Set());
       }
 
-      // localStorage에서 컬럼 너비 복원
-      const widthKey = `brand_itemsheet_column_widths_${targetCampaignId}`;
       try {
         const savedWidths = localStorage.getItem(widthKey);
         if (savedWidths) {
@@ -853,18 +858,29 @@ function BrandItemSheetInner({
       } catch (e) {
         setColumnWidths(DEFAULT_COLUMN_WIDTHS);
       }
+    };
 
+    // 캐시 확인 (forceRefresh가 아닌 경우)
+    if (!forceRefresh && slotsCache.has(cacheKey)) {
+      const cached = slotsCache.get(cacheKey);
+      setSlots(cached.slots);
+      restoreFromSlots(cached.slots);
       setLoading(false);
       return;
     }
 
     setLoading(true);
     try {
-      const params = { viewAsRole: 'brand' };
-      if (targetViewAsUserId) {
-        params.viewAsUserId = targetViewAsUserId;
+      let response;
+      if (isSearch) {
+        const params = {};
+        if (targetViewAsUserId) params.viewAsUserId = targetViewAsUserId;
+        response = await itemSlotService.getSlotsByProductName(targetProductName, params);
+      } else {
+        const params = { viewAsRole: 'brand' };
+        if (targetViewAsUserId) params.viewAsUserId = targetViewAsUserId;
+        response = await itemSlotService.getSlotsByCampaign(targetCampaignId, params);
       }
-      const response = await itemSlotService.getSlotsByCampaign(targetCampaignId, params);
       if (response.success) {
         // 모든 슬롯 표시 (임시 구매자만 제외)
         const allSlots = (response.data || []).filter(slot => {
@@ -883,38 +899,8 @@ function BrandItemSheetInner({
         // 캐시에 저장
         slotsCache.set(cacheKey, { slots: allSlots, timestamp: Date.now() });
 
-        // API 응답 직후 localStorage에서 접기 상태 복원 (day_group별 키 사용)
-        const allKeys = new Set();
-        allSlots.forEach(s => {
-          const key = `${s.item_id}_${s.day_group || 1}`;
-          allKeys.add(key);
-        });
-        const collapsedKey = `brand_itemsheet_collapsed_items_${targetCampaignId}`;
-        try {
-          const saved = localStorage.getItem(collapsedKey);
-          if (saved) {
-            const savedKeys = JSON.parse(saved);
-            const validKeys = savedKeys.filter(key => allKeys.has(key));
-            setCollapsedItems(new Set(validKeys));
-          } else {
-            setCollapsedItems(new Set());
-          }
-        } catch (e) {
-          setCollapsedItems(new Set());
-        }
-
-        // API 응답 직후 localStorage에서 컬럼 너비 복원
-        const widthKey = `brand_itemsheet_column_widths_${targetCampaignId}`;
-        try {
-          const savedWidths = localStorage.getItem(widthKey);
-          if (savedWidths) {
-            setColumnWidths(JSON.parse(savedWidths));
-          } else {
-            setColumnWidths(DEFAULT_COLUMN_WIDTHS);
-          }
-        } catch (e) {
-          setColumnWidths(DEFAULT_COLUMN_WIDTHS);
-        }
+        // localStorage에서 접기 상태/컬럼 너비 복원
+        restoreFromSlots(allSlots);
       } else {
         console.warn('[BrandItemSheet] API response success=false');
       }
@@ -926,12 +912,24 @@ function BrandItemSheetInner({
   }, []); // 의존성 배열 비움 - 함수 재생성 방지
 
   useEffect(() => {
-    if (campaignId) {
-      // 캠페인 변경 시 이전 slots 데이터를 즉시 초기화
+    if (searchMode && searchProductName) {
       setSlots([]);
-      loadSlots(campaignId, viewAsUserId);
+      loadSlots({
+        isSearch: true,
+        targetProductName: searchProductName,
+        targetViewAsUserId: viewAsUserId,
+        targetStorageKey: `search_${searchProductName}`
+      });
+    } else if (!searchMode && campaignId) {
+      setSlots([]);
+      loadSlots({
+        isSearch: false,
+        targetCampaignId: campaignId,
+        targetViewAsUserId: viewAsUserId,
+        targetStorageKey: String(campaignId)
+      });
     }
-  }, [campaignId, viewAsUserId, loadSlots]);
+  }, [searchMode, searchProductName, campaignId, viewAsUserId, loadSlots]);
 
   // 접기 상태 복원은 loadSlots 함수 내에서 API 응답 직후 처리됨
 
@@ -2054,13 +2052,15 @@ function BrandItemSheetInner({
 }
 
 // React.memo로 감싸서 부모 리렌더링 시 불필요한 리렌더링 방지
-// campaignId, viewAsUserId가 변경되지 않으면 시트가 리렌더링되지 않음
+// campaignId, viewAsUserId, searchMode, searchProductName이 변경되지 않으면 시트가 리렌더링되지 않음
 const BrandItemSheet = React.memo(BrandItemSheetInner, (prevProps, nextProps) => {
   // true 반환 = 리렌더링 하지 않음, false 반환 = 리렌더링 함
   return (
     prevProps.campaignId === nextProps.campaignId &&
     prevProps.campaignName === nextProps.campaignName &&
-    prevProps.viewAsUserId === nextProps.viewAsUserId
+    prevProps.viewAsUserId === nextProps.viewAsUserId &&
+    prevProps.searchMode === nextProps.searchMode &&
+    prevProps.searchProductName === nextProps.searchProductName
   );
 });
 

@@ -405,6 +405,182 @@ exports.getSlotsByCampaign = async (req, res) => {
 };
 
 /**
+ * 제품명으로 브랜드사 전체 캠페인의 슬롯 통합 조회 (BrandItemSheet 검색 모드용)
+ * - 브랜드사 소유의 모든 캠페인에서 product_name이 부분 일치하는 Item들의 슬롯을 반환
+ * - Admin은 viewAsUserId 쿼리 파라미터로 특정 브랜드사의 데이터 조회 가능
+ * - 응답 포맷은 getSlotsByCampaign과 동일 (BrandItemSheet 재사용)
+ */
+exports.getSlotsByProductName = async (req, res) => {
+  try {
+    const { productName } = req.query;
+
+    // 입력 검증: 빈 값이면 즉시 빈 배열 반환
+    if (!productName || !String(productName).trim()) {
+      return res.json({
+        success: true,
+        data: [],
+        count: 0,
+        items: []
+      });
+    }
+
+    // brandId 결정 (brand 본인 or admin이 viewAsUserId로 대리 조회)
+    let brandId = req.user.id;
+    if (req.user.role === 'admin') {
+      if (!req.query.viewAsUserId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Admin은 viewAsUserId 쿼리 파라미터가 필요합니다'
+        });
+      }
+      brandId = parseInt(req.query.viewAsUserId, 10);
+    }
+
+    // 1단계: 해당 브랜드사의 모든 캠페인 ID 조회
+    const campaigns = await Campaign.findAll({
+      where: { brand_id: brandId },
+      attributes: ['id']
+    });
+    const campaignIds = campaigns.map(c => c.id);
+
+    if (campaignIds.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        count: 0,
+        items: []
+      });
+    }
+
+    // 2단계: 제품명 부분 일치하는 Item 조회 (SQL 와일드카드 이스케이프)
+    const escaped = String(productName).trim().replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+    const items = await Item.findAll({
+      where: {
+        campaign_id: { [Op.in]: campaignIds },
+        product_name: { [Op.iLike]: `%${escaped}%` }
+      },
+      attributes: ['id', 'product_name', 'total_purchase_count', 'daily_purchase_count', 'shipping_type', 'courier_service_yn', 'product_url'],
+      order: [['created_at', 'ASC']]
+    });
+
+    if (items.length === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        count: 0,
+        items: []
+      });
+    }
+
+    const itemIds = items.map(i => i.id);
+
+    // 브랜드뷰 고정 (본 API는 브랜드사 전용)
+    const buyerAttributes = ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'contact', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number', 'expected_payment_date', 'review_submitted_at', 'date'];
+
+    // 3단계: 슬롯 + Item 정보 조회 (getSlotsByCampaign과 동일)
+    const slots = await ItemSlot.findAll({
+      where: { item_id: { [Op.in]: itemIds } },
+      attributes: [
+        'id', 'item_id', 'slot_number', 'date', 'product_name', 'purchase_option',
+        'keyword', 'product_price', 'notes', 'status', 'expected_buyer', 'buyer_id',
+        'day_group', 'upload_link_token', 'review_cost',
+        'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count',
+        'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes', 'is_suspended',
+        'created_at', 'updated_at'
+      ],
+      include: [
+        {
+          model: Item,
+          as: 'item',
+          required: true,
+          attributes: [
+            'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+            'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
+            'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
+            'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
+            'date', 'display_order'
+          ]
+        }
+      ],
+      order: [
+        ['item_id', 'ASC'],
+        ['day_group', 'ASC'],
+        ['slot_number', 'ASC']
+      ]
+    });
+
+    // 4단계: 구매자/이미지 조회 (getSlotsByCampaign과 동일)
+    const buyerIds = [...new Set(slots.map(s => s.buyer_id).filter(Boolean))];
+
+    let buyerMap = {};
+    let imageMap = {};
+
+    if (buyerIds.length > 0) {
+      const buyers = await Buyer.findAll({
+        where: { id: { [Op.in]: buyerIds } },
+        attributes: buyerAttributes
+      });
+
+      for (const buyer of buyers) {
+        buyerMap[buyer.id] = buyer.toJSON();
+      }
+
+      const images = await Image.findAll({
+        where: {
+          buyer_id: { [Op.in]: buyerIds },
+          status: 'approved'
+        },
+        attributes: ['id', 'buyer_id', 's3_url', 'file_name', 'created_at'],
+        order: [['created_at', 'ASC']]
+      });
+
+      for (const image of images) {
+        if (!imageMap[image.buyer_id]) {
+          imageMap[image.buyer_id] = [];
+        }
+        imageMap[image.buyer_id].push({
+          id: image.id,
+          s3_url: image.s3_url,
+          file_name: image.file_name,
+          created_at: image.created_at
+        });
+      }
+    }
+
+    // 5단계: 슬롯 + 구매자 + 이미지 조합
+    const slotsWithBuyers = slots.map(slot => {
+      const slotJson = slot.toJSON();
+      const buyerId = slotJson.buyer_id;
+
+      if (buyerId && buyerMap[buyerId]) {
+        slotJson.buyer = {
+          ...buyerMap[buyerId],
+          images: imageMap[buyerId] || []
+        };
+      } else {
+        slotJson.buyer = null;
+      }
+
+      return slotJson;
+    });
+
+    res.json({
+      success: true,
+      data: slotsWithBuyers,
+      count: slotsWithBuyers.length,
+      items: items
+    });
+  } catch (error) {
+    console.error('Get slots by product name error:', error);
+    res.status(500).json({
+      success: false,
+      message: '제품명 검색 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
  * Operator용 캠페인별 배정된 슬롯만 조회
  * - 해당 진행자에게 배정된 품목의 day_group 슬롯만 반환
  * - Admin은 viewAsUserId 쿼리 파라미터로 특정 진행자의 데이터 조회 가능

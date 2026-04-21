@@ -78,6 +78,10 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   // 연월브랜드 검색 쿼리
   const [searchQuery, setSearchQuery] = useState('');
 
+  // 제품명 통합 검색 (입력값 / 확정값 분리)
+  const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [activeProductSearch, setActiveProductSearch] = useState('');
+
   // 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 15;
@@ -160,6 +164,18 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 시트 컴포넌트 메모이제이션 - 사이드바 토글 시 리렌더링 방지
   const memoizedSheet = useMemo(() => {
+    // 제품명 검색 모드: 캠페인 선택과 무관하게 시트 표시
+    if (activeProductSearch) {
+      return (
+        <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+          <BrandItemSheet
+            searchMode
+            searchProductName={activeProductSearch}
+            viewAsUserId={viewAsUserId}
+          />
+        </Box>
+      );
+    }
     if (!selectedCampaign) return null;
     return (
       <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
@@ -171,7 +187,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       </Box>
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCampaign?.id, selectedCampaign?.name, viewAsUserId]);
+  }, [selectedCampaign?.id, selectedCampaign?.name, viewAsUserId, activeProductSearch]);
 
   // 연월브랜드 데이터 로드 (브랜드사용)
   const loadMonthlyBrands = useCallback(async () => {
@@ -340,6 +356,9 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   // 캠페인 클릭 - 메인 영역에 시트 표시
   const handleCampaignClick = (campaign) => {
     setSelectedCampaign(campaign);
+    // 캠페인 선택 시 제품명 검색 모드 해제
+    setActiveProductSearch('');
+    setProductSearchQuery('');
     // Embedded 모드가 아닐 때만 네비게이션 처리
     if (!isEmbedded && location.pathname !== basePathOnly && location.pathname !== `${basePathOnly}/`) {
       navigate(basePath);
@@ -618,6 +637,70 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                   </Tooltip>
                 </Box>
               </Box>
+
+              {/* 제품명 통합 검색 (모든 캠페인/날짜 교차) */}
+              {!showHidden && (
+                <TextField
+                  size="small"
+                  placeholder="제품명으로 전체 검색..."
+                  value={productSearchQuery}
+                  onChange={(e) => setProductSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const trimmed = productSearchQuery.trim();
+                      if (trimmed) {
+                        setActiveProductSearch(trimmed);
+                        setSelectedCampaign(null);
+                      }
+                    }
+                  }}
+                  fullWidth
+                  sx={{
+                    mt: 1,
+                    '& .MuiInputBase-root': {
+                      height: 28,
+                      fontSize: '0.75rem',
+                      bgcolor: activeProductSearch ? '#fff3e0' : 'transparent'
+                    },
+                    '& .MuiInputBase-input': { py: 0.5 }
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Tooltip title="제품명으로 검색 (Enter)">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              const trimmed = productSearchQuery.trim();
+                              if (trimmed) {
+                                setActiveProductSearch(trimmed);
+                                setSelectedCampaign(null);
+                              }
+                            }}
+                            sx={{ p: 0.2 }}
+                          >
+                            <SearchIcon sx={{ fontSize: 16, color: activeProductSearch ? '#ef6c00' : '#999' }} />
+                          </IconButton>
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                    endAdornment: (productSearchQuery || activeProductSearch) && (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setProductSearchQuery('');
+                            setActiveProductSearch('');
+                          }}
+                          sx={{ p: 0.2 }}
+                        >
+                          <ClearIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </InputAdornment>
+                    )
+                  }}
+                />
+              )}
 
               {/* 연월브랜드 검색 */}
               {!showHidden && (
@@ -914,7 +997,28 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           flexDirection: 'column'
         }}
       >
-        {selectedCampaign && isDefaultRoute ? (
+        {activeProductSearch && isDefaultRoute ? (
+          <>
+            {/* 제품명 검색 헤더 */}
+            <Box sx={{ mb: 1, flexShrink: 0 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Typography variant="h6" fontWeight="bold" color="#ef6c00">
+                  제품명 검색: "{activeProductSearch}"
+                </Typography>
+                <Chip
+                  label="전체 캠페인 통합"
+                  size="small"
+                  color="warning"
+                  sx={{ height: 22 }}
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary">
+                모든 캠페인/날짜 교차로 해당 제품의 리뷰 현황을 한 화면에서 확인
+              </Typography>
+            </Box>
+            {memoizedSheet}
+          </>
+        ) : selectedCampaign && isDefaultRoute ? (
           <>
             {/* 선택된 캠페인 헤더 */}
             <Box sx={{ mb: 1, flexShrink: 0 }}>

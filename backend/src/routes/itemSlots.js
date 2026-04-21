@@ -18,6 +18,13 @@ router.get('/item/:itemId', authenticate, authorize(['sales', 'admin', 'operator
 router.get('/campaign/:campaignId', authenticate, authorize(['sales', 'admin', 'brand']), itemSlotController.getSlotsByCampaign);
 
 /**
+ * @route   GET /api/item-slots/by-product-name
+ * @desc    제품명으로 브랜드사 전체 캠페인 슬롯 통합 검색
+ * @access  Private (Brand, Admin)
+ */
+router.get('/by-product-name', authenticate, authorize(['brand', 'admin']), itemSlotController.getSlotsByProductName);
+
+/**
  * @route   GET /api/item-slots/operator/campaign/:campaignId
  * @desc    Operator용 캠페인별 배정된 슬롯만 조회
  * @access  Private (Operator, Admin)

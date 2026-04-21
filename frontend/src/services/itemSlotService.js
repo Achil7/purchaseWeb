@@ -19,6 +19,18 @@ export const getSlotsByCampaign = async (campaignId, params = {}) => {
 };
 
 /**
+ * 제품명으로 브랜드사 전체 캠페인 슬롯 통합 검색
+ * @param productName - 검색할 제품명 (부분 일치)
+ * @param params - 추가 파라미터 (viewAsUserId)
+ */
+export const getSlotsByProductName = async (productName, params = {}) => {
+  const response = await api.get('/item-slots/by-product-name', {
+    params: { productName, ...params }
+  });
+  return response.data;
+};
+
+/**
  * 슬롯 개별 수정
  */
 export const updateSlot = async (id, data) => {
@@ -155,6 +167,7 @@ export const adjustDailyCount = async (itemId, dayGroup, newCount) => {
 const itemSlotService = {
   getSlotsByItem,
   getSlotsByCampaign,
+  getSlotsByProductName,
   updateSlot,
   updateSlotsBulk,
   getSlotsByCampaignForOperator,
