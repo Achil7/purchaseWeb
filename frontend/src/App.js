@@ -36,9 +36,9 @@ import OperatorMonthlyBuyers from './components/operator/OperatorMonthlyBuyers';
 
 // --- 브랜드사 관련 페이지 ---
 import BrandLayout from './components/brand/BrandLayout';
-import BrandCampaignTable from './components/brand/BrandCampaignTable';
 import BrandItemTable from './components/brand/BrandItemTable';
 import BrandBuyerTable from './components/brand/BrandBuyerTable';
+import BrandDashboard from './components/brand/BrandDashboard';
 
 // --- 이미지 업로드 페이지 (Public) ---
 import UploadPage from './components/upload/UploadPage';
@@ -141,7 +141,7 @@ function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<BrandCampaignTable />} />
+            <Route index element={<BrandDashboard />} />
             <Route path="campaign/:campaignId" element={<BrandItemTable />} />
             <Route path="campaign/:campaignId/item/:itemId" element={<BrandBuyerTable />} />
           </Route>
@@ -185,7 +185,7 @@ function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<BrandCampaignTable />} />
+            <Route index element={<BrandDashboard />} />
             <Route path="campaign/:campaignId" element={<BrandItemTable />} />
             <Route path="campaign/:campaignId/item/:itemId" element={<BrandBuyerTable />} />
           </Route>

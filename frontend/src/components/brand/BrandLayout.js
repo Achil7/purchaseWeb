@@ -25,6 +25,7 @@ import RestoreIcon from '@mui/icons-material/Restore';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import DashboardIcon from '@mui/icons-material/Dashboard';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import BrandItemSheet from './BrandItemSheet';
@@ -733,6 +734,30 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               )}
             </Box>
 
+            {/* 브랜드 현황 대시보드 고정 진입 버튼 (리스트 위 고정) */}
+            <List component="nav" disablePadding dense>
+              <ListItemButton
+                selected={location.pathname === basePathOnly || location.pathname === `${basePathOnly}/`}
+                onClick={() => {
+                  setSelectedCampaign(null);
+                  navigate(basePath);
+                }}
+                sx={{
+                  py: 1,
+                  bgcolor: location.pathname === basePathOnly ? '#e3f2fd' : 'transparent',
+                  borderBottom: '1px solid #e0e0e0'
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 32 }}>
+                  <DashboardIcon fontSize="small" sx={{ color: '#1565c0' }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary="브랜드 현황 대시보드"
+                  primaryTypographyProps={{ variant: 'body2', fontWeight: 'bold', color: '#1565c0' }}
+                />
+              </ListItemButton>
+            </List>
+
             {loading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                 <CircularProgress size={24} />
@@ -1040,26 +1065,8 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             {/* 시트 컴포넌트 - useMemo로 메모이제이션 */}
             {memoizedSheet}
           </>
-        ) : isDefaultRoute ? (
-          /* 캠페인 미선택 시 안내 메시지 */
-          <Box sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            height: '100%',
-            color: 'text.secondary'
-          }}>
-            <FolderIcon sx={{ fontSize: 80, color: '#e0e0e0', mb: 2 }} />
-            <Typography variant="h6" color="text.disabled">
-              캠페인을 선택해주세요
-            </Typography>
-            <Typography variant="body2" color="text.disabled" sx={{ mt: 1 }}>
-              왼쪽 사이드바에서 연월브랜드를 펼쳐 캠페인을 클릭하면 리뷰 현황이 표시됩니다
-            </Typography>
-          </Box>
         ) : (
-          /* 다른 라우트일 때 Outlet 표시 */
+          /* 캠페인 미선택 & 제품 검색 미사용 시 index 라우트(BrandDashboard) 표시 */
           <Outlet />
         )}
       </Box>
