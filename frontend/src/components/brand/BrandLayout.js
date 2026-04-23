@@ -25,7 +25,6 @@ import RestoreIcon from '@mui/icons-material/Restore';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
-import DashboardIcon from '@mui/icons-material/Dashboard';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import BrandItemSheet from './BrandItemSheet';
@@ -62,6 +61,10 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 선택된 캠페인 (메인 영역에 시트 표시용)
   const [selectedCampaign, setSelectedCampaign] = useState(null);
+
+  // 상단 탭 모드: 'dashboard' | 'campaigns'
+  // 기본값은 항상 'dashboard' - 반대로 뒤집고 싶다면 아래 초기값만 'campaigns' 로 변경
+  const [viewMode, setViewMode] = useState('dashboard');
 
   // 숨김 항목 표시 모드
   const [showHidden, setShowHidden] = useState(false);
@@ -127,6 +130,31 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery]);
+
+  // 대시보드에서 캠페인 바로가기: /brand?openCampaign=123 로 들어오면
+  // 캠페인 보기 탭 + 해당 캠페인을 자동 선택해 시트를 바로 표시
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const openCampaignId = params.get('openCampaign');
+    if (!openCampaignId || monthlyBrands.length === 0) return;
+    const targetId = parseInt(openCampaignId, 10);
+    let found = null;
+    for (const mb of monthlyBrands) {
+      const hit = (mb.campaigns || []).find(c => c.id === targetId);
+      if (hit) { found = hit; break; }
+    }
+    if (found) {
+      setViewMode('campaigns');
+      setSelectedCampaign(found);
+      setActiveProductSearch('');
+      setProductSearchQuery('');
+      // URL 정리: openCampaign 파라미터 제거 (뒤로가기/새로고침 시 혼란 방지)
+      const cleanParams = new URLSearchParams(location.search);
+      cleanParams.delete('openCampaign');
+      const cleanQuery = cleanParams.toString();
+      navigate(basePath + (cleanQuery ? `?${cleanQuery}` : ''), { replace: true });
+    }
+  }, [location.search, monthlyBrands, navigate, basePath]);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -513,6 +541,42 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             {isAdminMode ? '브랜드사 보기 (Admin)' : 'Campaign Manager'}
           </Typography>
 
+          {/* 상단 탭: 현황 대시보드 / 캠페인 보기 */}
+          <Box sx={{ display: 'flex', ml: 3, gap: 0.5 }}>
+            <Button
+              color="inherit"
+              onClick={() => {
+                setViewMode('dashboard');
+                setSelectedCampaign(null);
+                setActiveProductSearch('');
+                navigate(basePath);
+              }}
+              sx={{
+                fontWeight: viewMode === 'dashboard' ? 'bold' : 'normal',
+                borderBottom: viewMode === 'dashboard' ? '2px solid #fff' : '2px solid transparent',
+                borderRadius: 0,
+                px: 2
+              }}
+            >
+              현황 대시보드
+            </Button>
+            <Button
+              color="inherit"
+              onClick={() => {
+                setViewMode('campaigns');
+                navigate(basePath);
+              }}
+              sx={{
+                fontWeight: viewMode === 'campaigns' ? 'bold' : 'normal',
+                borderBottom: viewMode === 'campaigns' ? '2px solid #fff' : '2px solid transparent',
+                borderRadius: 0,
+                px: 2
+              }}
+            >
+              캠페인 보기
+            </Button>
+          </Box>
+
           {/* Spacer */}
           <Box sx={{ flexGrow: 1 }} />
 
@@ -594,7 +658,8 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
       {/* 메인 컨테이너 - 사이드바 + 콘텐츠 */}
       <Box sx={{ display: 'flex', flex: 1, pt: isEmbedded ? 0 : 8, overflow: 'hidden', minHeight: 0 }}>
-      {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록 */}
+      {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록 (캠페인 보기 탭에서만 노출) */}
+      {viewMode === 'campaigns' && (
       <Box sx={{ display: 'flex', flexShrink: 0, position: 'relative' }}>
         <Paper
           ref={sidebarRef}
@@ -639,70 +704,6 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 </Box>
               </Box>
 
-              {/* 제품명 통합 검색 (모든 캠페인/날짜 교차) */}
-              {!showHidden && (
-                <TextField
-                  size="small"
-                  placeholder="제품명으로 전체 검색..."
-                  value={productSearchQuery}
-                  onChange={(e) => setProductSearchQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const trimmed = productSearchQuery.trim();
-                      if (trimmed) {
-                        setActiveProductSearch(trimmed);
-                        setSelectedCampaign(null);
-                      }
-                    }
-                  }}
-                  fullWidth
-                  sx={{
-                    mt: 1,
-                    '& .MuiInputBase-root': {
-                      height: 28,
-                      fontSize: '0.75rem',
-                      bgcolor: activeProductSearch ? '#fff3e0' : 'transparent'
-                    },
-                    '& .MuiInputBase-input': { py: 0.5 }
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Tooltip title="제품명으로 검색 (Enter)">
-                          <IconButton
-                            size="small"
-                            onClick={() => {
-                              const trimmed = productSearchQuery.trim();
-                              if (trimmed) {
-                                setActiveProductSearch(trimmed);
-                                setSelectedCampaign(null);
-                              }
-                            }}
-                            sx={{ p: 0.2 }}
-                          >
-                            <SearchIcon sx={{ fontSize: 16, color: activeProductSearch ? '#ef6c00' : '#999' }} />
-                          </IconButton>
-                        </Tooltip>
-                      </InputAdornment>
-                    ),
-                    endAdornment: (productSearchQuery || activeProductSearch) && (
-                      <InputAdornment position="end">
-                        <IconButton
-                          size="small"
-                          onClick={() => {
-                            setProductSearchQuery('');
-                            setActiveProductSearch('');
-                          }}
-                          sx={{ p: 0.2 }}
-                        >
-                          <ClearIcon sx={{ fontSize: 14 }} />
-                        </IconButton>
-                      </InputAdornment>
-                    )
-                  }}
-                />
-              )}
-
               {/* 연월브랜드 검색 */}
               {!showHidden && (
                 <TextField
@@ -733,30 +734,6 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 />
               )}
             </Box>
-
-            {/* 브랜드 현황 대시보드 고정 진입 버튼 (리스트 위 고정) */}
-            <List component="nav" disablePadding dense>
-              <ListItemButton
-                selected={location.pathname === basePathOnly || location.pathname === `${basePathOnly}/`}
-                onClick={() => {
-                  setSelectedCampaign(null);
-                  navigate(basePath);
-                }}
-                sx={{
-                  py: 1,
-                  bgcolor: location.pathname === basePathOnly ? '#e3f2fd' : 'transparent',
-                  borderBottom: '1px solid #e0e0e0'
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 32 }}>
-                  <DashboardIcon fontSize="small" sx={{ color: '#1565c0' }} />
-                </ListItemIcon>
-                <ListItemText
-                  primary="브랜드 현황 대시보드"
-                  primaryTypographyProps={{ variant: 'body2', fontWeight: 'bold', color: '#1565c0' }}
-                />
-              </ListItemButton>
-            </List>
 
             {loading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -1010,6 +987,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         />
       )}
       </Box>
+      )}
 
       {/* 메인 콘텐츠 영역 */}
       <Box
@@ -1017,12 +995,89 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         sx={{
           flexGrow: 1,
           p: 2,
-          overflow: 'hidden',
+          // 대시보드 탭은 페이지 스크롤 허용, 캠페인 보기 탭은 시트가 자체 높이 관리하므로 숨김
+          overflow: viewMode === 'dashboard' ? 'auto' : 'hidden',
           display: 'flex',
           flexDirection: 'column'
         }}
       >
-        {activeProductSearch && isDefaultRoute ? (
+        {viewMode === 'dashboard' ? (
+          /* 현황 대시보드 탭: index 라우트(BrandDashboard) 표시 */
+          <Outlet />
+        ) : (
+          <>
+            {/* 캠페인 보기 탭 공통 상단 툴바 - 제품명 통합 검색 */}
+            <Paper
+              variant="outlined"
+              sx={{
+                mb: 1.5,
+                px: 1.5,
+                py: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                flexShrink: 0,
+                bgcolor: activeProductSearch ? '#fff8e1' : '#fafafa',
+                borderColor: activeProductSearch ? '#ffb300' : '#e0e0e0'
+              }}
+            >
+              <SearchIcon sx={{ fontSize: 18, color: activeProductSearch ? '#ef6c00' : '#757575' }} />
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, fontWeight: 'bold' }}>
+                제품명 통합 검색
+              </Typography>
+              <TextField
+                size="small"
+                placeholder="제품명 입력 후 Enter (모든 캠페인/날짜 교차 조회)"
+                value={productSearchQuery}
+                onChange={(e) => setProductSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const trimmed = productSearchQuery.trim();
+                    if (trimmed) {
+                      setActiveProductSearch(trimmed);
+                      setSelectedCampaign(null);
+                    }
+                  }
+                }}
+                fullWidth
+                sx={{
+                  '& .MuiInputBase-root': { height: 32, fontSize: '0.85rem', bgcolor: '#fff' },
+                  '& .MuiInputBase-input': { py: 0.5 }
+                }}
+                InputProps={{
+                  endAdornment: (productSearchQuery || activeProductSearch) && (
+                    <InputAdornment position="end">
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setProductSearchQuery('');
+                          setActiveProductSearch('');
+                        }}
+                        sx={{ p: 0.3 }}
+                      >
+                        <ClearIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </InputAdornment>
+                  )
+                }}
+              />
+              <Button
+                size="small"
+                variant="contained"
+                color="warning"
+                onClick={() => {
+                  const trimmed = productSearchQuery.trim();
+                  if (trimmed) {
+                    setActiveProductSearch(trimmed);
+                    setSelectedCampaign(null);
+                  }
+                }}
+                sx={{ flexShrink: 0, minWidth: 64 }}
+              >
+                검색
+              </Button>
+            </Paper>
+            {activeProductSearch && isDefaultRoute ? (
           <>
             {/* 제품명 검색 헤더 */}
             <Box sx={{ mb: 1, flexShrink: 0 }}>
@@ -1066,8 +1121,25 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             {memoizedSheet}
           </>
         ) : (
-          /* 캠페인 미선택 & 제품 검색 미사용 시 index 라우트(BrandDashboard) 표시 */
-          <Outlet />
+          /* 캠페인 보기 탭 - 캠페인 미선택 안내 */
+          <Box sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            height: '100%',
+            color: 'text.secondary'
+          }}>
+            <FolderIcon sx={{ fontSize: 80, color: '#e0e0e0', mb: 2 }} />
+            <Typography variant="h6" color="text.disabled">
+              캠페인을 선택해주세요
+            </Typography>
+            <Typography variant="body2" color="text.disabled" sx={{ mt: 1 }}>
+              왼쪽 사이드바에서 연월브랜드를 펼쳐 캠페인을 클릭하면 리뷰 현황이 표시됩니다
+            </Typography>
+          </Box>
+        )}
+          </>
         )}
       </Box>
       </Box>

@@ -17,4 +17,11 @@ router.get(
   brandDashboardController.getProductRollup
 );
 
+router.get(
+  '/product-list',
+  authenticate,
+  authorize(['brand', 'admin']),
+  brandDashboardController.getProductList
+);
+
 module.exports = router;

@@ -14,3 +14,10 @@ export const getProductRollup = async ({ platform, query, viewAsUserId } = {}) =
   const response = await api.get('/brand-dashboard/product-rollup', { params });
   return response.data;
 };
+
+export const getProductList = async ({ platform, viewAsUserId } = {}) => {
+  const params = { platform };
+  if (viewAsUserId) params.viewAsUserId = viewAsUserId;
+  const response = await api.get('/brand-dashboard/product-list', { params });
+  return response.data;
+};
