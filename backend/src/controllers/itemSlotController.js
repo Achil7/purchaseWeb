@@ -277,11 +277,18 @@ exports.getSlotsByCampaign = async (req, res) => {
     const { viewAsRole } = req.query;
     const isBrandView = viewAsRole === 'brand';
 
-    // 캠페인의 모든 품목 조회
+    // 28차: Item 필드 확장 (시트에서 필요한 모든 필드 포함 → slot.include 제거 가능)
     const items = await Item.findAll({
       where: { campaign_id: campaignId },
-      attributes: ['id', 'product_name', 'total_purchase_count', 'daily_purchase_count', 'shipping_type', 'courier_service_yn', 'product_url'],
-      order: [['created_at', 'ASC']]
+      attributes: [
+        'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+        'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
+        'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
+        'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
+        'date', 'display_order'
+      ],
+      order: [['created_at', 'ASC']],
+      raw: true
     });
 
     if (items.length === 0) {
@@ -294,12 +301,18 @@ exports.getSlotsByCampaign = async (req, res) => {
 
     const itemIds = items.map(i => i.id);
 
+    // 28차: itemMap 생성 (slot.item 주입용)
+    const itemMap = {};
+    for (const item of items) {
+      itemMap[item.id] = item;
+    }
+
     // 구매자 필드 정의 (Brand vs Sales)
     const buyerAttributes = isBrandView
       ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'contact', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number', 'expected_payment_date', 'review_submitted_at', 'date']
       : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at', 'date'];
 
-    // 1단계: 슬롯 + Item 정보만 조회 (Buyer/Image 제외 - 성능 최적화)
+    // 28차: ItemSlot.include 제거 — 이미 itemMap에 Item 데이터 있음, raw:true로 toJSON() 오버헤드 제거
     const slots = await ItemSlot.findAll({
       where: { item_id: { [Op.in]: itemIds } },
       attributes: [
@@ -310,53 +323,42 @@ exports.getSlotsByCampaign = async (req, res) => {
         'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes', 'is_suspended',
         'created_at', 'updated_at'
       ],
-      include: [
-        {
-          model: Item,
-          as: 'item',
-          required: true,  // INNER JOIN - soft delete된 Item의 슬롯 제외
-          attributes: [
-            'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
-            'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
-            'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
-            'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
-            'date', 'display_order'
-          ]
-        }
-      ],
       order: [
         ['item_id', 'ASC'],
         ['day_group', 'ASC'],
         ['slot_number', 'ASC']
-      ]
+      ],
+      raw: true
     });
 
-    // 2단계: buyer_id가 있는 슬롯들의 구매자 정보 별도 조회
+    // 2단계: buyer_id가 있는 슬롯들의 구매자/이미지 정보 병렬 조회
     const buyerIds = [...new Set(slots.map(s => s.buyer_id).filter(Boolean))];
 
     let buyerMap = {};
     let imageMap = {};
 
     if (buyerIds.length > 0) {
-      // 구매자 정보 조회
-      const buyers = await Buyer.findAll({
-        where: { id: { [Op.in]: buyerIds } },
-        attributes: buyerAttributes
-      });
+      // 28차: Buyer + Image 병렬 조회 (순차 → Promise.all)
+      const [buyers, images] = await Promise.all([
+        Buyer.findAll({
+          where: { id: { [Op.in]: buyerIds } },
+          attributes: buyerAttributes,
+          raw: true
+        }),
+        Image.findAll({
+          where: {
+            buyer_id: { [Op.in]: buyerIds },
+            status: 'approved'
+          },
+          attributes: ['id', 'buyer_id', 's3_url', 'file_name', 'created_at'],
+          order: [['created_at', 'ASC']],
+          raw: true
+        })
+      ]);
 
       for (const buyer of buyers) {
-        buyerMap[buyer.id] = buyer.toJSON();
+        buyerMap[buyer.id] = buyer;
       }
-
-      // 3단계: 이미지 정보 별도 조회 (승인된 이미지만)
-      const images = await Image.findAll({
-        where: {
-          buyer_id: { [Op.in]: buyerIds },
-          status: 'approved'  // pending 상태의 재제출 이미지는 제외
-        },
-        attributes: ['id', 'buyer_id', 's3_url', 'file_name', 'created_at'],
-        order: [['created_at', 'ASC']]
-      });
 
       for (const image of images) {
         if (!imageMap[image.buyer_id]) {
@@ -371,21 +373,19 @@ exports.getSlotsByCampaign = async (req, res) => {
       }
     }
 
-    // 4단계: 슬롯 데이터에 구매자/이미지 정보 조합 (기존 응답 형식 유지)
+    // 3단계: 슬롯 데이터에 item/buyer/images 주입 (기존 응답 형식 유지)
     const slotsWithBuyers = slots.map(slot => {
-      const slotJson = slot.toJSON();
-      const buyerId = slotJson.buyer_id;
-
+      slot.item = itemMap[slot.item_id] || null;
+      const buyerId = slot.buyer_id;
       if (buyerId && buyerMap[buyerId]) {
-        slotJson.buyer = {
+        slot.buyer = {
           ...buyerMap[buyerId],
           images: imageMap[buyerId] || []
         };
       } else {
-        slotJson.buyer = null;
+        slot.buyer = null;
       }
-
-      return slotJson;
+      return slot;
     });
 
     res.json({
@@ -626,12 +626,25 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
       });
     }
 
-    // 배정된 품목들 조회
+    // 28차: Item 필드 확장 (slot.include 제거 대응)
     const items = await Item.findAll({
       where: { id: { [Op.in]: assignedItemIds } },
-      attributes: ['id', 'product_name', 'total_purchase_count', 'daily_purchase_count'],
-      order: [['created_at', 'ASC']]
+      attributes: [
+        'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+        'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
+        'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
+        'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
+        'date', 'display_order'
+      ],
+      order: [['created_at', 'ASC']],
+      raw: true
     });
+
+    // 28차: itemMap 생성 (slot.item 주입용)
+    const itemMap = {};
+    for (const item of items) {
+      itemMap[item.id] = item;
+    }
 
     // 품목별 day_group 매핑 생성
     // { item_id: [day_group1, day_group2, ...] } 또는 { item_id: null } (전체 배정)
@@ -675,7 +688,7 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
       });
     }
 
-    // 1단계: 슬롯 + Item 정보만 조회 (Buyer/Image 제외)
+    // 28차: ItemSlot.include 제거 + raw:true
     const slots = await ItemSlot.findAll({
       where: { [Op.or]: slotConditions },
       attributes: [
@@ -686,60 +699,47 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
         'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes',
         'created_at', 'updated_at'
       ],
-      include: [
-        {
-          model: Item,
-          as: 'item',
-          required: true,  // INNER JOIN - soft delete된 Item의 슬롯 제외
-          attributes: [
-            'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
-            'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
-            'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
-            'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
-            'date', 'display_order'
-          ]
-        }
-      ],
       order: [
         ['item_id', 'ASC'],
         ['day_group', 'ASC'],
         ['slot_number', 'ASC']
-      ]
+      ],
+      raw: true
     });
 
-    // 2단계: buyer_id가 있는 슬롯들의 구매자 정보 별도 조회
+    // 2단계: buyer_id가 있는 슬롯들의 구매자/이미지 정보 병렬 조회
     const buyerIds = [...new Set(slots.map(s => s.buyer_id).filter(Boolean))];
 
     let buyerMap = {};
     let imageMap = {};
 
     if (buyerIds.length > 0) {
-      // 구매자 정보 조회
-      const buyers = await Buyer.findAll({
-        where: { id: { [Op.in]: buyerIds } },
-        attributes: [
-          'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
-          'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes',
-          'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at'
-        ]
-      });
+      // 28차: Buyer + Image 병렬 조회
+      const [buyers, images] = await Promise.all([
+        Buyer.findAll({
+          where: { id: { [Op.in]: buyerIds } },
+          attributes: [
+            'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
+            'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes',
+            'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at'
+          ],
+          raw: true
+        }),
+        Image.findAll({
+          where: {
+            buyer_id: { [Op.in]: buyerIds },
+            status: 'approved'
+          },
+          attributes: ['id', 'buyer_id', 's3_url', 'file_name', 'created_at'],
+          order: [['created_at', 'ASC']],
+          raw: true
+        })
+      ]);
 
-      // 구매자 맵 생성
       for (const buyer of buyers) {
-        buyerMap[buyer.id] = buyer.toJSON();
+        buyerMap[buyer.id] = buyer;
       }
 
-      // 3단계: 이미지 정보 별도 조회 (승인된 이미지만)
-      const images = await Image.findAll({
-        where: {
-          buyer_id: { [Op.in]: buyerIds },
-          status: 'approved'  // pending 상태의 재제출 이미지는 제외
-        },
-        attributes: ['id', 'buyer_id', 's3_url', 'file_name', 'created_at'],
-        order: [['created_at', 'ASC']]
-      });
-
-      // 이미지를 buyer_id별로 그룹핑
       for (const image of images) {
         if (!imageMap[image.buyer_id]) {
           imageMap[image.buyer_id] = [];
@@ -753,21 +753,19 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
       }
     }
 
-    // 4단계: 슬롯 데이터에 구매자/이미지 정보 조합 (기존 응답 형식 유지)
+    // 3단계: 슬롯 데이터에 item/buyer/images 주입 (기존 응답 형식 유지)
     const slotsWithBuyers = slots.map(slot => {
-      const slotJson = slot.toJSON();
-      const buyerId = slotJson.buyer_id;
-
+      slot.item = itemMap[slot.item_id] || null;
+      const buyerId = slot.buyer_id;
       if (buyerId && buyerMap[buyerId]) {
-        slotJson.buyer = {
+        slot.buyer = {
           ...buyerMap[buyerId],
           images: imageMap[buyerId] || []
         };
       } else {
-        slotJson.buyer = null;
+        slot.buyer = null;
       }
-
-      return slotJson;
+      return slot;
     });
 
     res.json({

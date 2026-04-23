@@ -1824,6 +1824,66 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ---
 
+### 28차 최적화 (2026-04-13) - `item-slots/campaign/:id` 시트 로딩 API 최적화
+
+**배경:**
+27차에서 여러 API 개선됐지만 시트 로딩 API(`/item-slots/campaign/:id`)가 test 서버에서도 **520ms** 소요.
+이 API는 진행자/영업사/브랜드사가 시트 열 때마다 호출됨.
+
+**원인 분석:**
+1. `ItemSlot.findAll` + `Item.include` (INNER JOIN) — 이미 1단계에서 `items`를 별도로 로드했는데, **매 슬롯마다 Item 정보를 다시 JOIN으로 가져옴**. 5,000 슬롯이면 5,000 × 22필드 중복 로딩.
+2. `Buyer`와 `Image` 쿼리가 **순차 await** 실행 — 각각 50~80ms × 2
+3. `slot.toJSON()` 오버헤드 — Sequelize 인스턴스 → plain object 변환이 슬롯 개수만큼 반복
+
+**적용 내용:**
+
+#### Part 1: ItemSlot.include 제거 + itemMap 주입
+- 1단계 `Item.findAll`의 attributes를 시트에서 필요한 모든 필드로 확장
+- `ItemSlot.findAll`에서 `include: [{ model: Item }]` 제거 (INNER JOIN 제거)
+- JS에서 `itemMap[slot.item_id]`로 메모리 병합 (DB 왕복 0회)
+
+#### Part 2: Buyer + Image 병렬 조회
+- `await Buyer.findAll()` → `await Image.findAll()` 순차 → `Promise.all([Buyer, Image])`
+- 두 쿼리가 독립적이므로 병렬 실행 가능
+
+#### Part 3: `raw: true`로 Sequelize 오버헤드 제거
+- ItemSlot, Buyer, Image 조회 모두 `raw: true` 추가
+- `slot.toJSON()` 호출 제거 → 이미 plain object
+
+**수정 파일:**
+- `backend/src/controllers/itemSlotController.js` ✅
+  - `getSlotsByCampaign` (영업사/브랜드사/Admin용)
+  - `getSlotsByCampaignForOperator` (진행자용)
+
+**기능/결과값 불변 보장:**
+- 응답 JSON 구조 완전 동일 (`slot.item`, `slot.buyer`, `slot.buyer.images` 모두 유지)
+- `items` 배열 응답 필드도 동일 (필드 몇 개 추가되었지만 기존 필드 전부 포함)
+- `slot.item`에 주입되는 Item 필드가 기존 include와 완전히 같음
+
+**빌드:** ✅ 백엔드 문법 검증 통과
+
+**측정 (test 서버 - 28차 이전):**
+- `GET /api/item-slots/campaign/1` = **520ms**
+
+**측정 (28차 적용 후):** ⏳ 배포 후 측정 필요
+
+**예상 효과:**
+- ItemSlot INNER JOIN 제거 → **-200ms**
+- Buyer + Image 병렬화 → **-50~80ms**
+- `raw: true` 오버헤드 제거 → **-50~100ms**
+- 합계 **300~350ms 단축 예상** → 520ms → 170~220ms 목표
+
+**기능 검증 항목:**
+- [ ] 진행자 시트 로딩 → 동일한 데이터 표시 (제품명, 구매자, 이미지)
+- [ ] 영업사 시트 로딩 → 동일한 데이터 표시
+- [ ] 브랜드사 시트 로딩 → 동일한 데이터 표시 (brand 전용 필드)
+- [ ] 일마감(splitDayGroup) 정상 동작
+- [ ] 시트에서 제품 정보 표시 (slot.item.product_name 등)
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
 
 **목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선
