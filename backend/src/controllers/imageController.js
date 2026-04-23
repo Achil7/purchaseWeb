@@ -1058,23 +1058,28 @@ exports.proxyImage = async (req, res) => {
 
 /**
  * 리뷰샷 검색 (Admin 전용)
- * - 브랜드사 필수, 제품명/기간 선택
+ * - 모든 필터(브랜드사/제품명/기간/예금주) 선택, 단 최소 1개 이상 필수
  * - approved 상태만 (pending/rejected 제외)
- * - is_temporary 선 업로드도 포함
+ * - 예금주 필터 사용 시 선 업로드(is_temporary=true) 제외
  */
 exports.searchImages = async (req, res) => {
   try {
-    const { brand_id, product_name, start_date, end_date } = req.query;
+    const { brand_id, product_name, start_date, end_date, account_holder } = req.query;
     let limit = parseInt(req.query.limit, 10);
     let offset = parseInt(req.query.offset, 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 100;
     if (limit > 500) limit = 500;
     if (!Number.isFinite(offset) || offset < 0) offset = 0;
 
-    if (!brand_id) {
+    const brandIdNum = brand_id ? parseInt(brand_id, 10) : null;
+    const productNameTrimmed = product_name && product_name.trim() ? product_name.trim() : null;
+    const accountHolderTrimmed = account_holder && account_holder.trim() ? account_holder.trim() : null;
+    const hasAnyFilter = brandIdNum || productNameTrimmed || start_date || end_date || accountHolderTrimmed;
+
+    if (!hasAnyFilter) {
       return res.status(400).json({
         success: false,
-        message: '브랜드사(brand_id)를 선택해주세요'
+        message: '최소 1개 이상의 검색 조건을 입력해주세요'
       });
     }
 
@@ -1090,9 +1095,16 @@ exports.searchImages = async (req, res) => {
     }
 
     const itemWhere = {};
-    if (product_name && product_name.trim()) {
-      itemWhere.product_name = { [Op.iLike]: `%${product_name.trim()}%` };
+    if (productNameTrimmed) {
+      itemWhere.product_name = { [Op.iLike]: `%${productNameTrimmed}%` };
     }
+
+    const buyerWhere = {};
+    if (accountHolderTrimmed) {
+      buyerWhere.account_info = { [Op.iLike]: `%${accountHolderTrimmed}%` };
+      buyerWhere.is_temporary = false;
+    }
+    const buyerRequired = accountHolderTrimmed ? true : false;
 
     const { count, rows } = await Image.findAndCountAll({
       where: imageWhere,
@@ -1100,7 +1112,8 @@ exports.searchImages = async (req, res) => {
         {
           model: Buyer,
           as: 'buyer',
-          required: false,
+          required: buyerRequired,
+          where: Object.keys(buyerWhere).length > 0 ? buyerWhere : undefined,
           attributes: ['id', 'buyer_name', 'recipient_name', 'order_number', 'is_temporary']
         },
         {
@@ -1114,7 +1127,7 @@ exports.searchImages = async (req, res) => {
             as: 'campaign',
             required: true,
             attributes: ['id', 'name', 'monthly_brand_id'],
-            where: { brand_id: parseInt(brand_id, 10) },
+            where: brandIdNum ? { brand_id: brandIdNum } : undefined,
             include: [{
               model: MonthlyBrand,
               as: 'monthlyBrand',

@@ -147,6 +147,15 @@ const AdminReviewSearch = () => {
   const [productName, setProductName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [accountHolder, setAccountHolder] = useState('');
+
+  const hasAnyFilter = !!(
+    selectedBrand?.id ||
+    productName.trim() ||
+    startDate ||
+    endDate ||
+    accountHolder.trim()
+  );
 
   // 검색 결과 상태
   const [imageMap, setImageMap] = useState(() => new Map());
@@ -193,19 +202,25 @@ const AdminReviewSearch = () => {
 
   // 검색 실행 (초기)
   const runSearch = useCallback(async () => {
-    if (!selectedBrand?.id) return;
+    const filters = {
+      brand_id: selectedBrand?.id || undefined,
+      product_name: productName.trim() || undefined,
+      start_date: startDate || undefined,
+      end_date: endDate || undefined,
+      account_holder: accountHolder.trim() || undefined
+    };
+    const hasAny = Object.values(filters).some(v => v !== undefined);
+    if (!hasAny) {
+      setError('최소 1개 이상의 검색 조건을 입력해주세요');
+      return;
+    }
 
     queryVersionRef.current += 1;
     const myVersion = queryVersionRef.current;
 
     // 상태 초기화
     inFlightRangesRef.current = new Set();
-    currentQueryRef.current = {
-      brand_id: selectedBrand.id,
-      product_name: productName.trim() || undefined,
-      start_date: startDate || undefined,
-      end_date: endDate || undefined
-    };
+    currentQueryRef.current = filters;
 
     setError('');
     setSearching(true);
@@ -244,7 +259,7 @@ const AdminReviewSearch = () => {
         setSearching(false);
       }
     }
-  }, [selectedBrand, productName, startDate, endDate]);
+  }, [selectedBrand, productName, startDate, endDate, accountHolder]);
 
   // 구간 로드 (뷰어/그리드 둘 다 호출)
   // start~end 범위를 확인하고, 로드 안 된 하위 구간들만 BATCH_LIMIT 단위로 fetch
@@ -428,7 +443,7 @@ const AdminReviewSearch = () => {
 
   // 엔터키 검색
   const onKeyDownSearch = (e) => {
-    if (e.key === 'Enter' && selectedBrand) {
+    if (e.key === 'Enter' && hasAnyFilter) {
       runSearch();
     }
   };
@@ -446,13 +461,27 @@ const AdminReviewSearch = () => {
         리뷰샷 검색
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        브랜드사 요청이 들어왔을 때, 브랜드사와 (선택적으로) 제품명/기간으로 후보 리뷰샷을 훑어보고 어떤 구매자의 이미지인지 식별할 수 있습니다.
+        예금주 / 브랜드사 / 제품명 / 기간(리뷰샷 업로드 일자) 중 1개 이상 조건으로 후보 리뷰샷을 훑어볼 수 있습니다.
         썸네일 클릭 → 방향키(←→)로 끝까지 탐색, 상단에 연월브랜드·캠페인·제품·구매자 정보 표시.
       </Typography>
 
       {/* 필터 바 */}
       <Paper sx={{ p: 2, mb: 2 }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          spacing={2}
+          alignItems={{ md: 'center' }}
+          sx={{ flexWrap: { md: 'wrap' }, rowGap: { md: 2 } }}
+        >
+          <TextField
+            label="예금주 (선택, 부분 일치)"
+            size="small"
+            value={accountHolder}
+            onChange={(e) => setAccountHolder(e.target.value)}
+            onKeyDown={onKeyDownSearch}
+            sx={{ minWidth: 200 }}
+          />
+
           <Autocomplete
             sx={{ minWidth: 280 }}
             options={brands}
@@ -464,9 +493,8 @@ const AdminReviewSearch = () => {
             renderInput={(params) => (
               <TextField
                 {...params}
-                label="브랜드사 (필수)"
+                label="브랜드사 (선택)"
                 size="small"
-                required
                 InputProps={{
                   ...params.InputProps,
                   endAdornment: (
@@ -509,7 +537,7 @@ const AdminReviewSearch = () => {
           <Button
             variant="contained"
             startIcon={<SearchIcon />}
-            disabled={!selectedBrand || searching}
+            disabled={!hasAnyFilter || searching}
             onClick={runSearch}
             sx={{ minWidth: 100 }}
           >
