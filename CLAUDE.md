@@ -557,7 +557,28 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 - [x] Operator 메모장 기능 (OperatorMemoDialog)
 - [x] Operator 선 업로드 알림 (30초 갱신)
 
-### 최신 수정 (2026-03-26)
+### 최신 수정 (2026-04-24)
+- [x] **브랜드사 대시보드 도입 (1차 + 2차)**
+  - `/brand` 첫 화면을 빈 안내 → **브랜드 현황 대시보드**로 교체
+  - 상단 탭 2개: **현황 대시보드 / 캠페인 보기** (AppBar 내부 버튼 스타일, 기본은 대시보드)
+  - 현황 대시보드 구성:
+    - 플랫폼 탭 (맨 왼쪽 "전체" 집계 포함, `__ALL__` 특수값) + 각 탭에 건수/금액 배지
+    - 요약 카드 6개: 총 금액 / 구매자 / 리뷰 완료 / 완료율 / 진행 중 캠페인 / 상품 수
+    - 일별 추이 2차트 (recharts): 최근 14일 리뷰 완료(LineChart) + 구매자 등록(BarChart), **KST 변환 필수** (DB timezone UTC)
+    - 이슈 리스트 3개 TOP 3 (제품명 단위): 완료율 낮음 / 리뷰 0건 / 금액 상위
+    - 제품별 현황 테이블: 제품명 단위 합산, 컬럼 정렬(TableSortLabel), 필터(client-side), 20행 페이지네이션, 행 클릭 시 Collapse 로 포함 캠페인 목록 펼침(내부도 정렬 가능)
+  - 제품별 현황 → 캠페인 클릭 시 `/brand?openCampaign=:id` 로 이동 → BrandLayout 이 쿼리 감지하여 탭 전환 + 캠페인 자동 선택 (시트 바로 오픈)
+  - **제거된 컴포넌트**: BrandItemTable, BrandBuyerTable, BrandCampaignTable (중간 경유지, App.js 라우트 포함 완전 제거)
+  - 백엔드 신규: `GET /api/brand-dashboard/overview`, `GET /api/brand-dashboard/product-list`, `GET /api/brand-dashboard/product-rollup` (rollup은 보존)
+  - 공통 SQL fragment `BUYER_LEVEL_VIEW_SQL` 재사용, 필터 원칙: `is_temporary=false` + `images.status='approved'` + `item_slots.is_suspended=false`
+- [x] **시트 스크롤 영역 슬림화**
+  - 캠페인 보기 탭의 제품명 통합 검색 툴바 / 캠페인 헤더 높이 축소
+  - 목적: Handsontable 시트에 세로 공간 더 확보 (횡스크롤은 CLAUDE.md 경고에 따라 `.wtHolder` 수정 불가)
+- [x] **BrandLayout main Box overflow 정책**
+  - `overflow: 'hidden'` 고정 (탭 무관) — 시트의 Handsontable 높이 계산 보존
+  - 대시보드의 페이지 스크롤은 BrandDashboard 루트 Box `height: 100%, overflowY: auto` 로 자체 처리
+
+### 이전 수정 (2026-03-26)
 - [x] **사이드바 진행률 분모 통일 (슬롯 수 기준)**
   - Operator/Sales/Brand 3개 역할 모두 분모를 ItemSlot 수(= 시트 "전체 N건"과 동일 기준)로 통일
   - 변경 전: Sales/Brand는 `total_purchase_count`(목표치), Operator는 `assignedSlots.length`(슬롯 수)
@@ -772,4 +793,4 @@ FPS: 60.4
 
 ---
 
-**최종 업데이트**: 2026-04-12
+**최종 업데이트**: 2026-04-24

@@ -994,9 +994,10 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         component="main"
         sx={{
           flexGrow: 1,
-          p: 2,
-          // 대시보드 탭은 페이지 스크롤 허용, 캠페인 보기 탭은 시트가 자체 높이 관리하므로 숨김
-          overflow: viewMode === 'dashboard' ? 'auto' : 'hidden',
+          p: 1,
+          // 시트의 Handsontable 높이 계산을 깨지 않기 위해 부모는 항상 hidden
+          // 대시보드 탭의 페이지 스크롤은 BrandDashboard 컴포넌트 내부에서 처리
+          overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column'
         }}
@@ -1006,13 +1007,13 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           <Outlet />
         ) : (
           <>
-            {/* 캠페인 보기 탭 공통 상단 툴바 - 제품명 통합 검색 */}
+            {/* 캠페인 보기 탭 공통 상단 툴바 - 제품명 통합 검색 (슬림) */}
             <Paper
               variant="outlined"
               sx={{
-                mb: 1.5,
-                px: 1.5,
-                py: 1,
+                mb: 0.75,
+                px: 1.2,
+                py: 0.4,
                 display: 'flex',
                 alignItems: 'center',
                 gap: 1,
@@ -1021,7 +1022,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 borderColor: activeProductSearch ? '#ffb300' : '#e0e0e0'
               }}
             >
-              <SearchIcon sx={{ fontSize: 18, color: activeProductSearch ? '#ef6c00' : '#757575' }} />
+              <SearchIcon sx={{ fontSize: 16, color: activeProductSearch ? '#ef6c00' : '#757575' }} />
               <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, fontWeight: 'bold' }}>
                 제품명 통합 검색
               </Typography>
@@ -1041,8 +1042,8 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 }}
                 fullWidth
                 sx={{
-                  '& .MuiInputBase-root': { height: 32, fontSize: '0.85rem', bgcolor: '#fff' },
-                  '& .MuiInputBase-input': { py: 0.5 }
+                  '& .MuiInputBase-root': { height: 26, fontSize: '0.8rem', bgcolor: '#fff' },
+                  '& .MuiInputBase-input': { py: 0.2 }
                 }}
                 InputProps={{
                   endAdornment: (productSearchQuery || activeProductSearch) && (
@@ -1072,50 +1073,40 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                     setSelectedCampaign(null);
                   }
                 }}
-                sx={{ flexShrink: 0, minWidth: 64 }}
+                sx={{ flexShrink: 0, minWidth: 56, height: 26, py: 0, fontSize: '0.75rem' }}
               >
                 검색
               </Button>
             </Paper>
             {activeProductSearch && isDefaultRoute ? (
           <>
-            {/* 제품명 검색 헤더 */}
-            <Box sx={{ mb: 1, flexShrink: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Typography variant="h6" fontWeight="bold" color="#ef6c00">
-                  제품명 검색: "{activeProductSearch}"
-                </Typography>
-                <Chip
-                  label="전체 캠페인 통합"
-                  size="small"
-                  color="warning"
-                  sx={{ height: 22 }}
-                />
-              </Box>
-              <Typography variant="caption" color="text.secondary">
-                모든 캠페인/날짜 교차로 해당 제품의 리뷰 현황을 한 화면에서 확인
+            {/* 제품명 검색 헤더 (슬림) */}
+            <Box sx={{ mb: 0.5, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="subtitle1" fontWeight="bold" color="#ef6c00">
+                제품명 검색: "{activeProductSearch}"
               </Typography>
+              <Chip
+                label="전체 캠페인 통합"
+                size="small"
+                color="warning"
+                sx={{ height: 20, fontSize: '0.7rem' }}
+              />
             </Box>
             {memoizedSheet}
           </>
         ) : selectedCampaign && isDefaultRoute ? (
           <>
-            {/* 선택된 캠페인 헤더 */}
-            <Box sx={{ mb: 1, flexShrink: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <Typography variant="h6" fontWeight="bold" color="#2c387e">
-                  {selectedCampaign.name}
-                </Typography>
-                <Chip
-                  label={getStatusLabel(selectedCampaign.status)}
-                  size="small"
-                  color={getStatusColor(selectedCampaign.status)}
-                  sx={{ height: 22 }}
-                />
-              </Box>
-              <Typography variant="caption" color="text.secondary">
-                리뷰 현황 시트 - 구매자가 업로드한 리뷰 이미지를 확인하세요
+            {/* 선택된 캠페인 헤더 (슬림) */}
+            <Box sx={{ mb: 0.5, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="subtitle1" fontWeight="bold" color="#2c387e">
+                {selectedCampaign.name}
               </Typography>
+              <Chip
+                label={getStatusLabel(selectedCampaign.status)}
+                size="small"
+                color={getStatusColor(selectedCampaign.status)}
+                sx={{ height: 20, fontSize: '0.7rem' }}
+              />
             </Box>
             {/* 시트 컴포넌트 - useMemo로 메모이제이션 */}
             {memoizedSheet}

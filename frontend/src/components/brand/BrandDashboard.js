@@ -374,7 +374,7 @@ function BrandDashboard() {
   }
 
   return (
-    <Box>
+    <Box sx={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', p: 0.5 }}>
       {/* 플랫폼 탭 - 전체 탭은 보라색 강조 + 구분선으로 시각적으로 분리 */}
       <Paper sx={{ mb: 2, overflow: 'hidden' }}>
         <Tabs
