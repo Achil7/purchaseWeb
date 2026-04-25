@@ -1629,7 +1629,7 @@ function BrandItemSheetInner({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* 헤더: 전체 건수 + 모두 펼치기/접기 */}
+      {/* 헤더: 전체 건수 + 모두 펼치기/접기 (모바일은 wrap으로 두 줄 허용) */}
       <Box sx={{
         flexShrink: 0,
         display: 'flex',
@@ -1637,19 +1637,21 @@ function BrandItemSheetInner({
         alignItems: 'center',
         bgcolor: '#2c387e',  // Admin 색상으로 통일
         color: 'white',
-        px: 2,
+        px: { xs: 1, md: 2 },
         py: 1,
-        borderRadius: '4px 4px 0 0'
+        borderRadius: '4px 4px 0 0',
+        flexWrap: { xs: 'wrap', md: 'nowrap' },
+        gap: { xs: 0.5, md: 0 }
       }}>
         {/* 왼쪽: 건수 정보 + 접기/펼치기 */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 1, md: 3 }, flexWrap: 'wrap' }}>
+          <Box sx={{ fontSize: { xs: '0.8rem', md: '1rem' }, fontWeight: 'bold', whiteSpace: 'nowrap' }}>
             <span ref={filterInfoRef}>{`전체 ${totalDataCount}건`}</span>
           </Box>
-          <Box sx={{ fontSize: '0.9rem' }}>
+          <Box sx={{ fontSize: { xs: '0.75rem', md: '0.9rem' }, whiteSpace: 'nowrap' }}>
             <span ref={reviewCountRef}>리뷰 완료: <strong>{reviewCount}건</strong></span>
           </Box>
-          <Box sx={{ fontSize: '0.9rem' }}>
+          <Box sx={{ fontSize: { xs: '0.75rem', md: '0.9rem' }, whiteSpace: 'nowrap' }}>
             <span ref={filterAmountRef}>금액 합계: <strong>{`${totalAmount.toLocaleString()}원`}</strong></span>
           </Box>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
@@ -1686,8 +1688,8 @@ function BrandItemSheetInner({
           </Box>
         </Box>
 
-        {/* 오른쪽: 리뷰샷 필터 + 엑셀 다운로드 */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        {/* 오른쪽: 리뷰샷 필터 + 엑셀 다운로드 (모바일 wrap) */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           {/* 리뷰샷 필터 버튼 (DOM 직접 조작 - React re-render 방지로 필터 플러그인 보존) */}
           <Box ref={reviewBtnContainerRef} sx={{ display: 'flex', gap: 0.5 }}>
             <Button
@@ -1839,7 +1841,7 @@ function BrandItemSheetInner({
             colWidths={columnWidths.length > 0 ? columnWidths : undefined}
             rowHeaders={false}
             width="100%"
-            height="calc(100vh - 210px)"
+            height={typeof window !== 'undefined' && window.innerWidth < 900 ? 'calc(100vh - 260px)' : 'calc(100vh - 210px)'}
             licenseKey="non-commercial-and-evaluation"
             stretchH="none"
             autoRowSize={false}

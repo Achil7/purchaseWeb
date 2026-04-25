@@ -4,8 +4,10 @@ import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar, Paper,
   Badge, Menu, MenuItem, ListItemText, Divider,
   List, ListItemButton, ListItemIcon, CircularProgress, Chip, Tooltip, Collapse,
-  TextField, InputAdornment, Pagination
+  TextField, InputAdornment, Pagination, Drawer, useMediaQuery, useTheme
 } from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
+import LogoutIcon from '@mui/icons-material/Logout';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -40,10 +42,14 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const navigate = useNavigate();
   const location = useLocation();
   const { logout, user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const basePathOnly = isAdminMode ? '/admin/view-brand' : '/brand';
   // Admin 모드에서 userId 쿼리 파라미터 유지
   const basePath = isAdminMode && viewAsUserId ? `${basePathOnly}?userId=${viewAsUserId}` : basePathOnly;
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  // 모바일 사이드바 Drawer 열림 상태 (PC에서는 사용 안 됨)
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // 연월브랜드 데이터
   const [monthlyBrands, setMonthlyBrands] = useState([]);
@@ -571,15 +577,36 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
       {/* 헤더 - isEmbedded일 때는 relative 포지션 */}
       <AppBar position={isEmbedded ? "relative" : "fixed"} sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, bgcolor: '#2c387e', flexShrink: 0 }}>
-        <Toolbar>
-          {/* 왼쪽: 아이콘 및 타이틀 */}
-          <AssignmentIcon sx={{ mr: 2 }} />
+        <Toolbar sx={{ px: { xs: 1, md: 3 } }}>
+          {/* 모바일 전용: 햄버거 메뉴 (캠페인 보기 탭에서만 사이드바 토글) */}
+          {isMobile && viewMode === 'campaigns' && (
+            <IconButton
+              color="inherit"
+              edge="start"
+              onClick={() => setMobileOpen(true)}
+              sx={{ mr: 1 }}
+            >
+              <MenuIcon />
+            </IconButton>
+          )}
+          {/* 왼쪽: 아이콘 및 타이틀 (모바일에서는 텍스트 숨김) */}
+          <AssignmentIcon
+            sx={{ mr: { xs: 0.5, md: 2 }, cursor: 'pointer' }}
+            onClick={() => {
+              setSelectedCampaign(null);
+              navigate(basePath);
+            }}
+          />
           <Typography
             variant="h6"
             color="inherit"
             noWrap
             component="div"
-            sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+            sx={{
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: { xs: 'none', md: 'block' }
+            }}
             onClick={() => {
               setSelectedCampaign(null);
               navigate(basePath);
@@ -589,7 +616,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
           </Typography>
 
           {/* 상단 탭: 현황 대시보드 / 캠페인 보기 */}
-          <Box sx={{ display: 'flex', ml: 3, gap: 0.5 }}>
+          <Box sx={{ display: 'flex', ml: { xs: 0.5, md: 3 }, gap: { xs: 0, md: 0.5 } }}>
             <Button
               color="inherit"
               onClick={() => {
@@ -602,10 +629,12 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 fontWeight: viewMode === 'dashboard' ? 'bold' : 'normal',
                 borderBottom: viewMode === 'dashboard' ? '2px solid #fff' : '2px solid transparent',
                 borderRadius: 0,
-                px: 2
+                px: { xs: 1, md: 2 },
+                fontSize: { xs: '0.75rem', md: '0.875rem' },
+                minWidth: { xs: 'auto', md: 64 }
               }}
             >
-              현황 대시보드
+              {isMobile ? '대시보드' : '현황 대시보드'}
             </Button>
             <Button
               color="inherit"
@@ -617,10 +646,12 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 fontWeight: viewMode === 'campaigns' ? 'bold' : 'normal',
                 borderBottom: viewMode === 'campaigns' ? '2px solid #fff' : '2px solid transparent',
                 borderRadius: 0,
-                px: 2
+                px: { xs: 1, md: 2 },
+                fontSize: { xs: '0.75rem', md: '0.875rem' },
+                minWidth: { xs: 'auto', md: 64 }
               }}
             >
-              캠페인 보기
+              {isMobile ? '캠페인' : '캠페인 보기'}
             </Button>
           </Box>
 
@@ -680,33 +711,179 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             )}
           </Menu>
 
-          {/* 오른쪽: 프로필 정보 박스 (클릭 시 프로필 수정) */}
+          {/* 오른쪽: 프로필 정보 박스 (클릭 시 프로필 수정)
+              모바일: Avatar만 (배경 박스 제거로 공간 절약)
+              PC: 기존 Avatar + 이름 박스 */}
           <Box
             onClick={() => setProfileDialogOpen(true)}
             sx={{
-              display: 'flex', alignItems: 'center', gap: 1, ml: 2, mr: 2,
-              bgcolor: 'rgba(255,255,255,0.1)', px: 1.5, py: 0.5, borderRadius: 2,
+              display: 'flex', alignItems: 'center', gap: 1,
+              ml: { xs: 0.25, md: 2 },
+              mr: { xs: 0.25, md: 2 },
+              bgcolor: { xs: 'transparent', md: 'rgba(255,255,255,0.1)' },
+              px: { xs: 0, md: 1.5 },
+              py: { xs: 0, md: 0.5 },
+              borderRadius: 2,
               cursor: 'pointer',
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' }
+              '&:hover': { bgcolor: { xs: 'rgba(255,255,255,0.1)', md: 'rgba(255,255,255,0.2)' } }
             }}
           >
-            <Avatar sx={{ width: 32, height: 32, bgcolor: '#2c387e' }}>
+            <Avatar sx={{
+              width: { xs: 28, md: 32 },
+              height: { xs: 28, md: 32 },
+              bgcolor: '#2c387e',
+              fontSize: { xs: '0.85rem', md: '1.25rem' }
+            }}>
               {user?.username?.charAt(0)?.toUpperCase() || 'B'}
             </Avatar>
-            <Typography variant="subtitle2">{user?.name || '브랜드사'}</Typography>
+            {/* 모바일에서는 사용자 이름 숨김 (공간 부족) */}
+            <Typography variant="subtitle2" sx={{ display: { xs: 'none', md: 'block' } }}>
+              {user?.name || '브랜드사'}
+            </Typography>
           </Box>
 
-          {/* 오른쪽: 로그아웃/돌아가기 버튼 */}
-          <Button color="inherit" onClick={handleLogout} sx={{ fontWeight: 'bold' }}>
-            {isAdminMode ? 'Admin으로 돌아가기' : '로그아웃'}
-          </Button>
+          {/* 오른쪽: 로그아웃/돌아가기 버튼
+              모바일: IconButton (Tooltip "로그아웃")
+              PC: 기존 텍스트 Button */}
+          {isMobile ? (
+            <Tooltip title={isAdminMode ? 'Admin으로 돌아가기' : '로그아웃'}>
+              <IconButton color="inherit" onClick={handleLogout} sx={{ p: 0.5 }}>
+                <LogoutIcon />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <Button
+              color="inherit"
+              onClick={handleLogout}
+              sx={{ fontWeight: 'bold' }}
+            >
+              {isAdminMode ? 'Admin으로 돌아가기' : '로그아웃'}
+            </Button>
+          )}
         </Toolbar>
       </AppBar>
 
       {/* 메인 컨테이너 - 사이드바 + 콘텐츠 */}
       <Box sx={{ display: 'flex', flex: 1, pt: isEmbedded ? 0 : 8, overflow: 'hidden', minHeight: 0 }}>
-      {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록 (캠페인 보기 탭에서만 노출) */}
-      {viewMode === 'campaigns' && (
+      {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록 (캠페인 보기 탭에서만 노출)
+          PC: 인라인 영구 사이드바 (기존 그대로)
+          모바일: 임시 Drawer (햄버거 메뉴로 토글) */}
+      {viewMode === 'campaigns' && isMobile && (
+        <Drawer
+          variant="temporary"
+          open={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          ModalProps={{ keepMounted: true }}
+          sx={{
+            '& .MuiDrawer-paper': {
+              width: '85vw',
+              maxWidth: 360,
+              boxSizing: 'border-box'
+            }
+          }}
+        >
+          <Box sx={{ display: 'flex', flexShrink: 0, position: 'relative', height: '100%' }}>
+            <Paper
+              sx={{
+                width: '100%',
+                flexShrink: 0,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                borderRadius: 0,
+                borderRight: 'none'
+              }}
+            >
+              <Box sx={{ flex: 1, overflow: 'auto', pb: 1 }}>
+                <Box sx={{ p: 1.5, bgcolor: showHidden ? '#fff3e0' : '#e8eaf6', borderBottom: '1px solid #e0e0e0' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Typography variant="subtitle2" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CalendarMonthIcon fontSize="small" />
+                      {showHidden ? '숨긴 항목' : '내 캠페인 (연월브랜드)'}
+                    </Typography>
+                    <IconButton size="small" onClick={() => setMobileOpen(false)}>
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                  {!showHidden && (
+                    <TextField
+                      size="small"
+                      placeholder="연월브랜드 검색..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      fullWidth
+                      sx={{
+                        mt: 1,
+                        '& .MuiInputBase-root': { height: 32, fontSize: '0.85rem' }
+                      }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon sx={{ fontSize: 16, color: '#999' }} />
+                          </InputAdornment>
+                        )
+                      }}
+                    />
+                  )}
+                </Box>
+                {loading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                    <CircularProgress size={24} />
+                  </Box>
+                ) : (
+                  <List dense sx={{ py: 0 }}>
+                    {monthlyBrands
+                      .filter(mb => {
+                        const isMbHidden = hiddenMonthlyBrandIds.includes(mb.id);
+                        if (showHidden) return isMbHidden;
+                        const q = searchQuery.trim().toLowerCase();
+                        if (q && !mb.name.toLowerCase().includes(q)) return false;
+                        return !isMbHidden;
+                      })
+                      .map(mb => (
+                        <Box key={mb.id}>
+                          <ListItemButton
+                            onClick={() => setExpandedMonthlyBrands(prev => ({ ...prev, [mb.id]: !prev[mb.id] }))}
+                            sx={{ py: 1, borderBottom: '1px solid #f0f0f0' }}
+                          >
+                            <ListItemIcon sx={{ minWidth: 28 }}>
+                              {expandedMonthlyBrands[mb.id] ? <ExpandLess /> : <ExpandMore />}
+                            </ListItemIcon>
+                            <ListItemText
+                              primary={mb.name}
+                              primaryTypographyProps={{ fontSize: '0.85rem', fontWeight: 'bold' }}
+                            />
+                          </ListItemButton>
+                          <Collapse in={!!expandedMonthlyBrands[mb.id]}>
+                            {(mb.campaigns || []).map(c => (
+                              <ListItemButton
+                                key={c.id}
+                                selected={selectedCampaign?.id === c.id}
+                                onClick={() => {
+                                  setSelectedCampaign(c);
+                                  setActiveProductSearch('');
+                                  setProductSearchQuery('');
+                                  setMobileOpen(false);
+                                }}
+                                sx={{ pl: 4, py: 0.75 }}
+                              >
+                                <ListItemText
+                                  primary={c.name}
+                                  primaryTypographyProps={{ fontSize: '0.8rem' }}
+                                />
+                              </ListItemButton>
+                            ))}
+                          </Collapse>
+                        </Box>
+                      ))}
+                  </List>
+                )}
+              </Box>
+            </Paper>
+          </Box>
+        </Drawer>
+      )}
+      {viewMode === 'campaigns' && !isMobile && (
       <Box sx={{ display: 'flex', flexShrink: 0, position: 'relative' }}>
         <Paper
           ref={sidebarRef}

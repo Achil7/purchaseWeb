@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  Box, Paper, Typography, Tabs, Tab, LinearProgress, CircularProgress,
+  Box, Paper, Typography, LinearProgress, CircularProgress,
   TextField, InputAdornment, IconButton,
   Table, TableHead, TableBody, TableRow, TableCell, TableContainer, TableSortLabel,
   Chip, Divider, Alert, Collapse, Pagination
 } from '@mui/material';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
@@ -36,11 +38,33 @@ const fmtAmount = (n) => `${fmtNumber(n)}원`;
 // 요약 카드
 function SummaryCard({ label, value, sub, color, progress }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2, textAlign: 'center', height: '100%' }}>
-      <Typography variant="body2" color="text.secondary">{label}</Typography>
-      <Typography variant="h6" fontWeight="bold" color={color || 'primary'}>{value}</Typography>
+    <Paper variant="outlined" sx={{ p: { xs: 1, md: 2 }, textAlign: 'center', height: '100%' }}>
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{ fontSize: { xs: '0.7rem', md: '0.875rem' }, lineHeight: 1.3 }}
+        noWrap
+      >
+        {label}
+      </Typography>
+      <Typography
+        variant="h6"
+        fontWeight="bold"
+        color={color || 'primary'}
+        sx={{ fontSize: { xs: '1rem', md: '1.25rem' }, mt: 0.25 }}
+        noWrap
+      >
+        {value}
+      </Typography>
       {sub && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{sub}</Typography>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: 'block', fontSize: { xs: '0.65rem', md: '0.75rem' } }}
+          noWrap
+        >
+          {sub}
+        </Typography>
       )}
       {typeof progress === 'number' && (
         <LinearProgress
@@ -154,7 +178,7 @@ function CampaignSubTable({ campaigns, onCampaignClick }) {
 // 고정 높이 + TOP 3 표시 — 280px 안에서 스크롤 없이 3행 모두 보이도록 설계
 function IssueList({ title, description, rows, emptyText, renderRight, icon, accentColor, onRowClick }) {
   return (
-    <Paper variant="outlined" sx={{ p: 2, height: 280, display: 'flex', flexDirection: 'column' }}>
+    <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, height: { xs: 'auto', md: 280 }, minHeight: { xs: 200, md: 280 }, display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ mb: 1, flexShrink: 0 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           {icon}
@@ -224,6 +248,18 @@ function BrandDashboard({
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState(null);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
+
+  // 플랫폼 탭 사용자 정의 순서 (전체 탭은 항상 맨 앞 고정)
+  // localStorage 에 ['쿠팡', '네이버', ...] 형태로 저장
+  const PLATFORM_ORDER_KEY = 'brand_platform_order';
+  const [platformOrder, setPlatformOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem(PLATFORM_ORDER_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // 제품별 현황 리스트 (선택 플랫폼/전체 기준 - 서버 페이지네이션)
   const [productList, setProductList] = useState([]);
@@ -361,7 +397,35 @@ function BrandDashboard({
     );
   }
 
-  const platforms = overview?.platforms || [];
+  // 플랫폼 정렬 적용: 전체(__ALL__) 항상 맨 앞 고정 + 사용자 저장 순서
+  const rawPlatforms = overview?.platforms || [];
+  const allTab = rawPlatforms.find(p => p.platform === '__ALL__');
+  const others = rawPlatforms.filter(p => p.platform !== '__ALL__');
+  const ordered = [];
+  // 1. 저장 순서대로 먼저 채움
+  for (const name of platformOrder) {
+    const hit = others.find(p => p.platform === name);
+    if (hit) ordered.push(hit);
+  }
+  // 2. 저장 순서에 없는 신규 플랫폼은 응답 순서대로 뒤에 추가
+  for (const p of others) {
+    if (!ordered.find(o => o.platform === p.platform)) ordered.push(p);
+  }
+  const platforms = allTab ? [allTab, ...ordered] : ordered;
+
+  const handlePlatformDragEnd = (result) => {
+    if (!result.destination) return;
+    const from = result.source.index;
+    const to = result.destination.index;
+    if (from === to) return;
+    const newOthers = Array.from(ordered);
+    const [moved] = newOthers.splice(from, 1);
+    newOthers.splice(to, 0, moved);
+    const newOrder = newOthers.map(p => p.platform);
+    setPlatformOrder(newOrder);
+    try { localStorage.setItem(PLATFORM_ORDER_KEY, JSON.stringify(newOrder)); } catch {}
+  };
+
   const summary = overview?.summary || {
     totalAmount: 0, buyerCount: 0, reviewCompletedCount: 0,
     reviewCompletionRate: 0, activeCampaignCount: 0, productCount: 0
@@ -385,69 +449,98 @@ function BrandDashboard({
 
   return (
     <Box sx={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', p: 0.5 }}>
-      {/* 플랫폼 탭 - 전체 탭은 보라색 강조 + 구분선으로 시각적으로 분리 */}
+      {/* 플랫폼 탭 - 자체 horizontal Box + 드래그 정렬
+          전체 탭은 맨 앞 고정 (드래그 불가), 나머지 플랫폼만 드래그로 순서 변경 가능
+          (MUI Tabs 대신 직접 구현 — DragDropContext 가 Tabs 내부 indicator 와 충돌하기 때문) */}
       <Paper sx={{ mb: 2, overflow: 'hidden' }}>
-        <Tabs
-          value={selectedPlatform || false}
-          onChange={handlePlatformChange}
-          variant="scrollable"
-          scrollButtons="auto"
-          TabIndicatorProps={{ sx: { height: 3, bgcolor: '#2c387e' } }}
-          sx={{
-            borderBottom: 1,
-            borderColor: 'divider',
-            minHeight: 72,
-            '& .MuiTab-root': {
-              minHeight: 72,
-              textTransform: 'none',
-              px: 2.5
-            }
-          }}
-        >
-          {platforms.map((p, idx) => {
-            const isAllTab = p.platform === '__ALL__';
-            const isSelected = selectedPlatform === p.platform;
+        <Box sx={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid', borderColor: 'divider', overflowX: 'auto' }}>
+          {/* 전체 탭 (고정) */}
+          {allTab && (() => {
+            const isSelected = selectedPlatform === '__ALL__';
             return (
-              <Tab
-                key={p.platform}
-                value={p.platform}
-                disableRipple
+              <Box
+                onClick={() => handlePlatformChange(null, '__ALL__')}
                 sx={{
-                  // 전체 탭 시각 강조 + 플랫폼 탭들과 경계 분리
-                  ...(isAllTab
-                    ? {
-                        bgcolor: isSelected ? 'rgba(44,56,126,0.08)' : '#f5f6fb',
-                        borderRight: '2px solid #c5cae9',
-                        mr: 0.5,
-                        color: '#2c387e',
-                        '&.Mui-selected': { color: '#2c387e' }
-                      }
-                    : {
-                        // 플랫폼 탭들 사이의 얇은 구분선
-                        borderLeft: idx > 1 ? '1px solid #eee' : 'none'
-                      })
+                  display: 'flex', alignItems: 'center', gap: 1, px: 2.5, py: 1.5,
+                  minHeight: 72, cursor: 'pointer', flexShrink: 0,
+                  bgcolor: isSelected ? 'rgba(44,56,126,0.08)' : '#f5f6fb',
+                  borderRight: '2px solid #c5cae9',
+                  borderBottom: isSelected ? '3px solid #2c387e' : '3px solid transparent',
+                  '&:hover': { bgcolor: isSelected ? 'rgba(44,56,126,0.12)' : '#eceef7' }
                 }}
-                label={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {isAllTab ? (
-                      <AllInclusiveIcon fontSize="small" sx={{ color: isSelected ? '#2c387e' : '#5c6bc0' }} />
-                    ) : (
-                      <StorefrontIcon fontSize="small" sx={{ color: isSelected ? '#2c387e' : '#9e9e9e' }} />
-                    )}
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.1 }}>
-                      <Typography variant="body2" fontWeight="bold" sx={{ color: isSelected ? '#2c387e' : 'text.primary' }}>
-                        {isAllTab ? '전체' : p.platform}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.3 }}>
-                        {fmtNumber(p.buyerCount)}건 · {fmtAmount(p.totalAmount)}
-                      </Typography>
-                    </Box>
-                  </Box>
-                }
-              />
+              >
+                <AllInclusiveIcon fontSize="small" sx={{ color: isSelected ? '#2c387e' : '#5c6bc0' }} />
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.1 }}>
+                  <Typography variant="body2" fontWeight="bold" sx={{ color: '#2c387e' }}>전체</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.3 }}>
+                    {fmtNumber(allTab.buyerCount)}건 · {fmtAmount(allTab.totalAmount)}
+                  </Typography>
+                </Box>
+              </Box>
             );
-          })}
-        </Tabs>
+          })()}
+
+          {/* 나머지 플랫폼 (드래그 가능) */}
+          <DragDropContext onDragEnd={handlePlatformDragEnd}>
+            <Droppable droppableId="brand-platform-tabs" direction="horizontal">
+              {(provided) => (
+                <Box
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  sx={{ display: 'flex', alignItems: 'stretch' }}
+                >
+                  {ordered.map((p, idx) => {
+                    const isSelected = selectedPlatform === p.platform;
+                    return (
+                      <Draggable key={p.platform} draggableId={`platform-${p.platform}`} index={idx}>
+                        {(dragProvided, dragSnapshot) => (
+                          <Box
+                            ref={dragProvided.innerRef}
+                            {...dragProvided.draggableProps}
+                            onClick={() => handlePlatformChange(null, p.platform)}
+                            sx={{
+                              display: 'flex', alignItems: 'center', gap: 0.75, px: 2, py: 1.5,
+                              minHeight: 72, cursor: 'pointer', flexShrink: 0,
+                              borderLeft: idx > 0 ? '1px solid #eee' : 'none',
+                              borderBottom: isSelected ? '3px solid #2c387e' : '3px solid transparent',
+                              bgcolor: dragSnapshot.isDragging ? 'rgba(44,56,126,0.05)' : 'transparent',
+                              boxShadow: dragSnapshot.isDragging ? '0 2px 8px rgba(0,0,0,0.15)' : 'none',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,0.03)' },
+                              ...dragProvided.draggableProps.style
+                            }}
+                          >
+                            <Box
+                              {...dragProvided.dragHandleProps}
+                              onClick={(e) => e.stopPropagation()}
+                              sx={{
+                                display: 'flex', alignItems: 'center', cursor: 'grab',
+                                color: '#bdbdbd', '&:hover': { color: '#757575' },
+                                '&:active': { cursor: 'grabbing' }
+                              }}
+                              title="드래그해 순서 변경"
+                            >
+                              <DragIndicatorIcon fontSize="small" />
+                            </Box>
+                            <StorefrontIcon fontSize="small" sx={{ color: isSelected ? '#2c387e' : '#9e9e9e' }} />
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.1 }}>
+                              <Typography variant="body2" fontWeight="bold" sx={{ color: isSelected ? '#2c387e' : 'text.primary' }}>
+                                {p.platform}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.3 }}>
+                                {fmtNumber(p.buyerCount)}건 · {fmtAmount(p.totalAmount)}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        )}
+                      </Draggable>
+                    );
+                  })}
+                  {provided.placeholder}
+                </Box>
+              )}
+            </Droppable>
+          </DragDropContext>
+        </Box>
       </Paper>
 
       {/* 요약 카드 6개 - 1920에서 과도하게 넓어지지 않도록 개수 고정 균등 분할 */}
@@ -455,7 +548,15 @@ function BrandDashboard({
         <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
           {selectedPlatform === '__ALL__' ? '전체' : selectedPlatform} 현황 요약
         </Typography>
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 2 }}>
+        <Box sx={{
+          display: 'grid',
+          gridTemplateColumns: {
+            xs: 'repeat(2, minmax(0, 1fr))',
+            sm: 'repeat(3, minmax(0, 1fr))',
+            md: 'repeat(6, minmax(0, 1fr))'
+          },
+          gap: { xs: 1, md: 2 }
+        }}>
           <SummaryCard label="총 금액" value={fmtAmount(summary.totalAmount)} color="primary" />
           <SummaryCard label="구매자 수" value={`${fmtNumber(summary.buyerCount)}명`} />
           <SummaryCard label="리뷰 완료" value={`${fmtNumber(summary.reviewCompletedCount)}명`} color="success.main" />
@@ -471,10 +572,10 @@ function BrandDashboard({
         </Box>
       </Paper>
 
-      {/* 일별 추이 차트 행 (최근 14일) - 리뷰 완료 라인 + 구매자 등록 막대 좌우 배치 */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
-        <Paper variant="outlined" sx={{ p: 2, height: 260, display: 'flex', flexDirection: 'column' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexShrink: 0 }}>
+      {/* 일별 추이 차트 행 (최근 14일) - 리뷰 완료 라인 + 구매자 등록 막대 좌우 배치 (모바일은 세로 스택) */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: { xs: 1, md: 2 }, mb: 2 }}>
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, height: { xs: 220, md: 260 }, display: 'flex', flexDirection: 'column' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexShrink: 0, flexWrap: 'wrap' }}>
             <ShowChartIcon fontSize="small" sx={{ color: '#2e7d32' }} />
             <Typography variant="subtitle2" fontWeight="bold" color="success.main">
               최근 14일 리뷰 완료 추이
@@ -489,7 +590,7 @@ function BrandDashboard({
                 데이터 없음
               </Typography>
             ) : (
-              <ResponsiveContainer width="100%" height={210}>
+              <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={overview.dailyTrend} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => d?.slice(5)} />
@@ -510,8 +611,8 @@ function BrandDashboard({
           </Box>
         </Paper>
 
-        <Paper variant="outlined" sx={{ p: 2, height: 260, display: 'flex', flexDirection: 'column' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexShrink: 0 }}>
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, height: { xs: 220, md: 260 }, display: 'flex', flexDirection: 'column' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexShrink: 0, flexWrap: 'wrap' }}>
             <BarChartIcon fontSize="small" sx={{ color: '#1565c0' }} />
             <Typography variant="subtitle2" fontWeight="bold" color="primary">
               최근 14일 구매자 등록 추이
@@ -526,7 +627,7 @@ function BrandDashboard({
                 데이터 없음
               </Typography>
             ) : (
-              <ResponsiveContainer width="100%" height={210}>
+              <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={overview.dailyTrend} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => d?.slice(5)} />
@@ -548,8 +649,17 @@ function BrandDashboard({
         - 주간/월간 스냅샷 비교: 지난주 대비 이번주 완료건수 증감율 (백엔드 range 파라미터 추가 필요)
       */}
 
-      {/* 이슈 리스트 3개 (3단 고정) */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 2, mb: 2 }}>
+      {/* 이슈 리스트 3개 (PC: 3단, 태블릿: 2단, 모바일: 1단) */}
+      <Box sx={{
+        display: 'grid',
+        gridTemplateColumns: {
+          xs: '1fr',
+          sm: 'repeat(2, minmax(0, 1fr))',
+          md: 'repeat(3, minmax(0, 1fr))'
+        },
+        gap: { xs: 1, md: 2 },
+        mb: 2
+      }}>
         <IssueList
           title="리뷰 완료율이 낮은 상품"
           description="구매자 · 리뷰 완료 모두 1건 이상, 완료율 낮은 순 TOP 3"
@@ -611,7 +721,7 @@ function BrandDashboard({
             placeholder="제품명으로 필터링"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            sx={{ minWidth: 260 }}
+            sx={{ minWidth: { xs: '100%', md: 260 }, width: { xs: '100%', md: 'auto' } }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -641,7 +751,7 @@ function BrandDashboard({
           </Alert>
         ) : (
           <>
-            <TableContainer component={Paper} variant="outlined">
+            <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#fafafa' }}>
@@ -655,7 +765,7 @@ function BrandDashboard({
                         제품명
                       </TableSortLabel>
                     </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold' }} sortDirection={sortKey === 'campaignCount' ? sortDir : false}>
+                    <TableCell align="right" sx={{ fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }} sortDirection={sortKey === 'campaignCount' ? sortDir : false}>
                       <TableSortLabel
                         active={sortKey === 'campaignCount'}
                         direction={sortKey === 'campaignCount' ? sortDir : 'desc'}
@@ -664,7 +774,7 @@ function BrandDashboard({
                         캠페인
                       </TableSortLabel>
                     </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold' }} sortDirection={sortKey === 'buyerCount' ? sortDir : false}>
+                    <TableCell align="right" sx={{ fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }} sortDirection={sortKey === 'buyerCount' ? sortDir : false}>
                       <TableSortLabel
                         active={sortKey === 'buyerCount'}
                         direction={sortKey === 'buyerCount' ? sortDir : 'desc'}
@@ -673,7 +783,7 @@ function BrandDashboard({
                         구매자
                       </TableSortLabel>
                     </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold' }} sortDirection={sortKey === 'reviewCompletedCount' ? sortDir : false}>
+                    <TableCell align="right" sx={{ fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }} sortDirection={sortKey === 'reviewCompletedCount' ? sortDir : false}>
                       <TableSortLabel
                         active={sortKey === 'reviewCompletedCount'}
                         direction={sortKey === 'reviewCompletedCount' ? sortDir : 'desc'}
@@ -682,7 +792,7 @@ function BrandDashboard({
                         리뷰 완료
                       </TableSortLabel>
                     </TableCell>
-                    <TableCell sx={{ fontWeight: 'bold', width: 160 }} sortDirection={sortKey === 'reviewCompletionRate' ? sortDir : false}>
+                    <TableCell sx={{ fontWeight: 'bold', width: { xs: 80, md: 160 }, whiteSpace: 'nowrap' }} sortDirection={sortKey === 'reviewCompletionRate' ? sortDir : false}>
                       <TableSortLabel
                         active={sortKey === 'reviewCompletionRate'}
                         direction={sortKey === 'reviewCompletionRate' ? sortDir : 'desc'}
@@ -700,7 +810,7 @@ function BrandDashboard({
                         금액
                       </TableSortLabel>
                     </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold' }} sortDirection={sortKey === 'imageCount' ? sortDir : false}>
+                    <TableCell align="right" sx={{ fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }} sortDirection={sortKey === 'imageCount' ? sortDir : false}>
                       <TableSortLabel
                         active={sortKey === 'imageCount'}
                         direction={sortKey === 'imageCount' ? sortDir : 'desc'}
@@ -734,33 +844,34 @@ function BrandDashboard({
                               {p.product_name}
                             </Typography>
                           </TableCell>
-                          <TableCell align="right">{fmtNumber(p.campaignCount)}개</TableCell>
-                          <TableCell align="right">{fmtNumber(p.buyerCount)}</TableCell>
-                          <TableCell align="right">
+                          <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>{fmtNumber(p.campaignCount)}개</TableCell>
+                          <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>{fmtNumber(p.buyerCount)}</TableCell>
+                          <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                             <Typography variant="body2" color="success.main">
                               {fmtNumber(p.reviewCompletedCount)}
                             </Typography>
                           </TableCell>
                           <TableCell>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Box sx={{ flex: 1 }}>
+                              {/* PC에서만 progress bar 표시, 모바일은 % 텍스트만 (공간 절약) */}
+                              <Box sx={{ flex: 1, display: { xs: 'none', md: 'block' } }}>
                                 <LinearProgress
                                   variant="determinate"
                                   value={Math.min(100, p.reviewCompletionRate)}
                                   sx={{ height: 6, borderRadius: 3 }}
                                 />
                               </Box>
-                              <Typography variant="caption" fontWeight="bold" sx={{ minWidth: 36, textAlign: 'right', color: rateColor }}>
+                              <Typography variant="caption" fontWeight="bold" sx={{ minWidth: 36, textAlign: 'right', color: rateColor, whiteSpace: 'nowrap' }}>
                                 {p.reviewCompletionRate}%
                               </Typography>
                             </Box>
                           </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" fontWeight="bold" color="primary">
+                          <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                            <Typography variant="body2" fontWeight="bold" color="primary" sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>
                               {fmtAmount(p.totalAmount)}
                             </Typography>
                           </TableCell>
-                          <TableCell align="right">{fmtNumber(p.imageCount)}장</TableCell>
+                          <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>{fmtNumber(p.imageCount)}장</TableCell>
                         </TableRow>
                         <TableRow>
                           <TableCell colSpan={8} sx={{ p: 0, borderBottom: isExpanded ? '1px solid #eee' : 'none' }}>
