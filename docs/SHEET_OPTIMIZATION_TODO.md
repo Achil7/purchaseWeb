@@ -1967,7 +1967,25 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 - [ ] 페이지 클릭 → 새 페이지 데이터 표시
 - [ ] Collapse 펼침 시 캠페인 목록 정상
 
-**결론:** ⏳ 테스트 대기
+**측정 결과 (test 서버, 2026-04-25):**
+
+| 항목 | 수치 |
+|------|------|
+| `GET /api/brand-dashboard/overview` (첫 호출) | **276ms** (base CTE 240ms 단일 쿼리) |
+| `GET /api/brand-dashboard/overview` (두 번째 호출, 캐시 hit) | **221ms** ✅ trend 쿼리 빠짐 |
+| 기능 동작 | 정상 |
+
+**캐시 동작 확인 ✅:**
+- 첫 호출: `WITH buyer_view AS ...` 쿼리 1개 (240ms, GROUPING SETS 통합) + 이슈 쿼리 + trend 쿼리
+- 두 번째 호출 (4초 뒤 같은 플랫폼): trend 쿼리 **실행 안 됨** (in-memory 캐시 hit)
+- 60초 TTL로 동작 검증 완료
+
+**결론:** ✅ 채택
+
+**추가 발견 (29차 범위 외 병목):**
+- `GET /api/notifications` 256ms — COUNT(*) 쿼리 239ms가 병목
+- `MonthlyBrand SELECT` 168ms — `monthly-brands/my-brand` 호출
+- → 다음 차수 후보
 
 ---
 
