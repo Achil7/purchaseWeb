@@ -11,13 +11,6 @@ router.get(
 );
 
 router.get(
-  '/product-rollup',
-  authenticate,
-  authorize(['brand', 'admin']),
-  brandDashboardController.getProductRollup
-);
-
-router.get(
   '/product-list',
   authenticate,
   authorize(['brand', 'admin']),

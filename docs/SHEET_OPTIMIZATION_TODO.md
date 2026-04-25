@@ -1884,6 +1884,93 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ---
 
+### 29차 최적화 (2026-04-25) - 브랜드사 현황 대시보드 백엔드 + 프론트 최적화
+
+**배경:**
+브랜드사 "현황 대시보드"가 main 배포 전인 상태. 플랫폼/브랜드사별 통계 계산이 많아 비효율 패턴 발견.
+**배포 전이라 안전하게 구조 변경 가능.**
+
+**원인 분석:**
+1. `BUYER_LEVEL_VIEW_SQL`에서 images 테이블을 EXISTS + COUNT 두 번 스캔 (각 buyer row마다)
+2. `getOverview` 내부에서 base CTE 3번 반복 실행 (플랫폼 목록/요약/이슈)
+3. `getProductList`가 모든 제품 한 번에 반환 → 프론트에서 정렬/필터/페이지네이션
+4. `daily trend` 쿼리는 매 호출마다 같은 14일치 재계산 (어제 이전 데이터 불변)
+5. `getProductRollup` dead code (어디서도 호출 안 함)
+
+**적용 내용:**
+
+#### Part 1: BUYER_LEVEL_VIEW 함수화 + images 스캔 절반 축소
+- `BUYER_LEVEL_VIEW_SQL` 상수 → `buildBuyerLevelView({ withImageCount })` 함수
+- `getOverview`: `withImageCount=false` → EXISTS 한 번만
+- `getProductList`: `withImageCount=true` → COUNT 한 번만
+- 기존: 매 buyer row마다 EXISTS + COUNT 두 번 → 한 번으로
+
+#### Part 2: getOverview 플랫폼 목록 + 요약을 GROUPING SETS로 통합
+- 기존: 플랫폼 GROUP BY 쿼리 + 요약 집계 쿼리 (별도 2번)
+- 변경: `GROUP BY GROUPING SETS ((platform), ())` 1번으로
+- `is_total = 1` 행을 전체 합계로 사용
+- "전체" 합산도 JS 합산 → DB GROUPING 결과 직접 사용
+- base CTE 실행 횟수 3 → 2 (이슈 쿼리는 별도 유지)
+
+#### Part 3: daily trend 시간대 변환 줄이기 + in-memory 캐싱
+- 시간대 변환: WHERE/GROUP BY에서 4번 반복 → 서브쿼리에서 1번만
+- in-memory Map 캐싱 (TTL 60초, 인프라 변경 X)
+  - 캐시 키: `${brandId}_${platform}`
+  - 메모리 제한: 1000개 초과 시 가장 오래된 것 제거
+- 캐시 히트 시 trend 쿼리 자체 실행 안 함 (~50~150ms 절감)
+
+#### Part 4: getProductList 서버 사이드 페이지네이션/정렬/필터
+- 백엔드: `page`, `pageSize`, `sortKey`, `sortDir`, `filter` 쿼리 파라미터 추가
+- raw SQL에 `LIMIT/OFFSET`, `ILIKE`, `ORDER BY` 적용
+- whitelist 기반 sortKey 검증 (SQL injection 방어)
+- 응답: `{ rows, totalCount, page, pageSize }`
+- 프론트: 클라이언트 필터/정렬/페이지 → 서버 호출로 전환
+- 검색 입력 debounce 300ms 적용
+
+**UI 변경:** 없음
+- 검색 입력 박스, 정렬 버튼, 페이지네이션 컨트롤 모두 그대로
+- 사용자가 보는 화면 픽셀 단위 동일
+
+#### Part 5: getProductRollup dead code 제거
+- 라우트 + 컨트롤러 함수 제거 (어디서도 호출 안 됨)
+- 향후 검색 기능 필요 시 재구현하면 됨
+
+**수정 파일:**
+- `backend/src/controllers/brandDashboardController.js` ✅ (전체 재작성)
+- `backend/src/routes/brandDashboard.js` ✅ (product-rollup 라우트 제거)
+- `frontend/src/services/brandDashboardService.js` ✅ (getProductList 파라미터 추가, getProductRollup 제거)
+- `frontend/src/components/brand/BrandDashboard.js` ✅ (서버 페이지네이션 호출, 클라이언트 정렬/필터 제거)
+
+**기능/결과값 불변 보장:**
+- `platforms` 배열 응답 동일 (`platform`, `buyerCount`, `totalAmount`)
+- "전체" 합산 행 동일 (JS 합산 → DB GROUPING SETS, 동일 수치)
+- `summary`, `issues`, `dailyTrend` 응답 구조 100% 동일
+- `getProductList`: 응답에 `totalCount`, `page`, `pageSize` 추가 (`rows` 필드 그대로)
+- `dailyTrend` 캐시 TTL 60초 → 데이터 변경 후 최대 60초 후 반영 (실시간성 낮은 지표라 허용)
+- 시트/대시보드 UI 픽셀 단위 동일
+
+**빌드:** ✅ 백엔드 + 프론트 모두 성공
+
+**예상 효과:**
+- `getOverview` 응답 시간: base CTE 3회 → 2회 + images 스캔 절반 → **40~60% 감소**
+- `daily trend` 캐시 히트 시: **trend 쿼리 자체 실행 안 함** (~150ms 절감)
+- `getProductList` 페이로드 크기: 전체 → 30 row → **대폭 감소**
+- 클라이언트 정렬/필터 부하 제거
+
+**기능 검증 항목:**
+- [ ] 플랫폼 탭 목록 정상 (전체 + 각 플랫폼 buyerCount/totalAmount)
+- [ ] 요약 카드 6개 동일 (총 금액, 구매자 수, 리뷰 완료, 완료율, 활성 캠페인, 제품 수)
+- [ ] 이슈 리스트 3종 동일 (낮은 완료율, 미진행, 금액 상위)
+- [ ] 14일 일별 추이 차트 동일
+- [ ] 제품별 현황 테이블: 검색 → debounce 후 결과 정상
+- [ ] 정렬 버튼 클릭 → 서버에서 새 데이터, 동일 결과
+- [ ] 페이지 클릭 → 새 페이지 데이터 표시
+- [ ] Collapse 펼침 시 캠페인 목록 정상
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
 
 **목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선

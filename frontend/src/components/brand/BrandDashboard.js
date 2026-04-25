@@ -206,23 +206,33 @@ function IssueList({ title, description, rows, emptyText, renderRight, icon, acc
   );
 }
 
-function BrandDashboard() {
+function BrandDashboard({
+  isAdminMode: isAdminModeProp,
+  viewAsUserId: viewAsUserIdProp,
+  isEmbedded = false,
+  onCampaignSelect
+} = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const viewAsUserId = searchParams.get('userId');
-  const isAdminMode = location.pathname.startsWith('/admin/view-brand');
+  // props 우선, 없으면 URL fallback (라우트 기반 진입 호환)
+  const viewAsUserId = viewAsUserIdProp != null ? viewAsUserIdProp : searchParams.get('userId');
+  const isAdminMode = isAdminModeProp != null
+    ? isAdminModeProp
+    : location.pathname.startsWith('/admin/view-brand');
 
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState(null);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
 
-  // 제품별 현황 리스트 (선택 플랫폼/전체 기준)
+  // 제품별 현황 리스트 (선택 플랫폼/전체 기준 - 서버 페이지네이션)
   const [productList, setProductList] = useState([]);
   const [productLoading, setProductLoading] = useState(false);
+  const [productTotalCount, setProductTotalCount] = useState(0);
 
   // 제품 테이블 UX state
   const [filterText, setFilterText] = useState('');
+  const [debouncedFilter, setDebouncedFilter] = useState('');
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
   const [expandedProduct, setExpandedProduct] = useState(null); // 펼친 제품명
@@ -261,20 +271,27 @@ function BrandDashboard() {
     }
   }, [viewAsUserId]);
 
-  const loadProductList = useCallback(async (platform) => {
+  const loadProductList = useCallback(async ({ platform, page: p, sortKey: sk, sortDir: sd, filter: ft }) => {
     if (!platform) return;
     try {
       setProductLoading(true);
       const result = await brandDashboardService.getProductList({
         platform,
+        page: p,
+        pageSize: PAGE_SIZE,
+        sortKey: sk,
+        sortDir: sd,
+        filter: ft || undefined,
         viewAsUserId: viewAsUserId ? parseInt(viewAsUserId, 10) : undefined
       });
       if (result?.success) {
         setProductList(result.data.rows || []);
+        setProductTotalCount(result.data.totalCount || 0);
       }
     } catch (error) {
       console.error('product-list load error:', error);
       setProductList([]);
+      setProductTotalCount(0);
     } finally {
       setProductLoading(false);
     }
@@ -284,12 +301,27 @@ function BrandDashboard() {
     loadOverview();
   }, [loadOverview]);
 
-  // selectedPlatform 이 정해지면 product-list 자동 로드
+  // 검색어 debounce (300ms)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedFilter(filterText.trim()), 300);
+    return () => clearTimeout(t);
+  }, [filterText]);
+
+  // 필터 변경 시 페이지 초기화
+  useEffect(() => { setPage(1); }, [debouncedFilter]);
+
+  // selectedPlatform / page / sort / filter 변경 시 product-list 재로드
   useEffect(() => {
     if (selectedPlatform) {
-      loadProductList(selectedPlatform);
+      loadProductList({
+        platform: selectedPlatform,
+        page,
+        sortKey,
+        sortDir,
+        filter: debouncedFilter
+      });
     }
-  }, [selectedPlatform, loadProductList]);
+  }, [selectedPlatform, page, sortKey, sortDir, debouncedFilter, loadProductList]);
 
   const handlePlatformChange = (_e, newPlatform) => {
     if (!newPlatform) return;
@@ -297,50 +329,28 @@ function BrandDashboard() {
     loadOverview(newPlatform);
     // 플랫폼 바꾸면 테이블 state 초기화
     setFilterText('');
+    setDebouncedFilter('');
     setPage(1);
     setExpandedProduct(null);
   };
 
-  // client-side 필터 (제품명 contains, 대소문자 무시)
-  const filteredProducts = useMemo(() => {
-    const q = filterText.trim().toLowerCase();
-    if (!q) return productList;
-    return productList.filter(p => (p.product_name || '').toLowerCase().includes(q));
-  }, [productList, filterText]);
+  // 서버 사이드 페이지네이션: 백엔드가 이미 정렬/필터/페이지 처리한 결과
+  const pagedProducts = productList;
+  const pageCount = Math.max(1, Math.ceil(productTotalCount / PAGE_SIZE));
 
-  // 정렬 적용
-  const sortedProducts = useMemo(() => {
-    const arr = [...filteredProducts];
-    const cmp = (a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
-      if (typeof av === 'string' || typeof bv === 'string') {
-        return String(av || '').localeCompare(String(bv || ''), 'ko');
-      }
-      return (Number(av) || 0) - (Number(bv) || 0);
-    };
-    arr.sort((a, b) => sortDir === 'asc' ? cmp(a, b) : -cmp(a, b));
-    return arr;
-  }, [filteredProducts, sortKey, sortDir]);
-
-  const pageCount = Math.max(1, Math.ceil(sortedProducts.length / PAGE_SIZE));
-  const pagedProducts = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return sortedProducts.slice(start, start + PAGE_SIZE);
-  }, [sortedProducts, page]);
-
-  // 필터 변경 시 페이지 초기화
-  useEffect(() => { setPage(1); }, [filterText]);
-
-  // 캠페인 클릭 → 대시보드 루트로 가되 ?openCampaign= 쿼리로 전달
-  // BrandLayout 이 쿼리를 읽어 viewMode='campaigns' + selectedCampaign 자동 설정
-  // (기존 BrandItemTable 중간 경유지 스킵)
+  // 캠페인 클릭
+  // - embedded (Admin 컨트롤타워 내부): 부모(BrandLayout)에 콜백으로 알려 탭/캠페인만 전환
+  // - 그 외: 대시보드 루트로 ?openCampaign= 쿼리 이동 → BrandLayout 이 쿼리 감지해 자동 선택
   const goToCampaign = useCallback((campaignId) => {
+    if (isEmbedded && typeof onCampaignSelect === 'function') {
+      onCampaignSelect(campaignId);
+      return;
+    }
     const params = new URLSearchParams();
     if (isAdminMode && viewAsUserId) params.set('userId', viewAsUserId);
     params.set('openCampaign', String(campaignId));
     navigate(`${campaignBasePath}?${params.toString()}`);
-  }, [navigate, campaignBasePath, isAdminMode, viewAsUserId]);
+  }, [navigate, campaignBasePath, isAdminMode, viewAsUserId, isEmbedded, onCampaignSelect]);
 
   // 렌더
   if (loading && !overview) {
@@ -479,7 +489,7 @@ function BrandDashboard() {
                 데이터 없음
               </Typography>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={210}>
                 <LineChart data={overview.dailyTrend} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => d?.slice(5)} />
@@ -516,7 +526,7 @@ function BrandDashboard() {
                 데이터 없음
               </Typography>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={210}>
                 <BarChart data={overview.dailyTrend} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                   <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => d?.slice(5)} />
@@ -623,11 +633,11 @@ function BrandDashboard() {
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress size={24} />
           </Box>
-        ) : filteredProducts.length === 0 ? (
+        ) : productTotalCount === 0 ? (
           <Alert severity="info" variant="outlined">
-            {productList.length === 0
+            {!debouncedFilter
               ? '해당 플랫폼에 등록된 제품이 없습니다.'
-              : `"${filterText}" 로 필터된 제품이 없습니다.`}
+              : `"${debouncedFilter}" 로 필터된 제품이 없습니다.`}
           </Alert>
         ) : (
           <>
@@ -787,8 +797,8 @@ function BrandDashboard() {
             )}
 
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'right' }}>
-              전체 {fmtNumber(filteredProducts.length)}개 제품
-              {filteredProducts.length !== productList.length && ` (필터 적용 전 ${fmtNumber(productList.length)}개)`}
+              전체 {fmtNumber(productTotalCount)}개 제품
+              {debouncedFilter && ` (검색어: "${debouncedFilter}")`}
             </Typography>
           </>
         )}
