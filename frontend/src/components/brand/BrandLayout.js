@@ -28,6 +28,7 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import BrandItemSheet from './BrandItemSheet';
+import BrandDashboard from './BrandDashboard';
 import { notificationService, monthlyBrandService } from '../../services';
 
 const DEFAULT_DRAWER_WIDTH = 280;
@@ -60,11 +61,21 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   });
 
   // 선택된 캠페인 (메인 영역에 시트 표시용)
+  // 새로고침 시 위치 유지용 localStorage 키
+  const VIEW_MODE_KEY = 'brand_view_mode';
+  const SELECTED_CAMPAIGN_KEY = 'brand_selected_campaign_id';
+
   const [selectedCampaign, setSelectedCampaign] = useState(null);
 
-  // 상단 탭 모드: 'dashboard' | 'campaigns'
-  // 기본값은 항상 'dashboard' - 반대로 뒤집고 싶다면 아래 초기값만 'campaigns' 로 변경
-  const [viewMode, setViewMode] = useState('dashboard');
+  // 상단 탭 모드: 'dashboard' | 'campaigns' — localStorage 에서 복원
+  const [viewMode, setViewMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_MODE_KEY);
+      return saved === 'campaigns' ? 'campaigns' : 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
 
   // 숨김 항목 표시 모드
   const [showHidden, setShowHidden] = useState(false);
@@ -155,6 +166,42 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       navigate(basePath + (cleanQuery ? `?${cleanQuery}` : ''), { replace: true });
     }
   }, [location.search, monthlyBrands, navigate, basePath]);
+
+  // viewMode 변경 시 localStorage 저장 (새로고침 시 탭 위치 유지)
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_MODE_KEY, viewMode); } catch {}
+  }, [viewMode]);
+
+  // selectedCampaign id 저장 (새로고침 시 캠페인 복원)
+  useEffect(() => {
+    try {
+      if (selectedCampaign?.id) {
+        localStorage.setItem(SELECTED_CAMPAIGN_KEY, String(selectedCampaign.id));
+      } else {
+        localStorage.removeItem(SELECTED_CAMPAIGN_KEY);
+      }
+    } catch {}
+  }, [selectedCampaign]);
+
+  // 새로고침 시 저장된 selectedCampaign id 를 monthlyBrands 로딩 후 복원
+  // (Admin 모드에서도 viewAsUserId 별 구분 없이 단순 복원 — 사용자가 명시적으로 탭/캠페인 이동하면 갱신됨)
+  useEffect(() => {
+    if (selectedCampaign || monthlyBrands.length === 0) return;
+    try {
+      const savedId = localStorage.getItem(SELECTED_CAMPAIGN_KEY);
+      if (!savedId) return;
+      const targetId = parseInt(savedId, 10);
+      for (const mb of monthlyBrands) {
+        const hit = (mb.campaigns || []).find(c => c.id === targetId);
+        if (hit) {
+          setSelectedCampaign(hit);
+          return;
+        }
+      }
+      // 저장된 캠페인이 더 이상 존재하지 않으면 삭제
+      localStorage.removeItem(SELECTED_CAMPAIGN_KEY);
+    } catch {}
+  }, [monthlyBrands, selectedCampaign]);
 
   useEffect(() => {
     const handleMouseMove = (e) => {
@@ -1003,8 +1050,28 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         }}
       >
         {viewMode === 'dashboard' ? (
-          /* 현황 대시보드 탭: index 라우트(BrandDashboard) 표시 */
-          <Outlet />
+          /* 현황 대시보드 탭: 기본은 index 라우트의 Outlet (BrandDashboard).
+             Admin 컨트롤타워에서 embedded 모드면 라우트 자식이 없으므로 직접 렌더 */
+          isEmbedded ? (
+            <BrandDashboard
+              isAdminMode={isAdminMode}
+              viewAsUserId={viewAsUserId}
+              isEmbedded={true}
+              onCampaignSelect={(campaignId) => {
+                let found = null;
+                for (const mb of monthlyBrands) {
+                  const hit = (mb.campaigns || []).find(c => c.id === campaignId);
+                  if (hit) { found = hit; break; }
+                }
+                if (found) {
+                  setViewMode('campaigns');
+                  setSelectedCampaign(found);
+                  setActiveProductSearch('');
+                  setProductSearchQuery('');
+                }
+              }}
+            />
+          ) : <Outlet />
         ) : (
           <>
             {/* 캠페인 보기 탭 공통 상단 툴바 - 제품명 통합 검색 (슬림) */}
