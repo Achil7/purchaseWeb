@@ -1064,7 +1064,7 @@ exports.proxyImage = async (req, res) => {
  */
 exports.searchImages = async (req, res) => {
   try {
-    const { brand_id, product_name, start_date, end_date, account_holder } = req.query;
+    const { brand_id, product_name, start_date, end_date, account_holder, platform } = req.query;
     let limit = parseInt(req.query.limit, 10);
     let offset = parseInt(req.query.offset, 10);
     if (!Number.isFinite(limit) || limit <= 0) limit = 100;
@@ -1074,7 +1074,8 @@ exports.searchImages = async (req, res) => {
     const brandIdNum = brand_id ? parseInt(brand_id, 10) : null;
     const productNameTrimmed = product_name && product_name.trim() ? product_name.trim() : null;
     const accountHolderTrimmed = account_holder && account_holder.trim() ? account_holder.trim() : null;
-    const hasAnyFilter = brandIdNum || productNameTrimmed || start_date || end_date || accountHolderTrimmed;
+    const platformTrimmed = platform && platform.trim() ? platform.trim() : null;
+    const hasAnyFilter = brandIdNum || productNameTrimmed || start_date || end_date || accountHolderTrimmed || platformTrimmed;
 
     if (!hasAnyFilter) {
       return res.status(400).json({
@@ -1097,6 +1098,18 @@ exports.searchImages = async (req, res) => {
     const itemWhere = {};
     if (productNameTrimmed) {
       itemWhere.product_name = { [Op.iLike]: `%${productNameTrimmed}%` };
+    }
+
+    // 플랫폼은 ItemSlot.platform에 day_group별로 저장됨 (Item.platform은 placeholder).
+    // image.upload_token ↔ item_slots.upload_link_token으로 매칭하는 EXISTS 서브쿼리 사용.
+    if (platformTrimmed) {
+      const escaped = platformTrimmed.replace(/'/g, "''");
+      imageWhere[Op.and] = imageWhere[Op.and] || [];
+      imageWhere[Op.and].push(
+        Sequelize.literal(
+          `EXISTS (SELECT 1 FROM item_slots s WHERE s.upload_link_token = "Image"."upload_token" AND s.platform ILIKE '%${escaped}%')`
+        )
+      );
     }
 
     const buyerWhere = {};

@@ -113,7 +113,7 @@ const rejectImage = async (imageId, reason = '') => {
 
 /**
  * 리뷰샷 검색 (Admin 전용)
- * @param {object} params - { brand_id?, product_name?, start_date?, end_date?, account_holder?, limit, offset }
+ * @param {object} params - { brand_id?, product_name?, start_date?, end_date?, account_holder?, platform?, limit, offset }
  *   모든 필터는 선택, 단 최소 1개 이상은 입력 필요
  */
 const searchImages = async (params) => {

@@ -148,13 +148,15 @@ const AdminReviewSearch = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [accountHolder, setAccountHolder] = useState('');
+  const [platform, setPlatform] = useState('');
 
   const hasAnyFilter = !!(
     selectedBrand?.id ||
     productName.trim() ||
     startDate ||
     endDate ||
-    accountHolder.trim()
+    accountHolder.trim() ||
+    platform.trim()
   );
 
   // 검색 결과 상태
@@ -207,7 +209,8 @@ const AdminReviewSearch = () => {
       product_name: productName.trim() || undefined,
       start_date: startDate || undefined,
       end_date: endDate || undefined,
-      account_holder: accountHolder.trim() || undefined
+      account_holder: accountHolder.trim() || undefined,
+      platform: platform.trim() || undefined
     };
     const hasAny = Object.values(filters).some(v => v !== undefined);
     if (!hasAny) {
@@ -259,7 +262,7 @@ const AdminReviewSearch = () => {
         setSearching(false);
       }
     }
-  }, [selectedBrand, productName, startDate, endDate, accountHolder]);
+  }, [selectedBrand, productName, startDate, endDate, accountHolder, platform]);
 
   // 구간 로드 (뷰어/그리드 둘 다 호출)
   // start~end 범위를 확인하고, 로드 안 된 하위 구간들만 BATCH_LIMIT 단위로 fetch
@@ -461,7 +464,7 @@ const AdminReviewSearch = () => {
         리뷰샷 검색
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        예금주 / 브랜드사 / 제품명 / 기간(리뷰샷 업로드 일자) 중 1개 이상 조건으로 후보 리뷰샷을 훑어볼 수 있습니다.
+        예금주 / 브랜드사 / 제품명 / 플랫폼 / 기간(리뷰샷 업로드 일자) 중 1개 이상 조건으로 후보 리뷰샷을 훑어볼 수 있습니다.
         썸네일 클릭 → 방향키(←→)로 끝까지 탐색, 상단에 연월브랜드·캠페인·제품·구매자 정보 표시.
       </Typography>
 
@@ -515,6 +518,15 @@ const AdminReviewSearch = () => {
             onChange={(e) => setProductName(e.target.value)}
             onKeyDown={onKeyDownSearch}
             sx={{ minWidth: 220 }}
+          />
+
+          <TextField
+            label="플랫폼 (선택, 부분 일치)"
+            size="small"
+            value={platform}
+            onChange={(e) => setPlatform(e.target.value)}
+            onKeyDown={onKeyDownSearch}
+            sx={{ minWidth: 180 }}
           />
 
           <TextField

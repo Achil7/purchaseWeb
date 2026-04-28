@@ -834,8 +834,25 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   const rowMetaRef = useRef(rowMeta);
   rowMetaRef.current = rowMeta;
 
-  // hiddenRows 플러그인용 숨길 행 인덱스 계산 (OperatorItemSheet와 동일 패턴)
-  const hiddenRowIndices = useMemo(() => {
+  // 리뷰샷 필터 상태
+  const [reviewFilter, setReviewFilter] = useState('all');
+
+  // 리뷰샷 필터로 숨길 BUYER_DATA 행 인덱스 계산
+  const computeReviewHiddenRows = useCallback((filter, dataRows) => {
+    if (filter === 'all') return [];
+    const hidden = [];
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i];
+      if (row?._rowType !== ROW_TYPES.BUYER_DATA) continue;
+      const hasReview = row._reviewImages && row._reviewImages.length > 0;
+      if (filter === 'with_review' && !hasReview) hidden.push(i);
+      else if (filter === 'without_review' && hasReview) hidden.push(i);
+    }
+    return hidden;
+  }, []);
+
+  // collapse로 인한 숨김 인덱스
+  const collapseHiddenIndices = useMemo(() => {
     if (collapsedItems.size === 0) return [];
 
     const hidden = [];
@@ -862,7 +879,15 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     return hidden;
   }, [baseTableData, collapsedItems]);
 
-  // hiddenRowIndices를 ref로 유지 (afterLoadData에서 사용)
+  // collapse + 리뷰샷 필터 합집합
+  const hiddenRowIndices = useMemo(() => {
+    const collapseSet = new Set(collapseHiddenIndices);
+    const reviewHidden = computeReviewHiddenRows(reviewFilter, baseTableData);
+    for (const idx of reviewHidden) collapseSet.add(idx);
+    return [...collapseSet];
+  }, [collapseHiddenIndices, baseTableData, computeReviewHiddenRows, reviewFilter]);
+
+  // hiddenRowIndices를 ref로 유지 (afterLoadData/handleReviewFilterChange에서 사용)
   const hiddenRowIndicesRef = useRef(hiddenRowIndices);
   hiddenRowIndicesRef.current = hiddenRowIndices;
 
@@ -1849,6 +1874,58 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
               }}
             >
               모두 접기
+            </Button>
+          </Box>
+
+          {/* 리뷰샷 필터 버튼 */}
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            <Button
+              size="small"
+              onClick={() => setReviewFilter('all')}
+              sx={{
+                color: 'white',
+                bgcolor: reviewFilter === 'all' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
+                fontSize: '0.7rem',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.3,
+                fontWeight: reviewFilter === 'all' ? 'bold' : 'normal',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+              }}
+            >
+              전체
+            </Button>
+            <Button
+              size="small"
+              onClick={() => setReviewFilter('with_review')}
+              sx={{
+                color: 'white',
+                bgcolor: reviewFilter === 'with_review' ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.15)',
+                fontSize: '0.7rem',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.3,
+                fontWeight: reviewFilter === 'with_review' ? 'bold' : 'normal',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+              }}
+            >
+              리뷰샷 있음
+            </Button>
+            <Button
+              size="small"
+              onClick={() => setReviewFilter('without_review')}
+              sx={{
+                color: 'white',
+                bgcolor: reviewFilter === 'without_review' ? 'rgba(244,67,54,0.5)' : 'rgba(255,255,255,0.15)',
+                fontSize: '0.7rem',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.3,
+                fontWeight: reviewFilter === 'without_review' ? 'bold' : 'normal',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+              }}
+            >
+              리뷰샷 없음
             </Button>
           </Box>
 
