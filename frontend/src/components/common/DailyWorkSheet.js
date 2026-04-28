@@ -842,7 +842,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           address: slotChanges.address ?? buyer.address ?? '',
           account_info: slotChanges.account_info ?? buyer.account_info ?? '',
           amount: slotChanges.amount ?? buyer.amount ?? '',
-          unit_price: slotChanges.unit_price ?? buyer.unit_price ?? '',
+          unit_price: slotChanges.unit_price ?? buyer.unit_price ?? slot.unit_price ?? '',
           tracking_number: slotChanges.tracking_number ?? buyer.tracking_number ?? '',
           deposit_name: slotChanges.deposit_name ?? buyer.deposit_name ?? '',
           date: slotChanges.date ?? buyer.date ?? ''
