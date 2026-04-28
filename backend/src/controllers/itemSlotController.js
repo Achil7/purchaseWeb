@@ -81,7 +81,7 @@ exports.updateSlot = async (req, res) => {
     }
 
     // 업데이트 가능한 필드만 필터링 (ItemSlot 모델 기준)
-    const allowedFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'buyer_notes', 'courier_name'];
+    const allowedFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'unit_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'buyer_notes', 'courier_name'];
     const filteredData = {};
     for (const field of allowedFields) {
       if (updateData[field] !== undefined) {
@@ -142,9 +142,9 @@ exports.updateSlotsBulk = async (req, res) => {
     }
 
     // 슬롯 필드 (ItemSlot 모델 기준) - day_group별 독립 제품 정보 필드 포함
-    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes'];
+    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'unit_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes'];
     // 구매자 필드 (Buyer 모델 기준)
-    const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status', 'deposit_name', 'date'];
+    const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'unit_price', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status', 'deposit_name', 'date'];
 
     // 슬롯 일괄 조회 (N+1 방지: findByPk N번 → findAll 1번)
     const slotIds = slots.map(s => s.id).filter(Boolean);
@@ -225,6 +225,7 @@ exports.updateSlotsBulk = async (req, res) => {
             account_info: buyerData.account_info || null,
             account_normalized: normalizeAccountNumber(buyerData.account_info),
             amount: buyerData.amount || null,  // TEXT 타입이므로 원본 유지
+            unit_price: buyerData.unit_price !== undefined ? buyerData.unit_price : (slot.unit_price || null),
             shipping_delayed: buyerData.shipping_delayed || false,
             tracking_number: buyerData.tracking_number || null,
             courier_company: buyerData.courier_company || null,
@@ -283,7 +284,7 @@ exports.getSlotsByCampaign = async (req, res) => {
       attributes: [
         'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
         'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
-        'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
+        'keyword', 'product_price', 'unit_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
         'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
         'date', 'display_order'
       ],
@@ -310,14 +311,14 @@ exports.getSlotsByCampaign = async (req, res) => {
     // 구매자 필드 정의 (Brand vs Sales)
     const buyerAttributes = isBrandView
       ? ['id', 'buyer_name', 'recipient_name', 'order_number', 'user_id', 'contact', 'address', 'amount', 'payment_status', 'payment_confirmed_at', 'is_temporary', 'tracking_number', 'expected_payment_date', 'review_submitted_at', 'date']
-      : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'payment_status', 'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at', 'date'];
+      : ['id', 'order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'unit_price', 'payment_status', 'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'expected_payment_date', 'review_submitted_at', 'date'];
 
     // 28차: ItemSlot.include 제거 — 이미 itemMap에 Item 데이터 있음, raw:true로 toJSON() 오버헤드 제거
     const slots = await ItemSlot.findAll({
       where: { item_id: { [Op.in]: itemIds } },
       attributes: [
         'id', 'item_id', 'slot_number', 'date', 'product_name', 'purchase_option',
-        'keyword', 'product_price', 'notes', 'status', 'expected_buyer', 'buyer_id',
+        'keyword', 'product_price', 'unit_price', 'notes', 'status', 'expected_buyer', 'buyer_id',
         'day_group', 'upload_link_token', 'review_cost',
         'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count',
         'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes', 'is_suspended',
@@ -496,7 +497,7 @@ exports.getSlotsByProductName = async (req, res) => {
           attributes: [
             'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
             'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
-            'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
+            'keyword', 'product_price', 'unit_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
             'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
             'date', 'display_order'
           ]
@@ -632,7 +633,7 @@ exports.getSlotsByCampaignForOperator = async (req, res) => {
       attributes: [
         'id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
         'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
-        'keyword', 'product_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
+        'keyword', 'product_price', 'unit_price', 'notes', 'sale_price_per_unit', 'courier_price_per_unit',
         'platform', 'shipping_deadline', 'review_guide', 'deposit_name', 'status', 'upload_link_token',
         'date', 'display_order'
       ],
@@ -1346,7 +1347,7 @@ exports.splitDayGroup = async (req, res) => {
     const item = await Item.findByPk(item_id, {
       attributes: [
         'id', 'campaign_id', 'product_name', 'platform', 'shipping_type',
-        'keyword', 'product_price', 'total_purchase_count', 'daily_purchase_count',
+        'keyword', 'product_price', 'unit_price', 'total_purchase_count', 'daily_purchase_count',
         'purchase_option', 'courier_service_yn', 'courier_name', 'product_url', 'notes'
       ]
     });
@@ -1376,6 +1377,7 @@ exports.splitDayGroup = async (req, res) => {
       shipping_type: firstSlotOfCurrentGroup?.shipping_type || item.shipping_type,
       keyword: firstSlotOfCurrentGroup?.keyword || item.keyword,
       product_price: firstSlotOfCurrentGroup?.product_price || item.product_price,
+      unit_price: firstSlotOfCurrentGroup?.unit_price || item.unit_price,
       total_purchase_count: firstSlotOfCurrentGroup?.total_purchase_count || item.total_purchase_count,
       daily_purchase_count: firstSlotOfCurrentGroup?.daily_purchase_count || item.daily_purchase_count,
       purchase_option: firstSlotOfCurrentGroup?.purchase_option || item.purchase_option,
@@ -1424,6 +1426,7 @@ exports.splitDayGroup = async (req, res) => {
         shipping_type: productInfo.shipping_type,
         keyword: productInfo.keyword,
         product_price: productInfo.product_price,
+        unit_price: productInfo.unit_price,
         total_purchase_count: productInfo.total_purchase_count,
         daily_purchase_count: productInfo.daily_purchase_count,
         purchase_option: productInfo.purchase_option,
@@ -1559,7 +1562,7 @@ exports.getSlotsByDate = async (req, res) => {
       required: false,  // LEFT JOIN - 구매자 없는 빈 슬롯도 포함
       attributes: [
         'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
-        'contact', 'address', 'account_info', 'amount', 'payment_status',
+        'contact', 'address', 'account_info', 'amount', 'unit_price', 'payment_status',
         'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'date'
       ],
       include: [
@@ -1581,7 +1584,7 @@ exports.getSlotsByDate = async (req, res) => {
       attributes: [
         'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
         'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
-        'keyword', 'product_price', 'notes', 'platform', 'date', 'display_order'
+        'keyword', 'product_price', 'unit_price', 'notes', 'platform', 'date', 'display_order'
       ],
       include: [
         {

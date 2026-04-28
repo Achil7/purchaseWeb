@@ -68,17 +68,22 @@ export const downloadExcel = (data, fileName, sheetName = 'Sheet1', appendDate =
  * @param {string} role - 'sales' | 'operator'
  */
 export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
-  // 헤더 정의 - 시트의 모든 컬럼 포함
-  // 제품 정보 + 구매자 정보 통합
+  const isSales = role === 'sales';
+
+  // 헤더 정의 - 영업사일 때 가격 옆 단가, 금액 옆 단가 추가
   const headers = [
     // 공통
     '일차', '날짜', '순번',
     // 제품 정보 (day_group별)
     '플랫폼', '제품명', '옵션', '출고유형', '키워드',
-    '가격', '총건수', '일건수', '택배사', '택배대행', '상품URL', '특이사항',
+    '가격',
+    ...(isSales ? ['수수료 단가'] : []),
+    '총건수', '일건수', '택배사', '택배대행', '상품URL', '특이사항',
     // 구매자 정보
     '예상구매자', '주문번호', '구매자', '수취인',
-    '아이디', '연락처', '주소', '계좌', '금액', '송장번호', '리뷰샷URL',
+    '아이디', '연락처', '주소', '계좌', '금액',
+    ...(isSales ? ['수수료 단가'] : []),
+    '송장번호', '리뷰샷URL',
     '상태', '리뷰비', '입금명', '입금확인일', '배송지연'
   ];
 
@@ -115,6 +120,7 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
       const shippingType = firstSlot.shipping_type || item.shipping_type || '';
       const keyword = firstSlot.keyword || item.keyword || '';
       const productPrice = firstSlot.product_price || item.product_price || '';
+      const unitPrice = firstSlot.unit_price || item.unit_price || '';
       const totalPurchaseCount = firstSlot.total_purchase_count || item.total_purchase_count || '';
       const dailyPurchaseCount = firstSlot.daily_purchase_count || item.daily_purchase_count || '';
       const purchaseOption = firstSlot.purchase_option || item.purchase_option || '';
@@ -148,6 +154,7 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
           shippingType,                      // 출고유형
           keyword,                           // 키워드
           productPrice,                      // 가격
+          ...(isSales ? [unitPrice] : []),   // 단가 (영업사 전용)
           totalPurchaseCount,                // 총건수
           dailyPurchaseCount,                // 일건수
           courierName,                       // 택배사
@@ -164,6 +171,7 @@ export const convertSlotsToExcelData = (slots, items, role = 'sales') => {
           buyer.address || '',               // 주소
           buyer.account_info || '',          // 계좌
           buyer.amount || '',                // 금액
+          ...(isSales ? [buyer.unit_price || ''] : []),  // 단가 (영업사 전용)
           buyer.tracking_number || '',       // 송장번호
           reviewImageUrl,                    // 리뷰샷URL
           status,                            // 상태

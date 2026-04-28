@@ -1199,7 +1199,8 @@ exports.createItem = async (req, res) => {
       review_guide,
       courier_service_yn,
       notes,
-      platform
+      platform,
+      unit_price
     } = req.body;
 
     // 캠페인 존재 확인
@@ -1225,7 +1226,8 @@ exports.createItem = async (req, res) => {
       review_guide,
       courier_service_yn,
       notes,
-      platform
+      platform,
+      unit_price
     });
 
     // ItemSlot 자동 생성 (total_purchase_count 개수만큼)
@@ -1258,6 +1260,7 @@ exports.createItem = async (req, res) => {
               purchase_option: purchase_option,
               keyword: keyword,
               product_price: product_price,
+              unit_price: unit_price,
               notes: notes,
               status: 'active',
               day_group: dayGroup + 1,
@@ -1277,6 +1280,7 @@ exports.createItem = async (req, res) => {
             purchase_option: purchase_option,
             keyword: keyword,
             product_price: product_price,
+            unit_price: unit_price,
             notes: notes,
             status: 'active',
             day_group: 1,
@@ -1362,7 +1366,8 @@ exports.createItemsBulk = async (req, res) => {
         review_guide: itemData.review_guide,
         courier_service_yn: itemData.courier_service_yn,
         notes: itemData.notes,
-        platform: itemData.platform
+        platform: itemData.platform,
+        unit_price: itemData.unit_price
       });
 
       // ItemSlot 자동 생성 (total_purchase_count 개수만큼)
@@ -1395,6 +1400,7 @@ exports.createItemsBulk = async (req, res) => {
                 purchase_option: itemData.purchase_option,
                 keyword: itemData.keyword,
                 product_price: itemData.product_price,
+                unit_price: itemData.unit_price,
                 notes: itemData.notes,
                 status: 'active',
                 day_group: dayGroup + 1,
@@ -1414,6 +1420,7 @@ exports.createItemsBulk = async (req, res) => {
               purchase_option: itemData.purchase_option,
               keyword: itemData.keyword,
               product_price: itemData.product_price,
+              unit_price: itemData.unit_price,
               notes: itemData.notes,
               status: 'active',
               day_group: 1,
@@ -1479,6 +1486,18 @@ exports.updateItem = async (req, res) => {
     }
 
     await item.update(req.body);
+
+    // 단가 변경 시 해당 품목의 모든 슬롯/구매자에 일괄 동기화
+    if (req.body.unit_price !== undefined) {
+      await ItemSlot.update(
+        { unit_price: req.body.unit_price },
+        { where: { item_id: id } }
+      );
+      await Buyer.update(
+        { unit_price: req.body.unit_price },
+        { where: { item_id: id } }
+      );
+    }
 
     res.json({
       success: true,

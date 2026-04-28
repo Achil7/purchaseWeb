@@ -153,6 +153,7 @@ exports.createBuyer = async (req, res) => {
       address,
       account_info,
       amount,
+      unit_price,
       notes
     } = req.body;
 
@@ -182,6 +183,7 @@ exports.createBuyer = async (req, res) => {
       account_info,
       account_normalized,
       amount,
+      unit_price: unit_price !== undefined ? unit_price : (item.unit_price || null),
       notes,
       date: req.body.date || null,
       created_by,
@@ -493,6 +495,7 @@ exports.createBuyersBulk = async (req, res) => {
           account_info: data.account_info || null,
           account_normalized,
           amount: data.amount ? parseInt(String(data.amount).replace(/,/g, ''), 10) : 0,
+          unit_price: data.unit_price !== undefined ? data.unit_price : (item.unit_price || null),
           notes: data.notes || null,
           date: data.date || null,
           created_by,

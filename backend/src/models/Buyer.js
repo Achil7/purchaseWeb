@@ -52,6 +52,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       defaultValue: '0'
     },
+    // 단가 (영업사 입력 - 영업사 시트 전용)
+    unit_price: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
     // 입금 확인
     payment_status: {
       type: DataTypes.ENUM('pending', 'completed'),

@@ -68,12 +68,18 @@ const dailyBuyerHeaderRenderer = (instance, td, r, c, prop, value) => {
   return td;
 };
 
-const createDailyProductDataRenderer = (tableDataRef, collapsedItemsRef) => {
+const createDailyProductDataRenderer = (tableDataRef, collapsedItemsRef, isSalesRef) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableDataRef.current[r];
     td.className = 'product-data-row';
     td.style.backgroundColor = '#fff8e1';
     td.style.fontSize = '11px';
+
+    // 영업사면 col9에 단가가 들어가서 URL/상세보기 인덱스 시프트
+    const isSales = isSalesRef.current;
+    const unitPriceProp = isSales ? 'col9' : null;
+    const urlProp = isSales ? 'col14' : 'col13';
+    const detailProp = isSales ? 'col16' : 'col15';
 
     if (prop === 'col0') {
       const groupKey = rowData._groupKey;
@@ -92,16 +98,21 @@ const createDailyProductDataRenderer = (tableDataRef, collapsedItemsRef) => {
       td.textContent = value ?? '';
       td.style.fontWeight = 'bold';
       td.style.color = '#1565c0';
-    } else if (prop === 'col13' && value) {
-      // URL 컬럼 (col13 = product_url)
+    } else if (unitPriceProp && prop === unitPriceProp && value) {
+      // 영업사 전용: col9 단가
+      td.textContent = value;
+      td.style.fontWeight = 'bold';
+      td.style.color = '#6a1b9a';
+    } else if (prop === urlProp && value) {
+      // URL 컬럼 (진행자: col13, 영업사: col14)
       const url = value.startsWith('http') ? value : `https://${value}`;
       td.style.whiteSpace = 'nowrap';
       td.style.overflow = 'hidden';
       td.style.textOverflow = 'ellipsis';
       td.title = value;
       td.innerHTML = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color: #1976d2; text-decoration: underline;">${value}</a>`;
-    } else if (prop === 'col15') {
-      // 상세보기 버튼 (col15)
+    } else if (prop === detailProp) {
+      // 상세보기 버튼 (진행자: col15, 영업사: col16)
       td.innerHTML = `<span class="detail-btn" style="cursor: pointer; font-size: 14px; color: #1976d2;">📋</span>`;
       td.style.textAlign = 'center';
       td.style.cursor = 'pointer';
@@ -133,7 +144,7 @@ const createDailyUploadLinkBarRenderer = () => {
   };
 };
 
-const createDailyBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef) => {
+const createDailyBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef, isSalesRef) => {
   return (instance, td, r, c, prop, value) => {
     const rowData = tableDataRef.current[r];
     const dayGroup = rowData._dayGroup || 1;
@@ -141,6 +152,14 @@ const createDailyBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef) =>
     td.className = dayClass;
     td.style.fontSize = '11px';
     td.style.backgroundColor = dayGroup % 2 === 0 ? '#e0f2f1' : '#fff';
+
+    // 영업사면 col16에 단가, 이후 +1 시프트
+    const isSales = isSalesRef.current;
+    const unitPriceProp = isSales ? 'col16' : null;
+    const reviewShotProp = isSales ? 'col18' : 'col17';
+    const statusProp = isSales ? 'col19' : 'col18';
+    const paymentDateProp = isSales ? 'col22' : 'col21';
+    const trackingProp = isSales ? 'col17' : 'col16';
 
     if (prop === 'col0' || prop === 'col1') {
       td.textContent = '';
@@ -156,18 +175,24 @@ const createDailyBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef) =>
       td.textContent = value ?? '';
       td.style.color = '#555';
     } else if (prop === 'col8') {
-      // col8: 주문번호 (col7 -> col8로 시프트)
+      // col8: 주문번호
       td.textContent = value ?? '';
       if (value && duplicateOrderNumbersRef.current.has(value)) {
         td.classList.add('duplicate-order');
         td.style.backgroundColor = '#ffcdd2';
       }
     } else if (prop === 'col15' && value) {
-      // col15: 금액 (col14 -> col15로 시프트)
+      // col15: 금액
       const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
       td.textContent = numValue ? numValue.toLocaleString() : value;
-    } else if (prop === 'col17') {
-      // col17: 리뷰샷 (col16 -> col17로 시프트)
+    } else if (unitPriceProp && prop === unitPriceProp && value) {
+      // 영업사 전용: col16 단가
+      const numValue = parseInt(String(value).replace(/[^0-9]/g, ''));
+      td.textContent = numValue ? numValue.toLocaleString() : value;
+      td.style.fontWeight = 'bold';
+      td.style.color = '#6a1b9a';
+    } else if (prop === reviewShotProp) {
+      // 리뷰샷 (진행자: col17, 영업사: col18)
       const images = rowData._reviewImages || [];
       const imageCount = images.length;
       if (imageCount > 0) {
@@ -182,8 +207,8 @@ const createDailyBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef) =>
         td.innerHTML = '<span style="color: #999; font-size: 10px;">-</span>';
         td.style.textAlign = 'center';
       }
-    } else if (prop === 'col18') {
-      // col18: 상태 (col17 -> col18로 시프트)
+    } else if (prop === statusProp) {
+      // 상태 (진행자: col18, 영업사: col19)
       const status = rowData._calculatedStatus;
       const label = STATUS_LABELS[status] || status;
 
@@ -195,7 +220,7 @@ const createDailyBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef) =>
         td.innerHTML = `<span style="background-color: #e3f2fd; color: #1976d2; padding: 2px 6px; border-radius: 10px; font-size: 10px;">${label}</span>`;
       }
       td.style.textAlign = 'center';
-    } else if (prop === 'col21') {
+    } else if (prop === paymentDateProp) {
       // col21: 입금여부 (col20 -> col21로 시프트)
       td.style.textAlign = 'center';
       if (value) {
@@ -222,11 +247,23 @@ const createDailyBuyerDataRenderer = (tableDataRef, duplicateOrderNumbersRef) =>
   };
 };
 
-// 기본 컬럼 너비 - 23개 컬럼 (col22 여백 컬럼 포함, 비고 컬럼 추가)
+// 기본 컬럼 너비 - 진행자/영업사 공통 23개 컬럼 (col22 여백, 비고 컬럼 포함)
 const DEFAULT_COLUMN_WIDTHS = [30, 180, 70, 60, 120, 80, 80, 50, 80, 60, 50, 50, 50, 80, 30, 80, 100, 80, 50, 60, 70, 70, 50];
+
+// 영업사 전용 컬럼 너비 - 25개 컬럼
+// col9에 제품 단가, col16에 구매자 단가 삽입 (이후 컬럼 +1 시프트)
+const DEFAULT_COLUMN_WIDTHS_SALES = [
+  30, 180, 70, 60, 120, 80, 80, 50, 80,    // col0~col8 (col8: 가격)
+  70,                                       // col9: 제품 단가 (신규)
+  60, 50, 50, 50, 80, 30,                   // col10~col15 (col15: 금액)
+  70,                                       // col16: 구매자 단가 (신규)
+  80, 100, 80, 50, 60, 70, 70, 50           // col17~col24 (시프트)
+];
 
 // ========== 성능 최적화: colHeaders 배열 (컴포넌트 외부 정의) ==========
 const COL_HEADERS = Array(23).fill('');
+// 영업사용 헤더 (단가 2개 추가, 25개)
+const COL_HEADERS_SALES = Array(25).fill('');
 
 /**
  * 날짜별 작업 시트 컴포넌트
@@ -235,6 +272,12 @@ const COL_HEADERS = Array(23).fill('');
  */
 function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   const hotRef = useRef(null);
+
+  // 영업사일 때만 단가 컬럼 노출 (col9 제품 단가, col16 구매자 단가)
+  const isSales = userRole === 'sales';
+  // ref로도 보관 - cellsRenderer 등 useCallback([])에서 직접 참조 시 사용
+  const isSalesRef = useRef(isSales);
+  isSalesRef.current = isSales;
 
   // localStorage 키 정의
   const COLUMN_WIDTHS_KEY = `daily_work_sheet_column_widths_${userRole}`;
@@ -274,8 +317,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   const [slots, setSlots] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // 컬럼 너비 상태
-  const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
+  // 컬럼 너비 상태 (영업사면 단가 컬럼 포함 25개, 아니면 23개)
+  const [columnWidths, setColumnWidths] = useState(() => isSales ? DEFAULT_COLUMN_WIDTHS_SALES : DEFAULT_COLUMN_WIDTHS);
 
   // 변경된 슬롯들 추적 (성능 최적화: ref만 사용, state 제거로 리렌더링 방지)
   const changedSlotsRef = useRef({});
@@ -392,14 +435,14 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   // 초기 컬럼 너비 로드
   useEffect(() => {
     const saved = getSavedColumnWidths();
-    if (saved && Array.isArray(saved) && saved.length > 0) {
-      // 저장된 너비와 기본 너비를 병합 (저장된 값 우선, 부족하면 기본값 사용)
-      const merged = DEFAULT_COLUMN_WIDTHS.map((defaultWidth, i) =>
-        saved[i] !== undefined ? saved[i] : defaultWidth
-      );
-      setColumnWidths(merged);
+    const baseDefaults = isSales ? DEFAULT_COLUMN_WIDTHS_SALES : DEFAULT_COLUMN_WIDTHS;
+    if (saved && Array.isArray(saved) && saved.length === baseDefaults.length) {
+      setColumnWidths(saved);
+    } else if (saved) {
+      // 길이 불일치 (단가 컬럼 추가 등) → 자동 리셋
+      setColumnWidths(baseDefaults);
     }
-  }, [getSavedColumnWidths]);
+  }, [getSavedColumnWidths, isSales]);
 
   // showSnackbar 함수 (성능 최적화: CSS animation 사용, setTimeout 콜백 제거)
   const showSnackbar = useCallback((message) => {
@@ -645,6 +688,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         shipping_type: localChanges.shipping_type ?? firstSlot.shipping_type ?? item.shipping_type ?? '',
         keyword: localChanges.keyword ?? firstSlot.keyword ?? item.keyword ?? '',
         product_price: localChanges.product_price ?? firstSlot.product_price ?? item.product_price ?? '',
+        unit_price: localChanges.unit_price ?? firstSlot.unit_price ?? item.unit_price ?? '',
         total_purchase_count: localChanges.total_purchase_count ?? firstSlot.total_purchase_count ?? item.total_purchase_count ?? '',
         daily_purchase_count: localChanges.daily_purchase_count ?? firstSlot.daily_purchase_count ?? item.daily_purchase_count ?? '',
         purchase_option: localChanges.purchase_option ?? firstSlot.purchase_option ?? item.purchase_option ?? '',
@@ -671,17 +715,51 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         meta.push({ type: ROW_TYPES.ITEM_SEPARATOR });
       }
 
-      // 제품 정보 헤더 행 (22개 컬럼)
-      data.push({
+      // 제품 정보 헤더 행 - 영업사일 때 col9에 단가 삽입, 이후 +1 시프트 (col0~col22)
+      const productHeaderRow = isSales ? {
+        _rowType: ROW_TYPES.PRODUCT_HEADER,
+        col0: '', col1: '연월브랜드-캠페인', col2: '날짜', col3: '플랫폼', col4: '제품명', col5: '옵션', col6: '출고', col7: '키워드',
+        col8: '가격', col9: '수수료 단가',
+        col10: '총건수', col11: '일건수', col12: '택배사', col13: '택배', col14: 'URL', col15: '특이사항', col16: '상세',
+        col17: '', col18: '', col19: '', col20: '', col21: '', col22: ''
+      } : {
         _rowType: ROW_TYPES.PRODUCT_HEADER,
         col0: '', col1: '연월브랜드-캠페인', col2: '날짜', col3: '플랫폼', col4: '제품명', col5: '옵션', col6: '출고', col7: '키워드',
         col8: '가격', col9: '총건수', col10: '일건수', col11: '택배사', col12: '택배', col13: 'URL', col14: '특이사항', col15: '상세',
         col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
-      });
+      };
+      data.push(productHeaderRow);
       meta.push({ type: ROW_TYPES.PRODUCT_HEADER, itemId: item.id, dayGroup });
 
-      // 제품 정보 데이터 행 (22개 컬럼) - col0는 항상 '▼' (접기 상태는 hiddenRows 플러그인이 처리)
-      data.push({
+      // 제품 정보 데이터 행 - col0는 항상 '▼' (접기 상태는 hiddenRows 플러그인이 처리)
+      // 영업사일 때 col9에 단가, 이후 +1 시프트
+      const productDataRow = isSales ? {
+        _rowType: ROW_TYPES.PRODUCT_DATA,
+        _itemId: item.id,
+        _dayGroup: dayGroup,
+        _groupKey: groupKey,
+        _uploadToken: uploadLinkToken,
+        _item: item,
+        _productInfo: productInfo,
+        col0: '▼',
+        col1: mbCampaignLabel,
+        col2: productInfo.date,
+        col3: productInfo.platform,
+        col4: productInfo.product_name,
+        col5: productInfo.purchase_option,
+        col6: productInfo.shipping_type,
+        col7: productInfo.keyword,
+        col8: productInfo.product_price,
+        col9: productInfo.unit_price ?? '',
+        col10: productInfo.total_purchase_count,
+        col11: productInfo.daily_purchase_count,
+        col12: productInfo.courier_name,
+        col13: productInfo.courier_service_yn,
+        col14: productInfo.product_url,
+        col15: productInfo.notes,
+        col16: '📋',
+        col17: '', col18: '', col19: '', col20: '', col21: '', col22: ''
+      } : {
         _rowType: ROW_TYPES.PRODUCT_DATA,
         _itemId: item.id,
         _dayGroup: dayGroup,
@@ -706,7 +784,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         col14: productInfo.notes,
         col15: '📋',
         col16: '', col17: '', col18: '', col19: '', col20: '', col21: ''
-      });
+      };
+      data.push(productDataRow);
       meta.push({ type: ROW_TYPES.PRODUCT_DATA, itemId: item.id, dayGroup, uploadLinkToken, groupKey });
 
       // 모든 구매자 행 항상 포함 (접기/펼치기는 hiddenRows 플러그인으로 처리)
@@ -722,8 +801,18 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       });
       meta.push({ type: ROW_TYPES.UPLOAD_LINK_BAR, uploadLinkToken });
 
-      // 구매자 헤더 행 (23개 컬럼 - col6에 비고 추가)
-      data.push({
+      // 구매자 헤더 행 - 영업사일 때 col16에 단가 삽입, 이후 +1 시프트 (col0~col22)
+      const buyerHeaderRow = isSales ? {
+        _rowType: ROW_TYPES.BUYER_HEADER,
+        _groupKey: groupKey,
+        _isSuspended: isDayGroupSuspended,
+        col0: '', col1: '', col2: '날짜', col3: '순번', col4: '제품명', col5: '옵션', col6: '비고', col7: '예상구매자',
+        col8: '주문번호', col9: '구매자', col10: '수취인', col11: '아이디', col12: '연락처', col13: '주소',
+        col14: '계좌', col15: '금액',
+        col16: '수수료 단가',
+        col17: '송장번호', col18: '리뷰샷', col19: '상태', col20: '리뷰비',
+        col21: '입금명', col22: '입금여부'
+      } : {
         _rowType: ROW_TYPES.BUYER_HEADER,
         _groupKey: groupKey,
         _isSuspended: isDayGroupSuspended,
@@ -731,7 +820,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         col8: '주문번호', col9: '구매자', col10: '수취인', col11: '아이디', col12: '연락처', col13: '주소',
         col14: '계좌', col15: '금액', col16: '송장번호', col17: '리뷰샷', col18: '상태', col19: '리뷰비',
         col20: '입금명', col21: '입금여부'
-      });
+      };
+      data.push(buyerHeaderRow);
       meta.push({ type: ROW_TYPES.BUYER_HEADER, itemId: item.id, dayGroup });
 
       // 구매자 데이터 행
@@ -752,6 +842,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           address: slotChanges.address ?? buyer.address ?? '',
           account_info: slotChanges.account_info ?? buyer.account_info ?? '',
           amount: slotChanges.amount ?? buyer.amount ?? '',
+          unit_price: slotChanges.unit_price ?? buyer.unit_price ?? '',
           tracking_number: slotChanges.tracking_number ?? buyer.tracking_number ?? '',
           deposit_name: slotChanges.deposit_name ?? buyer.deposit_name ?? '',
           date: slotChanges.date ?? buyer.date ?? ''
@@ -773,7 +864,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         const hasReviewImage = reviewImage?.s3_url;
         const calculatedStatus = hasReviewImage ? 'completed' : (hasBuyerData ? 'active' : '-');
 
-        data.push({
+        const buyerDataRow = isSales ? {
           _rowType: ROW_TYPES.BUYER_DATA,
           _slotId: slot.id,
           _itemId: item.id,
@@ -788,7 +879,43 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           _calculatedStatus: calculatedStatus,
           col0: '',
           col1: '',
-          col2: mergedBuyer.date || mergedSlot.date || '',  // Buyer.date 우선, 없으면 slot.date
+          col2: mergedBuyer.date || mergedSlot.date || '',
+          col3: slotIndex + 1,
+          col4: mergedSlot.product_name,
+          col5: mergedSlot.purchase_option,
+          col6: mergedSlot.buyer_notes,
+          col7: mergedSlot.expected_buyer,
+          col8: mergedBuyer.order_number,
+          col9: mergedBuyer.buyer_name,
+          col10: mergedBuyer.recipient_name,
+          col11: mergedBuyer.user_id,
+          col12: mergedBuyer.contact,
+          col13: mergedBuyer.address,
+          col14: mergedBuyer.account_info,
+          col15: mergedBuyer.amount,
+          col16: mergedBuyer.unit_price,
+          col17: mergedBuyer.tracking_number,
+          col18: reviewImage?.s3_url || '',
+          col19: calculatedStatus,
+          col20: mergedSlot.review_cost,
+          col21: mergedBuyer.deposit_name,
+          col22: buyer.payment_confirmed_at || ''
+        } : {
+          _rowType: ROW_TYPES.BUYER_DATA,
+          _slotId: slot.id,
+          _itemId: item.id,
+          _dayGroup: dayGroup,
+          _groupKey: groupKey,
+          _buyerId: buyer.id || null,
+          _buyer: buyer,
+          _isSuspended: isDayGroupSuspended,
+          _reviewImages: buyer.images || [],
+          _reviewImageUrl: reviewImage?.s3_url || '',
+          _hasBuyerData: !!hasBuyerData,
+          _calculatedStatus: calculatedStatus,
+          col0: '',
+          col1: '',
+          col2: mergedBuyer.date || mergedSlot.date || '',
           col3: slotIndex + 1,
           col4: mergedSlot.product_name,
           col5: mergedSlot.purchase_option,
@@ -808,7 +935,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           col19: mergedSlot.review_cost,
           col20: mergedBuyer.deposit_name,
           col21: buyer.payment_confirmed_at || ''
-        });
+        };
+        data.push(buyerDataRow);
         meta.push({
           type: ROW_TYPES.BUYER_DATA,
           itemId: item.id,
@@ -1015,7 +1143,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
   // 19차 최적화: 렌더러 팩토리에 ref 전달 → 의존성 [] → cellsRenderer 안정화 → IME 깨짐 방지
   const productDataRenderer = useMemo(() =>
-    createDailyProductDataRenderer(tableDataRef, collapsedItemsRef),
+    createDailyProductDataRenderer(tableDataRef, collapsedItemsRef, isSalesRef),
     []
   );
 
@@ -1025,7 +1153,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   );
 
   const buyerDataRenderer = useMemo(() =>
-    createDailyBuyerDataRenderer(tableDataRef, duplicateOrderNumbersRef),
+    createDailyBuyerDataRenderer(tableDataRef, duplicateOrderNumbersRef, isSalesRef),
     []
   );
 
@@ -1060,13 +1188,17 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         cellProperties.renderer = dailyProductHeaderRenderer;
         break;
 
-      case ROW_TYPES.PRODUCT_DATA:
-        cellProperties.readOnly = (col === 0 || col === 1 || col === 15);  // col0=토글, col1=연월브랜드-캠페인, col15=상세보기 버튼
+      case ROW_TYPES.PRODUCT_DATA: {
+        // 영업사: col0=토글, col1=캠페인, col16=상세보기 (col9 단가 추가로 col15→col16 시프트)
+        // 진행자: col0=토글, col1=캠페인, col15=상세보기
+        const detailCol = isSalesRef.current ? 16 : 15;
+        cellProperties.readOnly = (col === 0 || col === 1 || col === detailCol);
         if (col === 1) {
           cellProperties.disableVisualSelection = true;
         }
         cellProperties.renderer = productDataRendererRef.current;
         break;
+      }
 
       case ROW_TYPES.UPLOAD_LINK_BAR:
         cellProperties.readOnly = true;
@@ -1086,14 +1218,16 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         }
         break;
 
-      case ROW_TYPES.BUYER_DATA:
+      case ROW_TYPES.BUYER_DATA: {
         const dayGroup = rowData._dayGroup || 1;
         const dayClass = dayGroup % 2 === 0 ? 'day-even' : 'day-odd';
         // 중단 상태면 suspended 클래스 추가
         cellProperties.className = rowData._isSuspended ? `${dayClass} suspended-row` : dayClass;
 
-        // col17: 리뷰샷 (col16 -> col17로 시프트)
-        if (col === 17) {
+        // 영업사: col18=리뷰샷 (col16 단가 추가로 col17→col18 시프트)
+        // 진행자: col17=리뷰샷
+        const reviewShotCol = isSalesRef.current ? 18 : 17;
+        if (col === reviewShotCol) {
           cellProperties.readOnly = true;
         } else {
           cellProperties.readOnly = false;
@@ -1101,6 +1235,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
         cellProperties.renderer = buyerDataRendererRef.current;
         break;
+      }
 
       default:
         break;
@@ -1137,7 +1272,23 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
       // 제품 데이터 행 수정
       if (type === ROW_TYPES.PRODUCT_DATA) {
-        const PRODUCT_FIELD_MAP = {
+        // 영업사면 col9에 단가 삽입, 이후 +1 시프트
+        const PRODUCT_FIELD_MAP = isSalesRef.current ? {
+          col2: 'date',
+          col3: 'platform',
+          col4: 'product_name',
+          col5: 'purchase_option',
+          col6: 'shipping_type',
+          col7: 'keyword',
+          col8: 'product_price',
+          col9: 'unit_price',
+          col10: 'total_purchase_count',
+          col11: 'daily_purchase_count',
+          col12: 'courier_name',
+          col13: 'courier_service_yn',
+          col14: 'product_url',
+          col15: 'notes'
+        } : {
           col2: 'date',
           col3: 'platform',
           col4: 'product_name',
@@ -1195,26 +1346,73 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
               }
             }
           }
+
+          // 단가(col9, 영업사 전용) 변경 시 같은 그룹 구매자 행 단가도 일괄 덮어쓰기
+          if (apiField === 'unit_price' && isSalesRef.current) {
+            const newUnitPrice = newValue ?? '';
+            const hot = hotRef.current?.hotInstance;
+            if (hot) {
+              const groupKey = `${itemId}_${dayGroup}`;
+              const cellsToUpdate = [];
+              currentTableData.forEach((buyerRow, buyerRowIndex) => {
+                const buyerMeta = currentRowMeta[buyerRowIndex];
+                if (buyerMeta?.type === ROW_TYPES.BUYER_DATA &&
+                    `${buyerMeta.itemId}_${buyerMeta.dayGroup}` === groupKey) {
+                  cellsToUpdate.push([buyerRowIndex, 16, newUnitPrice]);  // col16 = 영업사 단가
+                  if (buyerMeta.slotId) {
+                    if (!slotUpdates[buyerMeta.slotId]) {
+                      slotUpdates[buyerMeta.slotId] = { id: buyerMeta.slotId };
+                    }
+                    slotUpdates[buyerMeta.slotId].unit_price = newUnitPrice;
+                  }
+                }
+              });
+              if (cellsToUpdate.length > 0) {
+                requestAnimationFrame(() => {
+                  const hotInstance = hotRef.current?.hotInstance;
+                  if (hotInstance) {
+                    hotInstance.setDataAtCell(cellsToUpdate, 'syncBuyerUnitPrice');
+                  }
+                });
+              }
+            }
+          }
         }
       }
 
-      // 구매자 데이터 행 수정 (col6에 비고 추가, 이후 컬럼 +1 시프트)
+      // 구매자 데이터 행 수정 (영업사면 col16에 단가, 이후 +1 시프트)
       if (type === ROW_TYPES.BUYER_DATA && slotId) {
-        const BUYER_FIELD_MAP = {
+        const BUYER_FIELD_MAP = isSalesRef.current ? {
           col2: 'date',
-          col6: 'buyer_notes',     // 비고 (신규 추가)
-          col7: 'expected_buyer',  // col6 -> col7로 시프트
-          col8: 'order_number',    // col7 -> col8로 시프트
-          col9: 'buyer_name',      // col8 -> col9로 시프트
-          col10: 'recipient_name', // col9 -> col10으로 시프트
-          col11: 'user_id',        // col10 -> col11로 시프트
-          col12: 'contact',        // col11 -> col12로 시프트
-          col13: 'address',        // col12 -> col13으로 시프트
-          col14: 'account_info',   // col13 -> col14로 시프트
-          col15: 'amount',         // col14 -> col15로 시프트
-          col16: 'tracking_number',// col15 -> col16으로 시프트
-          col19: 'review_cost',    // col18 -> col19로 시프트
-          col20: 'deposit_name'    // col19 -> col20으로 시프트
+          col6: 'buyer_notes',
+          col7: 'expected_buyer',
+          col8: 'order_number',
+          col9: 'buyer_name',
+          col10: 'recipient_name',
+          col11: 'user_id',
+          col12: 'contact',
+          col13: 'address',
+          col14: 'account_info',
+          col15: 'amount',
+          col16: 'unit_price',
+          col17: 'tracking_number',
+          col20: 'review_cost',
+          col21: 'deposit_name'
+        } : {
+          col2: 'date',
+          col6: 'buyer_notes',
+          col7: 'expected_buyer',
+          col8: 'order_number',
+          col9: 'buyer_name',
+          col10: 'recipient_name',
+          col11: 'user_id',
+          col12: 'contact',
+          col13: 'address',
+          col14: 'account_info',
+          col15: 'amount',
+          col16: 'tracking_number',
+          col19: 'review_cost',
+          col20: 'deposit_name'
         };
 
         const apiField = BUYER_FIELD_MAP[prop];
@@ -1424,18 +1622,20 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
   // 컬럼 설정 (23개 컬럼 - col6에 비고 추가)
   const columns = useMemo(() => {
-    const cols = Array(22).fill(null).map((_, index) => ({
+    // 영업사: 24개 데이터 컬럼 + 여백 col24 / 진행자: 22개 데이터 컬럼 + 여백 col22
+    const dataColCount = isSales ? 24 : 22;
+    const cols = Array(dataColCount).fill(null).map((_, index) => ({
       data: `col${index}`,
       width: columnWidths[index] || 100
     }));
     // 맨 오른쪽에 여백 컬럼 추가 (컬럼 너비 조절 용이하게)
     cols.push({
-      data: 'col22',
+      data: `col${dataColCount}`,
       width: 50,
       readOnly: true
     });
     return cols;
-  }, [columnWidths]);
+  }, [columnWidths, isSales]);
 
   // 배정된 품목 수 계산 (day_group별 고유 품목)
   const uniqueItemCount = useMemo(() => {
@@ -1500,8 +1700,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       return;
     }
 
-    // 제품 데이터 행 col15 클릭 - 상세보기 팝업
-    if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === 15) {
+    // 제품 데이터 행 상세보기 클릭 (영업사: col16, 진행자: col15)
+    const detailCol = isSalesRef.current ? 16 : 15;
+    if (rowData._rowType === ROW_TYPES.PRODUCT_DATA && coords.col === detailCol) {
       setProductDetailPopup({
         open: true,
         item: rowData._item,

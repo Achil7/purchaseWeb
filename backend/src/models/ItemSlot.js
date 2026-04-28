@@ -42,6 +42,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    // 단가 (영업사 입력 - day_group별 독립)
+    unit_price: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
     notes: {
       type: DataTypes.TEXT,
       allowNull: true

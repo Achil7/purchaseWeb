@@ -113,6 +113,12 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 'active',
       comment: '상태 (active, completed, cancelled 등 자유 입력)'
     },
+    // 단가 (영업사 입력 - 영업사 시트 전용)
+    unit_price: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: '단가 (영업사 입력)'
+    },
     // 매출 관련 필드
     sale_price_per_unit: {
       type: DataTypes.TEXT,

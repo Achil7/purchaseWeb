@@ -74,7 +74,7 @@ const isFieldLine = (line) => {
   // 알려진 필드 키워드들
   const fieldKeywords = [
     '미출고', '실출고', '제품명', '제품', '총', '건수', '일', 'url', '상품', '확인',
-    '구매', '옵션', '가격', '리뷰', '가이드', '소구점', '택배', '대행', '키워드', '유입',
+    '구매', '옵션', '가격', '수수료 단가', '리뷰', '가이드', '소구점', '택배', '대행', '키워드', '유입',
     '출고', '마감', '비고', '플랫폼', '판매처'
   ];
 
@@ -92,6 +92,7 @@ const parseItemText = (text) => {
     product_url: '',
     purchase_option: '',
     product_price: '',
+    unit_price: '',
     review_guide: '',
     courier_service_yn: '',
     keyword: '',
@@ -152,6 +153,8 @@ const parseItemText = (text) => {
       result.product_url = value;
     } else if (key.includes('구매') && key.includes('옵션')) {
       result.purchase_option = value;
+    } else if (key.includes('수수료 단가')) {
+      result.unit_price = value.replace(/[^0-9]/g, '');
     } else if (key.includes('가격')) {
       result.product_price = value.replace(/[^0-9]/g, '');
     } else if (key.includes('리뷰') || key.includes('가이드') || key.includes('소구점')) {
@@ -226,6 +229,7 @@ const parseCombineText = (text) => {
     daily_purchase_count: '',
     review_guide: '',
     product_price: '',
+    unit_price: '',
     shipping_deadline: '',
     courier_service_yn: '',
     platform: '',
@@ -262,6 +266,8 @@ const parseCombineText = (text) => {
       // 아무것도 안 함
     } else if (key.includes('리뷰') || key.includes('가이드') || key.includes('소구점')) {
       result.review_guide = value;
+    } else if (key.includes('수수료 단가')) {
+      result.unit_price = value;
     } else if (key.includes('가격')) {
       result.product_price = value;
     } else if (key.includes('출고') && key.includes('마감')) {
@@ -329,6 +335,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
     product_url: '',
     purchase_option: '',
     product_price: '',
+    unit_price: '',
     shipping_deadline: '',
     review_guide: '',
     courier_service_yn: '',
@@ -376,6 +383,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
           product_url: initialData.product_url || '',
           purchase_option: initialData.purchase_option || '',
           product_price: initialData.product_price || '',
+          unit_price: initialData.unit_price || '',
           shipping_deadline: initialData.shipping_deadline || '',
           review_guide: initialData.review_guide || '',
           courier_service_yn: initialData.courier_service_yn || '',
@@ -532,6 +540,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
         product_url: item.product_url || null,
         purchase_option: item.purchase_option || null,
         product_price: item.product_price || null,
+        unit_price: item.unit_price || null,
         shipping_deadline: item.shipping_deadline || null,
         review_guide: item.review_guide || null,
         courier_service_yn: item.courier_service_yn || null,  // 그대로 저장 (TEXT)
@@ -569,6 +578,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
         product_url: item.product_url || null,
         purchase_option: item.purchase_option || null,
         product_price: item.product_price || null,
+        unit_price: item.unit_price || null,
         shipping_deadline: item.shipping_deadline || null,
         review_guide: item.review_guide || null,
         courier_service_yn: item.courier_service_yn || null,
@@ -603,6 +613,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
       product_url: itemData.product_url || null,
       purchase_option: itemData.purchase_option || null,
       product_price: itemData.product_price || null,
+      unit_price: itemData.unit_price || null,
       shipping_deadline: itemData.shipping_deadline || null,
       review_guide: itemData.review_guide || null,
       courier_service_yn: itemData.courier_service_yn || null,
@@ -625,6 +636,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
 제품명 : 푸드올로지 콜레올로지컷 다이어트 유산균
 구매 옵션 : 푸드올로지 콜레올로지컷, 20정, 1개
 제품 구매 가격 : 27600
+수수료 단가 : 1500
 리뷰가이드 및 소구점 : 100자 이상 포토리뷰
 택배대행 Y/N : N
 희망 유입 키워드 : 다이어트유산균 장건강
@@ -732,6 +744,7 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
                       <TableCell sx={{ fontWeight: 'bold', width: 80 }}>일건수</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', minWidth: 150 }}>옵션</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', minWidth: 150 }}>키워드</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: 110 }}>수수료 단가</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', minWidth: 200 }}>특이사항</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', width: 50 }}></TableCell>
                     </TableRow>
@@ -834,6 +847,16 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
                         <TableCell>
                           <TextField
                             size="small"
+                            type="number"
+                            value={item.unit_price || ''}
+                            onChange={(e) => handleItemFieldChange(index, 'unit_price', e.target.value)}
+                            variant="standard"
+                            fullWidth
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <TextField
+                            size="small"
                             value={item.notes}
                             onChange={(e) => handleItemFieldChange(index, 'notes', e.target.value)}
                             variant="standard"
@@ -902,6 +925,14 @@ function SalesItemDialog({ open, onClose, onSave, onSaveBulk, mode = 'create', i
                     value={parsedItems[0].product_price}
                     onChange={(e) => handleItemFieldChange(0, 'product_price', e.target.value)}
                     sx={{ width: 120 }}
+                    size="small"
+                    type="number"
+                  />
+                  <TextField
+                    label="수수료 단가"
+                    value={parsedItems[0].unit_price || ''}
+                    onChange={(e) => handleItemFieldChange(0, 'unit_price', e.target.value)}
+                    sx={{ width: 140 }}
                     size="small"
                     type="number"
                   />
