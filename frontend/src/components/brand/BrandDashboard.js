@@ -4,7 +4,8 @@ import {
   Box, Paper, Typography, LinearProgress, CircularProgress,
   TextField, InputAdornment, IconButton,
   Table, TableHead, TableBody, TableRow, TableCell, TableContainer, TableSortLabel,
-  Chip, Divider, Alert, Collapse, Pagination
+  Chip, Divider, Alert, Collapse, Pagination,
+  Select, MenuItem, FormControl, InputLabel, Button, Tooltip
 } from '@mui/material';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -34,6 +35,54 @@ const fmtNumber = (n) => {
 };
 
 const fmtAmount = (n) => `${fmtNumber(n)}원`;
+
+// 원형 진행 게이지 (완료율 표시용)
+function CircularGauge({ value, size = 84, thickness = 5 }) {
+  const v = Math.max(0, Math.min(100, Number(value) || 0));
+  const color = v >= 80 ? '#2e7d32' : v >= 50 ? '#ed6c02' : '#d32f2f';
+  return (
+    <Box sx={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+      {/* 배경 트랙 */}
+      <CircularProgress
+        variant="determinate"
+        value={100}
+        size={size}
+        thickness={thickness}
+        sx={{ color: '#eee' }}
+      />
+      {/* 실제 값 */}
+      <CircularProgress
+        variant="determinate"
+        value={v}
+        size={size}
+        thickness={thickness}
+        sx={{
+          color,
+          position: 'absolute',
+          left: 0,
+          '& .MuiCircularProgress-circle': { strokeLinecap: 'round' }
+        }}
+      />
+      <Box
+        sx={{
+          top: 0, left: 0, bottom: 0, right: 0,
+          position: 'absolute',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <Typography variant="h6" fontWeight="bold" sx={{ color, lineHeight: 1 }}>
+          {v}%
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', mt: 0.2 }}>
+          완료율
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
 
 // 요약 카드
 function SummaryCard({ label, value, sub, color, progress }) {
@@ -106,7 +155,7 @@ function CampaignSubTable({ campaigns, onCampaignClick }) {
   }, [campaigns, subSortKey, subSortDir]);
 
   return (
-    <Table size="small">
+    <Table size="small" sx={{ '& .MuiTableCell-root': { whiteSpace: 'nowrap', px: 1, py: 0.5, fontSize: '0.78rem' } }}>
       <TableHead>
         <TableRow>
           <TableCell sx={{ fontWeight: 'bold' }} sortDirection={subSortKey === 'campaign_name' ? subSortDir : false}>
@@ -133,7 +182,7 @@ function CampaignSubTable({ campaigns, onCampaignClick }) {
               direction={subSortKey === 'reviewCompletedCount' ? subSortDir : 'desc'}
               onClick={() => handleSubSort('reviewCompletedCount')}
             >
-              리뷰 완료
+              리뷰완료
             </TableSortLabel>
           </TableCell>
           <TableCell align="right" sx={{ fontWeight: 'bold' }} sortDirection={subSortKey === 'totalAmount' ? subSortDir : false}>
@@ -705,38 +754,67 @@ function BrandDashboard({
         />
       </Box>
 
-      {/* 제품별 현황 - 선택 플랫폼(또는 전체) 내 제품명 단위 합산 */}
+      {/* 제품별 현황 - 카드 그리드 (선택 플랫폼/전체 내 제품명 단위 합산) */}
       <Paper sx={{ p: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, gap: 2, flexWrap: 'wrap' }}>
+        {/* 헤더 + 도구바 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, gap: 2, flexWrap: 'wrap' }}>
           <Box>
             <Typography variant="subtitle1" fontWeight="bold">
               제품별 현황
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              같은 제품명은 캠페인이 달라도 하나로 합산됩니다. 행을 클릭하면 포함된 캠페인 목록이 펼쳐집니다.
+              같은 제품명은 캠페인이 달라도 하나로 합산. 카드 하단 "캠페인 N개 보기" 클릭 시 포함된 캠페인이 펼쳐집니다.
             </Typography>
           </Box>
-          <TextField
-            size="small"
-            placeholder="제품명으로 필터링"
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            sx={{ minWidth: { xs: '100%', md: 260 }, width: { xs: '100%', md: 'auto' } }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-              endAdornment: filterText && (
-                <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setFilterText('')}>
-                    <ClearIcon fontSize="small" />
-                  </IconButton>
-                </InputAdornment>
-              )
-            }}
-          />
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* 정렬 드롭다운 */}
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel>정렬</InputLabel>
+              <Select
+                label="정렬"
+                value={`${sortKey}_${sortDir}`}
+                onChange={(e) => {
+                  const [k, d] = e.target.value.split('_');
+                  setSortKey(k);
+                  setSortDir(d);
+                  setPage(1);
+                }}
+              >
+                <MenuItem value="totalAmount_desc">금액 ↓</MenuItem>
+                <MenuItem value="totalAmount_asc">금액 ↑</MenuItem>
+                <MenuItem value="buyerCount_desc">구매자 ↓</MenuItem>
+                <MenuItem value="buyerCount_asc">구매자 ↑</MenuItem>
+                <MenuItem value="reviewCompletedCount_desc">리뷰 완료 ↓</MenuItem>
+                <MenuItem value="reviewCompletedCount_asc">리뷰 완료 ↑</MenuItem>
+                <MenuItem value="reviewCompletionRate_desc">완료율 ↓</MenuItem>
+                <MenuItem value="reviewCompletionRate_asc">완료율 ↑</MenuItem>
+                <MenuItem value="campaignCount_desc">캠페인 수 ↓</MenuItem>
+                <MenuItem value="product_name_asc">제품명 ㄱ→ㅎ</MenuItem>
+                <MenuItem value="product_name_desc">제품명 ㅎ→ㄱ</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              size="small"
+              placeholder="제품명으로 필터링"
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              sx={{ minWidth: { xs: '100%', md: 240 }, width: { xs: '100%', md: 'auto' } }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: filterText && (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setFilterText('')}>
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                )
+              }}
+            />
+          </Box>
         </Box>
 
         {productLoading ? (
@@ -751,149 +829,127 @@ function BrandDashboard({
           </Alert>
         ) : (
           <>
-            <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow sx={{ bgcolor: '#fafafa' }}>
-                    <TableCell sx={{ width: 40 }} />
-                    <TableCell sx={{ fontWeight: 'bold' }} sortDirection={sortKey === 'product_name' ? sortDir : false}>
-                      <TableSortLabel
-                        active={sortKey === 'product_name'}
-                        direction={sortKey === 'product_name' ? sortDir : 'asc'}
-                        onClick={() => handleSort('product_name')}
+            {/* 카드 그리드 - 카드 폭은 일정 비율 유지, 화면 폭에 따라 카드 개수만 자동 조정 */}
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))',
+                justifyContent: 'flex-start',
+                gap: 2
+              }}
+            >
+              {pagedProducts.map((p) => {
+                const isExpanded = expandedProduct === p.product_name;
+                return (
+                  <Paper
+                    key={p.product_name}
+                    variant="outlined"
+                    sx={{
+                      p: 1.5,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 1,
+                      borderColor: isExpanded ? '#1565c0' : '#e0e0e0',
+                      borderWidth: isExpanded ? 1.5 : 1,
+                      transition: 'border-color 0.15s'
+                    }}
+                  >
+                    {/* 제품명 */}
+                    <Tooltip title={p.product_name} placement="top">
+                      <Typography
+                        variant="subtitle2"
+                        fontWeight="bold"
+                        sx={{
+                          fontSize: '0.9rem',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          minHeight: '2.4em',
+                          lineHeight: 1.25
+                        }}
                       >
-                        제품명
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }} sortDirection={sortKey === 'campaignCount' ? sortDir : false}>
-                      <TableSortLabel
-                        active={sortKey === 'campaignCount'}
-                        direction={sortKey === 'campaignCount' ? sortDir : 'desc'}
-                        onClick={() => handleSort('campaignCount')}
-                      >
-                        캠페인
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }} sortDirection={sortKey === 'buyerCount' ? sortDir : false}>
-                      <TableSortLabel
-                        active={sortKey === 'buyerCount'}
-                        direction={sortKey === 'buyerCount' ? sortDir : 'desc'}
-                        onClick={() => handleSort('buyerCount')}
-                      >
-                        구매자
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }} sortDirection={sortKey === 'reviewCompletedCount' ? sortDir : false}>
-                      <TableSortLabel
-                        active={sortKey === 'reviewCompletedCount'}
-                        direction={sortKey === 'reviewCompletedCount' ? sortDir : 'desc'}
-                        onClick={() => handleSort('reviewCompletedCount')}
-                      >
-                        리뷰 완료
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 'bold', width: { xs: 80, md: 160 }, whiteSpace: 'nowrap' }} sortDirection={sortKey === 'reviewCompletionRate' ? sortDir : false}>
-                      <TableSortLabel
-                        active={sortKey === 'reviewCompletionRate'}
-                        direction={sortKey === 'reviewCompletionRate' ? sortDir : 'desc'}
-                        onClick={() => handleSort('reviewCompletionRate')}
-                      >
-                        완료율
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold' }} sortDirection={sortKey === 'totalAmount' ? sortDir : false}>
-                      <TableSortLabel
-                        active={sortKey === 'totalAmount'}
-                        direction={sortKey === 'totalAmount' ? sortDir : 'desc'}
-                        onClick={() => handleSort('totalAmount')}
-                      >
-                        금액
-                      </TableSortLabel>
-                    </TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold', display: { xs: 'none', md: 'table-cell' } }} sortDirection={sortKey === 'imageCount' ? sortDir : false}>
-                      <TableSortLabel
-                        active={sortKey === 'imageCount'}
-                        direction={sortKey === 'imageCount' ? sortDir : 'desc'}
-                        onClick={() => handleSort('imageCount')}
-                      >
-                        승인 이미지
-                      </TableSortLabel>
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {pagedProducts.map((p) => {
-                    const isExpanded = expandedProduct === p.product_name;
-                    const rateColor = p.reviewCompletionRate >= 80
-                      ? 'success.main'
-                      : p.reviewCompletionRate >= 50 ? 'warning.main' : 'error.main';
-                    return (
-                      <React.Fragment key={p.product_name}>
-                        <TableRow
-                          hover
-                          onClick={() => setExpandedProduct(isExpanded ? null : p.product_name)}
-                          sx={{ cursor: 'pointer', '& > *': { borderBottom: 'unset' } }}
-                        >
-                          <TableCell>
-                            <IconButton size="small">
-                              {isExpanded ? <KeyboardArrowUpIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
-                            </IconButton>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight="bold" noWrap title={p.product_name}>
-                              {p.product_name}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>{fmtNumber(p.campaignCount)}개</TableCell>
-                          <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>{fmtNumber(p.buyerCount)}</TableCell>
-                          <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                            <Typography variant="body2" color="success.main">
-                              {fmtNumber(p.reviewCompletedCount)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              {/* PC에서만 progress bar 표시, 모바일은 % 텍스트만 (공간 절약) */}
-                              <Box sx={{ flex: 1, display: { xs: 'none', md: 'block' } }}>
-                                <LinearProgress
-                                  variant="determinate"
-                                  value={Math.min(100, p.reviewCompletionRate)}
-                                  sx={{ height: 6, borderRadius: 3 }}
-                                />
-                              </Box>
-                              <Typography variant="caption" fontWeight="bold" sx={{ minWidth: 36, textAlign: 'right', color: rateColor, whiteSpace: 'nowrap' }}>
-                                {p.reviewCompletionRate}%
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                            <Typography variant="body2" fontWeight="bold" color="primary" sx={{ fontSize: { xs: '0.75rem', md: '0.875rem' } }}>
-                              {fmtAmount(p.totalAmount)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>{fmtNumber(p.imageCount)}장</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell colSpan={8} sx={{ p: 0, borderBottom: isExpanded ? '1px solid #eee' : 'none' }}>
-                            <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                              <Box sx={{ bgcolor: '#f9fafc', p: 2 }}>
-                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                                  포함된 캠페인 ({p.campaignCount}개) — 행 클릭 시 해당 캠페인 상세로 이동
-                                </Typography>
-                                <CampaignSubTable
-                                  campaigns={p.campaigns}
-                                  onCampaignClick={goToCampaign}
-                                />
-                              </Box>
-                            </Collapse>
-                          </TableCell>
-                        </TableRow>
-                      </React.Fragment>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                        {p.product_name}
+                      </Typography>
+                    </Tooltip>
+
+                    <Divider sx={{ my: 0 }} />
+
+                    {/* 본문: 좌측 게이지 + 우측 지표 */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                      <CircularGauge value={p.reviewCompletionRate} size={72} thickness={5} />
+                      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 0.4 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>구매자</Typography>
+                          <Typography variant="body2" fontWeight="bold" noWrap>{fmtNumber(p.buyerCount)}명</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>리뷰 완료</Typography>
+                          <Typography variant="body2" fontWeight="bold" color="success.main" noWrap>
+                            {fmtNumber(p.reviewCompletedCount)}건
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>총 금액</Typography>
+                          <Typography
+                            variant="body2"
+                            fontWeight="bold"
+                            color="primary"
+                            sx={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              minWidth: 0
+                            }}
+                            title={fmtAmount(p.totalAmount)}
+                          >
+                            {fmtAmount(p.totalAmount)}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Box>
+
+                    {/* 보조 지표: 캠페인 수, 승인 이미지 (좁은 폭에서는 줄바꿈 허용) */}
+                    <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={`캠페인 ${fmtNumber(p.campaignCount)}개`}
+                        sx={{ fontSize: '0.7rem', height: 22 }}
+                      />
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={`승인 이미지 ${fmtNumber(p.imageCount)}장`}
+                        sx={{ fontSize: '0.7rem', height: 22 }}
+                      />
+                    </Box>
+
+                    {/* 펼침 토글 */}
+                    <Button
+                      size="small"
+                      variant={isExpanded ? 'contained' : 'outlined'}
+                      onClick={() => setExpandedProduct(isExpanded ? null : p.product_name)}
+                      endIcon={isExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                      sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.4 }}
+                    >
+                      {isExpanded ? '캠페인 숨기기' : `캠페인 ${fmtNumber(p.campaignCount)}개 보기`}
+                    </Button>
+
+                    {/* 캠페인 목록 펼침 */}
+                    <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                      <Box sx={{ bgcolor: '#f9fafc', p: 1, borderRadius: 1, mt: 0.5 }}>
+                        <CampaignSubTable
+                          campaigns={p.campaigns}
+                          onCampaignClick={goToCampaign}
+                        />
+                      </Box>
+                    </Collapse>
+                  </Paper>
+                );
+              })}
+            </Box>
 
             {pageCount > 1 && (
               <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
