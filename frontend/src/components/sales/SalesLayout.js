@@ -11,6 +11,8 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import SalesDashboard from './SalesDashboard';
 import FolderIcon from '@mui/icons-material/Folder';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -125,7 +127,20 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const ITEMS_PER_PAGE = 15;
 
   // 시트 탭 상태 (0: 기본 시트, 1: 날짜별 작업)
-  const [sheetTab, setSheetTab] = useState(0);
+  // 메인 탭 모드: 0=캠페인 시트, 1=날짜별 작업, 2=현황 대시보드
+  // 새로고침 시 위치 유지용 localStorage. 기본값은 현황 대시보드(2)
+  // - 반대로 뒤집고 싶다면 아래 fallback 의 0/2 만 바꾸면 됨
+  const SHEET_TAB_KEY = 'sales_sheet_tab';
+  const [sheetTab, setSheetTab] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SHEET_TAB_KEY);
+      const n = parseInt(saved, 10);
+      return [0, 1, 2].includes(n) ? n : 2;
+    } catch { return 2; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(SHEET_TAB_KEY, String(sheetTab)); } catch {}
+  }, [sheetTab]);
 
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -386,31 +401,55 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     // 숨김 모드에서는 드래그 비활성화
     if (showHidden) return;
 
-    // 보이는 연월브랜드만 필터링
-    const visibleMonthlyBrands = monthlyBrands.filter(mb => !mb.is_hidden);
+    // result.source/destination.index는 현재 페이지 내(paginatedMonthlyBrands) 기준이므로
+    // 페이지 오프셋을 더해 visibleMonthlyBrands(검색 적용 후) 전체 인덱스로 변환
+    const searchLower = (searchQuery || '').trim().toLowerCase();
+    const visibleMonthlyBrands = monthlyBrands.filter(mb => {
+      if (mb.is_hidden) return false;
+      if (searchLower && !mb.name.toLowerCase().includes(searchLower)) return false;
+      return true;
+    });
+
+    const pageOffset = (currentPage - 1) * ITEMS_PER_PAGE;
+    const sourceIndex = result.source.index + pageOffset;
+    const destinationIndex = result.destination.index + pageOffset;
+
+    if (sourceIndex < 0 || sourceIndex >= visibleMonthlyBrands.length) return;
+    if (destinationIndex < 0 || destinationIndex >= visibleMonthlyBrands.length) return;
 
     // 순서 변경
     const reordered = Array.from(visibleMonthlyBrands);
-    const [removed] = reordered.splice(result.source.index, 1);
-    reordered.splice(result.destination.index, 0, removed);
+    const [removed] = reordered.splice(sourceIndex, 1);
+    reordered.splice(destinationIndex, 0, removed);
 
-    // 전체 목록에서 숨긴 항목은 그대로 두고, 보이는 항목만 순서 변경
-    const hiddenBrands = monthlyBrands.filter(mb => mb.is_hidden);
-    const newMonthlyBrands = [...reordered, ...hiddenBrands];
+    // 검색 중이면 reordered는 검색 결과만 포함 → 검색 안 걸린 나머지는 보존해야 함
+    let newMonthlyBrands;
+    if (searchLower) {
+      // 검색 결과 ID 셋
+      const reorderedIds = new Set(reordered.map(mb => mb.id));
+      // 검색에 안 걸린 나머지(숨김 + 비검색일치) 보존
+      const others = monthlyBrands.filter(mb => !reorderedIds.has(mb.id));
+      newMonthlyBrands = [...reordered, ...others];
+    } else {
+      const hiddenBrands = monthlyBrands.filter(mb => mb.is_hidden);
+      newMonthlyBrands = [...reordered, ...hiddenBrands];
+    }
 
     // 낙관적 업데이트
     setMonthlyBrands(newMonthlyBrands);
 
     // 서버에 순서 저장
     try {
-      const orderedIds = reordered.map(mb => mb.id);
-      await monthlyBrandService.reorderMonthlyBrands(orderedIds, viewAsUserId);
+      // 검색 중일 때는 순서가 부분적으로만 반영되면 어색하므로
+      // 전체 보이는(숨김 제외) 항목 순서를 함께 보내 서버에 일관된 순서 저장
+      const fullOrderedIds = newMonthlyBrands.filter(mb => !mb.is_hidden).map(mb => mb.id);
+      await monthlyBrandService.reorderMonthlyBrands(fullOrderedIds, viewAsUserId);
     } catch (err) {
       console.error('Failed to reorder monthly brands:', err);
       // 실패 시 원래 순서로 복원
       loadMonthlyBrands();
     }
-  }, [monthlyBrands, showHidden, viewAsUserId, loadMonthlyBrands]);
+  }, [monthlyBrands, showHidden, viewAsUserId, loadMonthlyBrands, currentPage, searchQuery]);
 
   // 캠페인 클릭 - 오른쪽에 시트 표시
   const handleCampaignClick = (campaign) => {
@@ -808,6 +847,33 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             {isAdminMode ? '영업사 보기 (Admin)' : 'Campaign Manager'}
           </Typography>
 
+          {/* 메인 탭 (브랜드사와 동일 패턴): 현황 대시보드 / 캠페인 시트
+              - 캠페인 시트 탭 안에 기존 [캠페인 시트 / 날짜별 작업] 서브탭이 그대로 유지됨 */}
+          <Box sx={{ display: 'flex', ml: 3, gap: 0.5 }}>
+            <Button
+              color="inherit"
+              onClick={() => setSheetTab(2)}
+              sx={{
+                fontWeight: sheetTab === 2 ? 'bold' : 'normal',
+                borderBottom: sheetTab === 2 ? '2px solid #fff' : '2px solid transparent',
+                borderRadius: 0, px: 2
+              }}
+            >
+              현황 대시보드
+            </Button>
+            <Button
+              color="inherit"
+              onClick={() => setSheetTab(sheetTab === 2 ? 0 : sheetTab)}
+              sx={{
+                fontWeight: sheetTab !== 2 ? 'bold' : 'normal',
+                borderBottom: sheetTab !== 2 ? '2px solid #fff' : '2px solid transparent',
+                borderRadius: 0, px: 2
+              }}
+            >
+              캠페인 시트
+            </Button>
+          </Box>
+
           {/* Spacer */}
           <Box sx={{ flexGrow: 1 }} />
 
@@ -858,7 +924,10 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
       {/* 메인 컨테이너 - 사이드바 + 콘텐츠 */}
       <Box sx={{ display: 'flex', flex: 1, pt: isEmbedded ? 0 : 8, overflow: 'hidden', minHeight: 0 }}>
-      {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록 */}
+      {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록
+          - 현황 대시보드(sheetTab=2) 일 때만 숨김
+          - 캠페인 시트 / 날짜별 작업 두 서브탭 모두에서 사이드바 노출 */}
+      {sheetTab !== 2 && (
       <Box sx={{ display: 'flex', flexShrink: 0, position: 'relative' }}>
         <Paper
           ref={sidebarRef}
@@ -1330,6 +1399,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         />
       )}
       </Box>
+      )}
 
       {/* 메인 콘텐츠 영역 */}
       <Box
@@ -1345,27 +1415,29 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       >
         {isDefaultRoute ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-            {/* 탭 헤더 */}
-            <Box sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0, bgcolor: 'white' }}>
-              <Tabs
-                value={sheetTab}
-                onChange={(e, newValue) => setSheetTab(newValue)}
-                sx={{ minHeight: 42, '& .MuiTab-root': { minHeight: 42, py: 0.5 } }}
-              >
-                <Tab
-                  icon={<AssignmentIcon sx={{ fontSize: 18 }} />}
-                  iconPosition="start"
-                  label="캠페인 시트"
-                  sx={{ textTransform: 'none', fontSize: '0.875rem' }}
-                />
-                <Tab
-                  icon={<CalendarMonthIcon sx={{ fontSize: 18 }} />}
-                  iconPosition="start"
-                  label="날짜별 작업"
-                  sx={{ textTransform: 'none', fontSize: '0.875rem' }}
-                />
-              </Tabs>
-            </Box>
+            {/* 캠페인 시트 메인 탭일 때만 [캠페인 시트 / 날짜별 작업] 서브탭 노출 */}
+            {sheetTab !== 2 && (
+              <Box sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0, bgcolor: 'white' }}>
+                <Tabs
+                  value={sheetTab}
+                  onChange={(e, newValue) => setSheetTab(newValue)}
+                  sx={{ minHeight: 42, '& .MuiTab-root': { minHeight: 42, py: 0.5 } }}
+                >
+                  <Tab
+                    icon={<AssignmentIcon sx={{ fontSize: 18 }} />}
+                    iconPosition="start"
+                    label="캠페인 시트"
+                    sx={{ textTransform: 'none', fontSize: '0.875rem' }}
+                  />
+                  <Tab
+                    icon={<CalendarMonthIcon sx={{ fontSize: 18 }} />}
+                    iconPosition="start"
+                    label="날짜별 작업"
+                    sx={{ textTransform: 'none', fontSize: '0.875rem' }}
+                  />
+                </Tabs>
+              </Box>
+            )}
 
             {/* 탭 0: 캠페인 시트 */}
             {sheetTab === 0 && (
@@ -1438,6 +1510,13 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             {sheetTab === 1 && (
               <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 <DailyWorkSheet userRole="sales" viewAsUserId={viewAsUserId} />
+              </Box>
+            )}
+
+            {/* 탭 2: 현황 대시보드 */}
+            {sheetTab === 2 && (
+              <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+                <SalesDashboard viewAsUserId={viewAsUserId} />
               </Box>
             )}
           </Box>

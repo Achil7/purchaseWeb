@@ -15,17 +15,6 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import AllInclusiveIcon from '@mui/icons-material/AllInclusive';
 import StorefrontIcon from '@mui/icons-material/Storefront';
-import TrendingDownIcon from '@mui/icons-material/TrendingDown';
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
-import ShowChartIcon from '@mui/icons-material/ShowChart';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import {
-  ResponsiveContainer,
-  LineChart, Line,
-  BarChart, Bar,
-  XAxis, YAxis, Tooltip as RTooltip, CartesianGrid
-} from 'recharts';
 import * as brandDashboardService from '../../services/brandDashboardService';
 
 const fmtNumber = (n) => {
@@ -37,7 +26,7 @@ const fmtNumber = (n) => {
 const fmtAmount = (n) => `${fmtNumber(n)}원`;
 
 // 원형 진행 게이지 (완료율 표시용)
-function CircularGauge({ value, size = 84, thickness = 5 }) {
+export function CircularGauge({ value, size = 84, thickness = 5 }) {
   const v = Math.max(0, Math.min(100, Number(value) || 0));
   const color = v >= 80 ? '#2e7d32' : v >= 50 ? '#ed6c02' : '#d32f2f';
   return (
@@ -85,7 +74,7 @@ function CircularGauge({ value, size = 84, thickness = 5 }) {
 }
 
 // 요약 카드
-function SummaryCard({ label, value, sub, color, progress }) {
+export function SummaryCard({ label, value, sub, color, progress }) {
   return (
     <Paper variant="outlined" sx={{ p: { xs: 1, md: 2 }, textAlign: 'center', height: '100%' }}>
       <Typography
@@ -127,7 +116,7 @@ function SummaryCard({ label, value, sub, color, progress }) {
 }
 
 // 확장 영역 내부 캠페인 테이블 — 자체 정렬 state (상위 테이블 정렬과 독립)
-function CampaignSubTable({ campaigns, onCampaignClick }) {
+export function CampaignSubTable({ campaigns, onCampaignClick }) {
   const [subSortKey, setSubSortKey] = useState('totalAmount');
   const [subSortDir, setSubSortDir] = useState('desc');
 
@@ -225,7 +214,7 @@ function CampaignSubTable({ campaigns, onCampaignClick }) {
 
 // 이슈 리스트 (낮은 완료율 / 리뷰 0건 / 금액 상위)
 // 고정 높이 + TOP 3 표시 — 280px 안에서 스크롤 없이 3행 모두 보이도록 설계
-function IssueList({ title, description, rows, emptyText, renderRight, icon, accentColor, onRowClick }) {
+export function IssueList({ title, description, rows, emptyText, renderRight, icon, accentColor, onRowClick }) {
   return (
     <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, height: { xs: 'auto', md: 280 }, minHeight: { xs: 200, md: 280 }, display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ mb: 1, flexShrink: 0 }}>
@@ -479,8 +468,6 @@ function BrandDashboard({
     totalAmount: 0, buyerCount: 0, reviewCompletedCount: 0,
     reviewCompletionRate: 0, activeCampaignCount: 0, productCount: 0
   };
-  const issues = overview?.issues || { lowCompletionRate: [], noReviewYet: [], topAmount: [] };
-
   if (platforms.length === 0) {
     return (
       <Box>
@@ -620,139 +607,6 @@ function BrandDashboard({
           <SummaryCard label="상품 수" value={`${fmtNumber(summary.productCount)}개`} />
         </Box>
       </Paper>
-
-      {/* 일별 추이 차트 행 (최근 14일) - 리뷰 완료 라인 + 구매자 등록 막대 좌우 배치 (모바일은 세로 스택) */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: { xs: 1, md: 2 }, mb: 2 }}>
-        <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, height: { xs: 220, md: 260 }, display: 'flex', flexDirection: 'column' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexShrink: 0, flexWrap: 'wrap' }}>
-            <ShowChartIcon fontSize="small" sx={{ color: '#2e7d32' }} />
-            <Typography variant="subtitle2" fontWeight="bold" color="success.main">
-              최근 14일 리뷰 완료 추이
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
-              (승인된 리뷰샷이 업로드된 날짜 기준 · KST)
-            </Typography>
-          </Box>
-          <Box sx={{ flex: 1, minHeight: 0 }}>
-            {(overview?.dailyTrend?.length || 0) === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                데이터 없음
-              </Typography>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={overview.dailyTrend} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => d?.slice(5)} />
-                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <RTooltip contentStyle={{ fontSize: 12 }} />
-                  <Line
-                    type="monotone"
-                    dataKey="reviewCompleted"
-                    name="리뷰 완료"
-                    stroke="#2e7d32"
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
-                    activeDot={{ r: 5 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </Box>
-        </Paper>
-
-        <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, height: { xs: 220, md: 260 }, display: 'flex', flexDirection: 'column' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexShrink: 0, flexWrap: 'wrap' }}>
-            <BarChartIcon fontSize="small" sx={{ color: '#1565c0' }} />
-            <Typography variant="subtitle2" fontWeight="bold" color="primary">
-              최근 14일 구매자 등록 추이
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
-              (진행자가 구매자 정보를 저장한 날짜 기준 · KST)
-            </Typography>
-          </Box>
-          <Box sx={{ flex: 1, minHeight: 0 }}>
-            {(overview?.dailyTrend?.length || 0) === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
-                데이터 없음
-              </Typography>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={overview.dailyTrend} margin={{ top: 8, right: 16, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => d?.slice(5)} />
-                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <RTooltip contentStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="buyersAdded" name="구매자 등록" fill="#1565c0" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </Box>
-        </Paper>
-      </Box>
-
-      {/*
-        후속 추가 가능한 차트/지표 (데이터 활용 계획):
-        - 누적 완료율 진행 곡선 (AreaChart): dailyTrend 를 reduce 해 누적 구매자/리뷰 계산 후 (reviewAccum / buyerAccum) 그래프
-        - 캠페인별 완료율 비교 수평 막대: 현재 issues 데이터로 구성 가능 (TOP N 캠페인)
-        - 리뷰 대기 일수 분포: 백엔드에 buyers.created_at - images.created_at 평균/분포 쿼리 추가 후 요약 카드 1개로 표시
-        - 주간/월간 스냅샷 비교: 지난주 대비 이번주 완료건수 증감율 (백엔드 range 파라미터 추가 필요)
-      */}
-
-      {/* 이슈 리스트 3개 (PC: 3단, 태블릿: 2단, 모바일: 1단) */}
-      <Box sx={{
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: '1fr',
-          sm: 'repeat(2, minmax(0, 1fr))',
-          md: 'repeat(3, minmax(0, 1fr))'
-        },
-        gap: { xs: 1, md: 2 },
-        mb: 2
-      }}>
-        <IssueList
-          title="리뷰 완료율이 낮은 상품"
-          description="구매자 · 리뷰 완료 모두 1건 이상, 완료율 낮은 순 TOP 3"
-          icon={<TrendingDownIcon fontSize="small" sx={{ color: '#d32f2f' }} />}
-          accentColor="error.main"
-          rows={issues.lowCompletionRate}
-          emptyText="해당 항목이 없습니다"
-          onRowClick={(r) => goToCampaign(r.campaign_id)}
-          renderRight={(r) => (
-            <Box sx={{ textAlign: 'right' }}>
-              <Typography variant="body2" fontWeight="bold" color="error.main">{r.rate}%</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {r.reviewCompletedCount}/{r.buyerCount}
-              </Typography>
-            </Box>
-          )}
-        />
-        <IssueList
-          title="리뷰가 아직 없는 상품"
-          description="구매자는 있지만 리뷰 완료 0건인 제품, 구매자 많은 순 TOP 3"
-          icon={<VisibilityOffIcon fontSize="small" sx={{ color: '#ed6c02' }} />}
-          accentColor="warning.main"
-          rows={issues.noReviewYet}
-          emptyText="모든 상품에 리뷰가 진행 중입니다"
-          onRowClick={(r) => goToCampaign(r.campaign_id)}
-          renderRight={(r) => (
-            <Chip size="small" label={`구매자 ${r.buyerCount}`} color="warning" variant="outlined" />
-          )}
-        />
-        <IssueList
-          title="금액 상위 상품"
-          description="제품별 구매자 금액 합계 내림차순 TOP 3"
-          icon={<MonetizationOnIcon fontSize="small" sx={{ color: '#1565c0' }} />}
-          accentColor="primary.main"
-          rows={issues.topAmount}
-          emptyText="해당 항목이 없습니다"
-          onRowClick={(r) => goToCampaign(r.campaign_id)}
-          renderRight={(r) => (
-            <Typography variant="body2" fontWeight="bold" color="primary">
-              {fmtAmount(r.totalAmount)}
-            </Typography>
-          )}
-        />
-      </Box>
 
       {/* 제품별 현황 - 카드 그리드 (선택 플랫폼/전체 내 제품명 단위 합산) */}
       <Paper sx={{ p: 2 }}>
