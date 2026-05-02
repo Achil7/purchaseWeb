@@ -108,6 +108,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       allowNull: true
     },
+    // 주문번호가 처음 입력된 시점 (14일 미제출 추적용)
+    info_entered_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
     // 날짜 (구매자별 독립적인 날짜)
     date: {
       type: DataTypes.TEXT,

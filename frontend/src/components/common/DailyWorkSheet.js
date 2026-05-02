@@ -1,11 +1,14 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography, Tooltip } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import DownloadIcon from '@mui/icons-material/Download';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import InfoIcon from '@mui/icons-material/Info';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ImageSwipeViewer from './ImageSwipeViewer';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -270,11 +273,13 @@ const COL_HEADERS_SALES = Array(25).fill('');
  * - Operator/Sales 공용
  * - 특정 날짜의 모든 연월브랜드-캠페인 데이터를 한 시트에 표시
  */
-function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
+function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode = 'date', initialDate = null }) {
   const hotRef = useRef(null);
 
   // 영업사일 때만 단가 컬럼 노출 (col9 제품 단가, col16 구매자 단가)
   const isSales = userRole === 'sales';
+  // mode='overdue': 14일 이상 미제출 시트, 'date': 기존 날짜별 작업
+  const isOverdueMode = mode === 'overdue';
   // ref로도 보관 - cellsRenderer 등 useCallback([])에서 직접 참조 시 사용
   const isSalesRef = useRef(isSales);
   isSalesRef.current = isSales;
@@ -491,14 +496,16 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     };
   }, [slots]);
 
-  // 날짜별 슬롯 조회
+  // 날짜별 슬롯 조회 (mode='overdue'일 때는 14일 미제출 조회)
   const loadSlots = useCallback(async (forceRefresh = false) => {
-    if (!searchDate) return;
+    if (!isOverdueMode && !searchDate) return;
 
-    const formattedDate = format(searchDate, 'yyyy-MM-dd');
+    const formattedDate = !isOverdueMode && searchDate ? format(searchDate, 'yyyy-MM-dd') : null;
 
     // 캐시 키 생성
-    const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
+    const cacheKey = isOverdueMode
+      ? `overdue_${viewAsUserId || ''}`
+      : `daily_${formattedDate}_${viewAsUserId || ''}`;
 
     // 캐시 확인 (forceRefresh가 아닌 경우)
     if (!forceRefresh && slotsCache.has(cacheKey)) {
@@ -513,7 +520,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
 
     setLoading(true);
     try {
-      const response = await itemSlotService.getSlotsByDate(formattedDate, viewAsUserId);
+      const response = isOverdueMode
+        ? await itemSlotService.getOverdueSlots(14, viewAsUserId)
+        : await itemSlotService.getSlotsByDate(formattedDate, viewAsUserId);
       if (response.success) {
         const newSlots = response.data || [];
         setSlots(newSlots);
@@ -532,7 +541,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     } finally {
       setLoading(false);
     }
-  }, [searchDate, viewAsUserId, showSnackbar]);
+  }, [searchDate, viewAsUserId, showSnackbar, isOverdueMode]);
 
   // 조회 버튼 클릭
   const handleSearch = () => {
@@ -564,12 +573,22 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     slotsCache.clear();
   }, []);
 
-  // searchDate 변경 시 데이터 로드
+  // initialDate prop 변경 시 selectedDate/searchDate 업데이트 (월별 캘린더 → 날짜별 작업 연동)
   useEffect(() => {
-    if (searchDate) {
+    if (initialDate && !isOverdueMode) {
+      setSelectedDate(initialDate);
+      setSearchDate(initialDate);
+    }
+  }, [initialDate, isOverdueMode]);
+
+  // searchDate 변경 시 데이터 로드 (overdue 모드는 마운트 시 자동 로드)
+  useEffect(() => {
+    if (isOverdueMode) {
+      loadSlots();
+    } else if (searchDate) {
       loadSlots();
     }
-  }, [searchDate, loadSlots]);
+  }, [searchDate, loadSlots, isOverdueMode]);
 
   // Shift+휠 횡스크롤 핸들러
   useEffect(() => {
@@ -1109,6 +1128,34 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     return slots.length;
   }, [slots]);
 
+  // 작성 건수 (계좌번호 존재 기준) - changedSlotsRef 반영
+  const writtenCount = useMemo(() => {
+    return slots.reduce((count, slot) => {
+      const slotChanges = changedSlotsRef.current[slot.id] || {};
+      const accountInfo = slotChanges.account_info ?? slot.buyer?.account_info ?? '';
+      if (accountInfo && String(accountInfo).trim() !== '') {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots]);
+
+  // 리뷰샷 존재 건수 (계좌번호 있는 슬롯 중 이미지 보유)
+  const reviewShotCount = useMemo(() => {
+    return slots.reduce((count, slot) => {
+      const slotChanges = changedSlotsRef.current[slot.id] || {};
+      const accountInfo = slotChanges.account_info ?? slot.buyer?.account_info ?? '';
+      const hasAccount = accountInfo && String(accountInfo).trim() !== '';
+      const imageCount = slot.buyer?.images?.length || 0;
+      if (hasAccount && imageCount > 0) {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots]);
+
   // 금액 합계 계산 (원본 slots 데이터 기준)
   const totalAmount = useMemo(() => {
     return slots.reduce((sum, slot) => {
@@ -1446,6 +1493,8 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
   searchDateRef.current = searchDate;
   const viewAsUserIdRef = useRef(viewAsUserId);
   viewAsUserIdRef.current = viewAsUserId;
+  const isOverdueModeRef = useRef(isOverdueMode);
+  isOverdueModeRef.current = isOverdueMode;
 
   // 저장 핸들러 - 캠페인 시트와 동일하게 스크롤 위치 유지, 새로고침 없음
   const handleSave = useCallback(async () => {
@@ -1607,8 +1656,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
       showSnackbar('리뷰샷이 삭제되었습니다');
 
       // 캐시 무효화 및 데이터 새로고침
-      const formattedDate = format(searchDate, 'yyyy-MM-dd');
-      const cacheKey = `daily_${formattedDate}_${viewAsUserId || ''}`;
+      const cacheKey = isOverdueMode
+        ? `overdue_${viewAsUserId || ''}`
+        : `daily_${format(searchDate, 'yyyy-MM-dd')}_${viewAsUserId || ''}`;
       slotsCache.delete(cacheKey);
       loadSlots(true);
     } catch (error) {
@@ -1618,7 +1668,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
     } finally {
       setDeletingReview(false);
     }
-  }, [deleteReviewPopup, searchDate, viewAsUserId, loadSlots, showSnackbar]);
+  }, [deleteReviewPopup, searchDate, viewAsUserId, loadSlots, showSnackbar, isOverdueMode]);
 
   // 컬럼 설정 (23개 컬럼 - col6에 비고 추가)
   const columns = useMemo(() => {
@@ -1846,8 +1896,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             setSlots(prevSlots => [...prevSlots, newSlot]);
 
             // 캐시 무효화
-            const formattedDate = format(searchDateRef.current, 'yyyy-MM-dd');
-            const cacheKey = `daily_${formattedDate}_${viewAsUserIdRef.current || ''}`;
+            const cacheKey = isOverdueModeRef.current
+              ? `overdue_${viewAsUserIdRef.current || ''}`
+              : `daily_${format(searchDateRef.current, 'yyyy-MM-dd')}_${viewAsUserIdRef.current || ''}`;
             slotsCache.delete(cacheKey);
 
             showSnackbarRef.current('행이 추가되었습니다');
@@ -1891,8 +1942,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
             setSlots(prevSlots => prevSlots.filter(s => !slotIds.includes(s.id)));
 
             // 캐시 무효화
-            const formattedDate = format(searchDateRef.current, 'yyyy-MM-dd');
-            const cacheKey = `daily_${formattedDate}_${viewAsUserIdRef.current || ''}`;
+            const cacheKey = isOverdueModeRef.current
+              ? `overdue_${viewAsUserIdRef.current || ''}`
+              : `daily_${format(searchDateRef.current, 'yyyy-MM-dd')}_${viewAsUserIdRef.current || ''}`;
             slotsCache.delete(cacheKey);
 
             showSnackbarRef.current(`${slotIds.length}개 행이 삭제되었습니다`);
@@ -1960,137 +2012,188 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
         flexShrink: 0
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          {/* 날짜 선택 */}
-          <IconButton
-            size="small"
-            onClick={handlePreviousDate}
-            disabled={!selectedDate}
-            title="이전 날짜"
-          >
-            <ChevronLeftIcon />
-          </IconButton>
-          <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={ko}>
-            <DatePicker
-              value={selectedDate}
-              onChange={(newValue) => setSelectedDate(newValue)}
-              slotProps={{
-                textField: {
-                  size: 'small',
-                  sx: {
-                    width: 160,
-                    '& .MuiOutlinedInput-root': {
-                      height: 32
-                    },
-                    '& .MuiOutlinedInput-input': {
-                      py: 0.5,
-                      fontSize: '0.85rem'
-                    }
-                  }
-                }
-              }}
-            />
-          </LocalizationProvider>
-          <IconButton
-            size="small"
-            onClick={handleNextDate}
-            disabled={!selectedDate}
-            title="다음 날짜"
-          >
-            <ChevronRightIcon />
-          </IconButton>
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={handleSearch}
-            disabled={!selectedDate || loading}
-            sx={{ fontSize: '0.75rem', px: 1.5, py: 0.5 }}
-          >
-            {loading ? '조회 중...' : '조회'}
-          </Button>
-
-          {/* 날짜 표시 및 품목 수 - 캠페인명처럼 표시 */}
-          {searchDate && (
+          {isOverdueMode ? (
             <>
-              <Typography variant="subtitle1" fontWeight="bold" sx={{ ml: 2 }}>
-                {format(searchDate, 'yyyy.MM.dd')}
+              <Typography variant="subtitle1" fontWeight="bold" sx={{ color: '#d32f2f' }}>
+                기한(14일) 내 리뷰샷 미제출건
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                배정 품목 {uniqueItemCount}개
+                배정 품목 {uniqueItemCount}개 · 브랜드/연월브랜드/캠페인/제품명 순 정렬
               </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => loadSlots(true)}
+                disabled={loading}
+                sx={{ fontSize: '0.75rem', px: 1.5, py: 0.5, ml: 1 }}
+              >
+                {loading ? '조회 중...' : '새로고침'}
+              </Button>
+            </>
+          ) : (
+            <>
+              {/* 날짜 선택 */}
+              <IconButton
+                size="small"
+                onClick={handlePreviousDate}
+                disabled={!selectedDate}
+                title="이전 날짜"
+              >
+                <ChevronLeftIcon />
+              </IconButton>
+              <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={ko}>
+                <DatePicker
+                  value={selectedDate}
+                  onChange={(newValue) => setSelectedDate(newValue)}
+                  slotProps={{
+                    textField: {
+                      size: 'small',
+                      sx: {
+                        width: 160,
+                        '& .MuiOutlinedInput-root': {
+                          height: 32
+                        },
+                        '& .MuiOutlinedInput-input': {
+                          py: 0.5,
+                          fontSize: '0.85rem'
+                        }
+                      }
+                    }
+                  }}
+                />
+              </LocalizationProvider>
+              <IconButton
+                size="small"
+                onClick={handleNextDate}
+                disabled={!selectedDate}
+                title="다음 날짜"
+              >
+                <ChevronRightIcon />
+              </IconButton>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleSearch}
+                disabled={!selectedDate || loading}
+                sx={{ fontSize: '0.75rem', px: 1.5, py: 0.5 }}
+              >
+                {loading ? '조회 중...' : '조회'}
+              </Button>
+
+              {/* 날짜 표시 및 품목 수 - 캠페인명처럼 표시 */}
+              {searchDate && (
+                <>
+                  <Typography variant="subtitle1" fontWeight="bold" sx={{ ml: 2 }}>
+                    {format(searchDate, 'yyyy.MM.dd')}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    배정 품목 {uniqueItemCount}개
+                  </Typography>
+                </>
+              )}
             </>
           )}
         </Box>
       </Box>
 
-      {/* 통계 바 - 캠페인 시트와 동일한 스타일 */}
+      {/* 통계 바 - 정리된 레이아웃 */}
       <Box sx={{
         mb: 0.5,
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 1.5,
         bgcolor: '#2c387e',
         color: 'white',
         px: 2,
-        py: 1,
+        py: 0.75,
         minHeight: 48,
         borderRadius: '4px 4px 0 0'
       }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          {/* 건수 및 금액 */}
-          <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-            전체 {totalDataCount}건
-          </Box>
-          <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-            금액 합계: {totalAmount.toLocaleString()}원
-          </Box>
-
-          {/* 펼치기/접기 버튼 */}
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <Button
-              size="small"
-              onClick={expandAll}
-              sx={{
-                color: 'white',
-                bgcolor: 'rgba(255,255,255,0.15)',
-                fontSize: '0.7rem',
-                minWidth: 'auto',
-                px: 1,
-                py: 0.3,
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
-              }}
-            >
-              모두 펼치기
-            </Button>
-            <Button
-              size="small"
-              onClick={collapseAll}
-              sx={{
-                color: 'white',
-                bgcolor: 'rgba(255,255,255,0.15)',
-                fontSize: '0.7rem',
-                minWidth: 'auto',
-                px: 1,
-                py: 0.3,
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
-              }}
-            >
-              모두 접기
-            </Button>
+        {/* 좌측: 지표 그룹 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {/* 카운트 카드 (전체/작성/리뷰샷) */}
+          <Box sx={{
+            display: 'flex',
+            alignItems: 'center',
+            bgcolor: 'rgba(255,255,255,0.08)',
+            borderRadius: 1,
+            px: 1.25,
+            py: 0.5,
+            gap: 1.5
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+              <Typography component="span" sx={{ fontSize: '0.7rem', opacity: 0.7 }}>전체</Typography>
+              <Typography component="span" sx={{ fontSize: '1rem', fontWeight: 'bold', lineHeight: 1 }}>
+                {totalDataCount}
+              </Typography>
+            </Box>
+            <Box sx={{ width: '1px', height: 16, bgcolor: 'rgba(255,255,255,0.25)' }} />
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+              <Typography component="span" sx={{ fontSize: '0.7rem', color: '#a5d6a7' }}>작성</Typography>
+              <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#a5d6a7', lineHeight: 1 }}>
+                {writtenCount}
+              </Typography>
+            </Box>
+            <Box sx={{ width: '1px', height: 16, bgcolor: 'rgba(255,255,255,0.25)' }} />
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+              <Typography component="span" sx={{ fontSize: '0.7rem', color: '#90caf9' }}>리뷰샷</Typography>
+              <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#90caf9', lineHeight: 1 }}>
+                {reviewShotCount}
+              </Typography>
+            </Box>
           </Box>
 
-          {/* 리뷰샷 필터 버튼 */}
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
+          {/* 금액 카드 */}
+          <Box sx={{
+            display: 'flex',
+            alignItems: 'baseline',
+            bgcolor: 'rgba(255,255,255,0.08)',
+            borderRadius: 1,
+            px: 1.25,
+            py: 0.5,
+            gap: 0.5
+          }}>
+            <Typography component="span" sx={{ fontSize: '0.7rem', opacity: 0.7 }}>금액</Typography>
+            <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 'bold', lineHeight: 1 }}>
+              {totalAmount.toLocaleString()}원
+            </Typography>
+          </Box>
+
+          {/* 펼치기/접기 (아이콘 버튼) */}
+          <Box sx={{ display: 'flex', gap: 0.25, ml: 0.5 }}>
+            <Tooltip title="모두 펼치기" arrow>
+              <IconButton size="small" onClick={expandAll} sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' } }}>
+                <UnfoldMoreIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="모두 접기" arrow>
+              <IconButton size="small" onClick={collapseAll} sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' } }}>
+                <UnfoldLessIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+
+          {/* 리뷰샷 필터 (한 덩어리) */}
+          <Box sx={{
+            display: 'flex',
+            ml: 0.5,
+            borderRadius: 1,
+            overflow: 'hidden',
+            border: '1px solid rgba(255,255,255,0.2)'
+          }}>
             <Button
               size="small"
               onClick={() => setReviewFilter('all')}
               sx={{
                 color: 'white',
-                bgcolor: reviewFilter === 'all' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
+                bgcolor: reviewFilter === 'all' ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.08)',
                 fontSize: '0.7rem',
                 minWidth: 'auto',
                 px: 1,
                 py: 0.3,
                 fontWeight: reviewFilter === 'all' ? 'bold' : 'normal',
+                borderRadius: 0,
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
               }}
             >
@@ -2101,93 +2204,118 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
               onClick={() => setReviewFilter('with_review')}
               sx={{
                 color: 'white',
-                bgcolor: reviewFilter === 'with_review' ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.15)',
+                bgcolor: reviewFilter === 'with_review' ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.08)',
                 fontSize: '0.7rem',
                 minWidth: 'auto',
                 px: 1,
                 py: 0.3,
                 fontWeight: reviewFilter === 'with_review' ? 'bold' : 'normal',
+                borderRadius: 0,
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
               }}
             >
-              리뷰샷 있음
+              리뷰 있음
             </Button>
             <Button
               size="small"
               onClick={() => setReviewFilter('without_review')}
               sx={{
                 color: 'white',
-                bgcolor: reviewFilter === 'without_review' ? 'rgba(244,67,54,0.5)' : 'rgba(255,255,255,0.15)',
+                bgcolor: reviewFilter === 'without_review' ? 'rgba(244,67,54,0.5)' : 'rgba(255,255,255,0.08)',
                 fontSize: '0.7rem',
                 minWidth: 'auto',
                 px: 1,
                 py: 0.3,
                 fontWeight: reviewFilter === 'without_review' ? 'bold' : 'normal',
+                borderRadius: 0,
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
               }}
             >
-              리뷰샷 없음
+              리뷰 없음
             </Button>
           </Box>
 
-          <Box sx={{ fontSize: '0.75rem', opacity: 0.8 }}>
-            드래그 복사, Ctrl+C/V 지원
-          </Box>
           {/* 선택된 셀 개수 표시 */}
           <Box
             component="span"
             ref={selectedCellCountRef}
             sx={{
               display: 'none',
-              fontSize: '0.8rem',
+              fontSize: '0.75rem',
               fontWeight: 'bold',
               color: '#ffeb3b',
               bgcolor: 'rgba(0,0,0,0.3)',
               px: 1,
               py: 0.3,
-              borderRadius: 1
+              borderRadius: 1,
+              ml: 0.5
             }}
           />
-          <Button
-            size="small"
-            onClick={handleDownloadExcel}
-            disabled={slots.length === 0}
-            startIcon={<DownloadIcon />}
-            sx={{
-              color: 'white',
-              bgcolor: 'rgba(255,255,255,0.15)',
-              fontSize: '0.75rem',
-              px: 1.5,
-              py: 0.5,
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
-              '&:disabled': { color: 'rgba(255,255,255,0.5)' }
-            }}
+
+          {/* 도움말 (Ctrl+C/V, 드래그 복사 등) */}
+          <Tooltip
+            arrow
+            title={
+              <Box sx={{ fontSize: '0.75rem', lineHeight: 1.5 }}>
+                · 드래그로 복사<br/>
+                · Ctrl+C / Ctrl+V 지원<br/>
+                · Ctrl+S 저장
+              </Box>
+            }
           >
-            엑셀 다운로드
+            <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.6)', ml: 0.25 }}>
+              <HelpOutlineIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        {/* 중앙: 저장 안내 (조용한 톤) */}
+        <Tooltip arrow title="작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!">
+          <Typography sx={{
+            color: '#ffcdd2',
+            fontWeight: 500,
+            fontSize: '0.75rem',
+            opacity: 0.9,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            flexShrink: 1
+          }}>
+            ⚠ 저장(Ctrl+S) 자주 해주세요
+          </Typography>
+        </Tooltip>
+
+        {/* 우측: 액션 (엑셀 + 저장) */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+          <Tooltip title="엑셀 다운로드" arrow>
+            <span>
+              <IconButton
+                size="small"
+                onClick={handleDownloadExcel}
+                disabled={slots.length === 0}
+                sx={{
+                  color: 'white',
+                  bgcolor: 'rgba(255,255,255,0.15)',
+                  borderRadius: 1,
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+                  '&.Mui-disabled': { color: 'rgba(255,255,255,0.4)' }
+                }}
+              >
+                <DownloadIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Button
+            variant="contained"
+            color="success"
+            size="small"
+            onClick={handleSave}
+            startIcon={<SaveIcon />}
+            sx={{ bgcolor: '#4caf50', px: 2, py: 0.4, fontSize: '0.8rem', fontWeight: 'bold' }}
+          >
+            저장
           </Button>
         </Box>
-
-        {/* 중앙 저장 안내 */}
-        <Box sx={{
-          color: '#ff5252',
-          fontWeight: 'bold',
-          fontSize: '0.85rem',
-          textAlign: 'center',
-          flex: 1
-        }}>
-          작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!
-        </Box>
-
-        {/* 저장 버튼 (성능 최적화: 항상 표시, 조건부 렌더링 제거) */}
-        <Button
-          variant="contained"
-          color="success"
-          size="small"
-          onClick={handleSave}
-          sx={{ bgcolor: '#4caf50', minWidth: 0, px: 1.5, py: 0.3, fontSize: '0.75rem' }}
-        >
-          저장
-        </Button>
       </Box>
 
       {/* 데이터 영역 */}
@@ -2243,13 +2371,13 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null }) {
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
             <CircularProgress />
           </Box>
-        ) : !searchDate ? (
+        ) : !isOverdueMode && !searchDate ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
             <Typography color="text.secondary">날짜를 선택하고 조회 버튼을 클릭하세요.</Typography>
           </Box>
         ) : slots.length === 0 ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
-            <Typography color="text.secondary">해당 날짜에 데이터가 없습니다.</Typography>
+            <Typography color="text.secondary">{isOverdueMode ? '14일 이상 미제출 건이 없습니다.' : '해당 날짜에 데이터가 없습니다.'}</Typography>
           </Box>
         ) : tableData.length === 0 ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>

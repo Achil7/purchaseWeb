@@ -46,6 +46,20 @@ router.get('/operator/my-assigned', authenticate, authorize(['operator', 'admin'
 router.get('/by-date', authenticate, authorize(['operator', 'sales', 'admin']), itemSlotController.getSlotsByDate);
 
 /**
+ * @route   GET /api/item-slots/operator/overdue
+ * @desc    진행자: 14일 이상 경과 + 리뷰샷 미제출 슬롯 조회
+ * @access  Private (Operator, Admin)
+ */
+router.get('/operator/overdue', authenticate, authorize(['operator', 'admin']), itemSlotController.getOverdueSlots);
+
+/**
+ * @route   GET /api/item-slots/operator/monthly-counts
+ * @desc    진행자: 월별 일자별 카운트 (전체/작성/리뷰샷)
+ * @access  Private (Operator, Admin)
+ */
+router.get('/operator/monthly-counts', authenticate, authorize(['operator', 'admin']), itemSlotController.getMonthlyCounts);
+
+/**
  * @route   POST /api/item-slots/adjust-daily-count
  * @desc    일건수 조정 (day_group별 슬롯 수 변경)
  * @access  Private (Sales, Admin)

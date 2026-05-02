@@ -13,11 +13,14 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import FolderIcon from '@mui/icons-material/Folder';
 import FiberNewIcon from '@mui/icons-material/FiberNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import EventNoteIcon from '@mui/icons-material/EventNote';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import OperatorMemoDialog from './OperatorMemoDialog';
 import OperatorSidebar from './OperatorSidebar';
 import OperatorItemSheet from './OperatorItemSheet';
+import OperatorMonthlyCalendar from './OperatorMonthlyCalendar';
 import UnifiedItemSheet from '../common/UnifiedItemSheet';
 import DailyWorkSheet from '../common/DailyWorkSheet';
 import { itemService } from '../../services';
@@ -45,8 +48,11 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
     } catch { return null; }
   })());
 
-  // 시트 탭 상태 (0: 기본 시트, 1: 날짜별 작업)
+  // 시트 탭 상태 (0: 기본 시트, 1: 날짜별 작업, 2: 기한 내 미제출, 3: 월별 조회)
   const [sheetTab, setSheetTab] = useState(0);
+
+  // 월별 캘린더에서 선택한 날짜 (날짜별 작업 탭으로 전달용)
+  const [monthlyCalendarSelectedDate, setMonthlyCalendarSelectedDate] = useState(null);
 
   // 선 업로드 알림 관련 상태
   const [preUploads, setPreUploads] = useState([]);
@@ -329,6 +335,12 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
     }
   }, [isAdminMode, navigate, logout]);
 
+  // 월별 캘린더에서 날짜 클릭 → 날짜별 작업 탭으로 전환
+  const handleMonthlyCalendarDateSelect = useCallback((date) => {
+    setMonthlyCalendarSelectedDate(date);
+    setSheetTab(1);
+  }, []);
+
   // 시트 새로고침 (신규 품목 배정 배너 클릭 시)
   const handleRefreshSheet = useCallback(() => {
     setHasNewItemsInCurrentCampaign(false);
@@ -562,6 +574,18 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                   label="날짜별 작업"
                   sx={{ fontSize: '0.85rem' }}
                 />
+                <Tab
+                  icon={<WarningAmberIcon sx={{ fontSize: 18 }} />}
+                  iconPosition="start"
+                  label="기한 내 미제출"
+                  sx={{ fontSize: '0.85rem' }}
+                />
+                <Tab
+                  icon={<EventNoteIcon sx={{ fontSize: 18 }} />}
+                  iconPosition="start"
+                  label="월별 조회"
+                  sx={{ fontSize: '0.85rem' }}
+                />
               </Tabs>
             </Box>
 
@@ -641,7 +665,32 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
             {/* 탭 1: 날짜별 작업 */}
             {sheetTab === 1 && (
               <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-                <DailyWorkSheet userRole="operator" viewAsUserId={viewAsUserId} />
+                <DailyWorkSheet
+                  userRole="operator"
+                  viewAsUserId={viewAsUserId}
+                  initialDate={monthlyCalendarSelectedDate}
+                />
+              </Box>
+            )}
+
+            {/* 탭 2: 기한(14일) 내 리뷰샷 미제출건 */}
+            {sheetTab === 2 && (
+              <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+                <DailyWorkSheet
+                  userRole="operator"
+                  viewAsUserId={viewAsUserId}
+                  mode="overdue"
+                />
+              </Box>
+            )}
+
+            {/* 탭 3: 월별 조회 (캘린더) */}
+            {sheetTab === 3 && (
+              <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                <OperatorMonthlyCalendar
+                  viewAsUserId={viewAsUserId}
+                  onDateSelect={handleMonthlyCalendarDateSelect}
+                />
               </Box>
             )}
           </Box>

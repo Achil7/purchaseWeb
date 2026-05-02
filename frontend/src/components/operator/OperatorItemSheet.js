@@ -1,10 +1,13 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 // 12차 최적화: unstable_batchedUpdates 제거 - 더 이상 사용하지 않음
-import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert, IconButton, Typography } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Snackbar, Alert, IconButton, Typography, Tooltip } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 import InfoIcon from '@mui/icons-material/Info';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import ImageSwipeViewer from '../common/ImageSwipeViewer';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -2691,6 +2694,34 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     return slots.length;
   }, [slots]);
 
+  // 작성 건수 (계좌번호 존재 기준) - changedSlotsRef 반영
+  const writtenCount = useMemo(() => {
+    return slots.reduce((count, slot) => {
+      const slotChanges = changedSlotsRef.current[slot.id] || {};
+      const accountInfo = slotChanges.account_info ?? slot.buyer?.account_info ?? '';
+      if (accountInfo && String(accountInfo).trim() !== '') {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots]);
+
+  // 리뷰샷 존재 건수 (계좌번호 있는 슬롯 중 이미지 보유)
+  const reviewShotCount = useMemo(() => {
+    return slots.reduce((count, slot) => {
+      const slotChanges = changedSlotsRef.current[slot.id] || {};
+      const accountInfo = slotChanges.account_info ?? slot.buyer?.account_info ?? '';
+      const hasAccount = accountInfo && String(accountInfo).trim() !== '';
+      const imageCount = slot.buyer?.images?.length || 0;
+      if (hasAccount && imageCount > 0) {
+        return count + 1;
+      }
+      return count;
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slots]);
+
   // 금액 파싱 헬퍼 함수 (숫자 또는 문자열 -> 정수)
   const parseAmount = useCallback((value) => {
     if (value === null || value === undefined || value === '') return 0;
@@ -2739,61 +2770,107 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* 헤더: 전체 건수 + 저장 버튼 */}
+      {/* 헤더: 통계 + 액션 (정리된 레이아웃) */}
       <Box sx={{
         mb: 0.5,
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 1.5,
         bgcolor: '#2c387e',
         color: 'white',
         px: 2,
-        py: 1,
+        py: 0.75,
         minHeight: 48,
         borderRadius: '4px 4px 0 0'
       }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-            {filteredRows !== null ? `${filteredCount}건 / 전체 ${totalDataCount}건` : `전체 ${totalDataCount}건`}
+        {/* 좌측: 지표 그룹 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {/* 카운트 카드 (전체/작성/리뷰샷) */}
+          <Box sx={{
+            display: 'flex',
+            alignItems: 'center',
+            bgcolor: 'rgba(255,255,255,0.08)',
+            borderRadius: 1,
+            px: 1.25,
+            py: 0.5,
+            gap: 1.5
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+              <Typography component="span" sx={{ fontSize: '0.7rem', opacity: 0.7 }}>
+                {filteredRows !== null ? '필터' : '전체'}
+              </Typography>
+              <Typography component="span" sx={{ fontSize: '1rem', fontWeight: 'bold', lineHeight: 1 }}>
+                {filteredRows !== null ? filteredCount : totalDataCount}
+              </Typography>
+              {filteredRows !== null && (
+                <Typography component="span" sx={{ fontSize: '0.7rem', opacity: 0.6 }}>
+                  / {totalDataCount}
+                </Typography>
+              )}
+            </Box>
+            <Box sx={{ width: '1px', height: 16, bgcolor: 'rgba(255,255,255,0.25)' }} />
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+              <Typography component="span" sx={{ fontSize: '0.7rem', color: '#a5d6a7' }}>작성</Typography>
+              <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#a5d6a7', lineHeight: 1 }}>
+                {writtenCount}
+              </Typography>
+            </Box>
+            <Box sx={{ width: '1px', height: 16, bgcolor: 'rgba(255,255,255,0.25)' }} />
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+              <Typography component="span" sx={{ fontSize: '0.7rem', color: '#90caf9' }}>리뷰샷</Typography>
+              <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#90caf9', lineHeight: 1 }}>
+                {reviewShotCount}
+              </Typography>
+            </Box>
           </Box>
-          <Box sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-            금액 합계: {filteredRows !== null ? `${filteredAmount.toLocaleString()}원 / ${totalAmount.toLocaleString()}원` : `${totalAmount.toLocaleString()}원`}
-            {filteredRows !== null && <span style={{ fontSize: '0.75rem', opacity: 0.8, marginLeft: 4 }}>(필터적용)</span>}
+
+          {/* 금액 카드 */}
+          <Box sx={{
+            display: 'flex',
+            alignItems: 'baseline',
+            bgcolor: 'rgba(255,255,255,0.08)',
+            borderRadius: 1,
+            px: 1.25,
+            py: 0.5,
+            gap: 0.5
+          }}>
+            <Typography component="span" sx={{ fontSize: '0.7rem', opacity: 0.7 }}>금액</Typography>
+            <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 'bold', lineHeight: 1 }}>
+              {(filteredRows !== null ? filteredAmount : totalAmount).toLocaleString()}원
+            </Typography>
+            {filteredRows !== null && (
+              <Typography component="span" sx={{ fontSize: '0.7rem', opacity: 0.6 }}>
+                / {totalAmount.toLocaleString()}
+              </Typography>
+            )}
           </Box>
-          <Box sx={{ display: 'flex', gap: 0.5 }}>
-            <Button
-              size="small"
-              onClick={expandAll}
-              sx={{
-                color: 'white',
-                bgcolor: 'rgba(255,255,255,0.15)',
-                fontSize: '0.7rem',
-                minWidth: 'auto',
-                px: 1,
-                py: 0.3,
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
-              }}
-            >
-              모두 펼치기
-            </Button>
-            <Button
-              size="small"
-              onClick={collapseAll}
-              sx={{
-                color: 'white',
-                bgcolor: 'rgba(255,255,255,0.15)',
-                fontSize: '0.7rem',
-                minWidth: 'auto',
-                px: 1,
-                py: 0.3,
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
-              }}
-            >
-              모두 접기
-            </Button>
+
+          {/* 펼치기/접기 (아이콘 버튼) */}
+          <Box sx={{ display: 'flex', gap: 0.25, ml: 0.5 }}>
+            <Tooltip title="모두 펼치기" arrow>
+              <IconButton size="small" onClick={expandAll} sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' } }}>
+                <UnfoldMoreIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="모두 접기" arrow>
+              <IconButton size="small" onClick={collapseAll} sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' } }}>
+                <UnfoldLessIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
           </Box>
-          {/* 리뷰샷 필터 버튼 (DOM 직접 조작 - React re-render 방지로 필터 플러그인 보존) */}
-          <Box ref={reviewBtnContainerRef} sx={{ display: 'flex', gap: 0.5 }}>
+
+          {/* 리뷰샷 필터 (한 덩어리) */}
+          <Box
+            ref={reviewBtnContainerRef}
+            sx={{
+              display: 'flex',
+              ml: 0.5,
+              borderRadius: 1,
+              overflow: 'hidden',
+              border: '1px solid rgba(255,255,255,0.2)'
+            }}
+          >
             <Button
               size="small"
               data-filter="all"
@@ -2806,6 +2883,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
                 px: 1,
                 py: 0.3,
                 fontWeight: 'bold',
+                borderRadius: 0,
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
               }}
             >
@@ -2817,16 +2895,17 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
               onClick={() => handleReviewFilterChange('with_review')}
               sx={{
                 color: 'white',
-                bgcolor: 'rgba(255,255,255,0.15)',
+                bgcolor: 'rgba(255,255,255,0.08)',
                 fontSize: '0.7rem',
                 minWidth: 'auto',
                 px: 1,
                 py: 0.3,
                 fontWeight: 'normal',
+                borderRadius: 0,
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
               }}
             >
-              리뷰샷 있음
+              리뷰 있음
             </Button>
             <Button
               size="small"
@@ -2834,74 +2913,101 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
               onClick={() => handleReviewFilterChange('without_review')}
               sx={{
                 color: 'white',
-                bgcolor: 'rgba(255,255,255,0.15)',
+                bgcolor: 'rgba(255,255,255,0.08)',
                 fontSize: '0.7rem',
                 minWidth: 'auto',
                 px: 1,
                 py: 0.3,
                 fontWeight: 'normal',
+                borderRadius: 0,
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
               }}
             >
-              리뷰샷 없음
+              리뷰 없음
             </Button>
           </Box>
-          <Box sx={{ fontSize: '0.75rem', opacity: 0.8 }}>
-            드래그 복사, Ctrl+C/V 지원
-          </Box>
+
           {/* 선택된 셀 개수 표시 */}
           <Box
             component="span"
             ref={selectedCellCountRef}
             sx={{
               display: 'none',
-              fontSize: '0.8rem',
+              fontSize: '0.75rem',
               fontWeight: 'bold',
               color: '#ffeb3b',
               bgcolor: 'rgba(0,0,0,0.3)',
               px: 1,
               py: 0.3,
-              borderRadius: 1
+              borderRadius: 1,
+              ml: 0.5
             }}
           />
-          <Button
-            size="small"
-            onClick={handleDownloadExcel}
-            disabled={slots.length === 0}
-            startIcon={<DownloadIcon />}
-            sx={{
-              color: 'white',
-              bgcolor: 'rgba(255,255,255,0.15)',
-              fontSize: '0.75rem',
-              px: 1.5,
-              py: 0.5,
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
-              '&:disabled': { color: 'rgba(255,255,255,0.5)' }
-            }}
+
+          {/* 도움말 (Ctrl+C/V, 드래그 복사 등) */}
+          <Tooltip
+            arrow
+            title={
+              <Box sx={{ fontSize: '0.75rem', lineHeight: 1.5 }}>
+                · 드래그로 복사<br/>
+                · Ctrl+C / Ctrl+V 지원<br/>
+                · Ctrl+S 저장
+              </Box>
+            }
           >
-            엑셀 다운로드
+            <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.6)', ml: 0.25 }}>
+              <HelpOutlineIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        {/* 중앙: 저장 안내 (조용한 톤) */}
+        <Tooltip arrow title="작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!">
+          <Typography sx={{
+            color: '#ffcdd2',
+            fontWeight: 500,
+            fontSize: '0.75rem',
+            opacity: 0.9,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            flexShrink: 1
+          }}>
+            ⚠ 저장(Ctrl+S) 자주 해주세요
+          </Typography>
+        </Tooltip>
+
+        {/* 우측: 액션 (엑셀 + 저장) */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
+          <Tooltip title="엑셀 다운로드" arrow>
+            <span>
+              <IconButton
+                size="small"
+                onClick={handleDownloadExcel}
+                disabled={slots.length === 0}
+                sx={{
+                  color: 'white',
+                  bgcolor: 'rgba(255,255,255,0.15)',
+                  borderRadius: 1,
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+                  '&.Mui-disabled': { color: 'rgba(255,255,255,0.4)' }
+                }}
+              >
+                <DownloadIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Button
+            variant="contained"
+            color="success"
+            size="small"
+            onClick={handleSaveChanges}
+            startIcon={<SaveIcon />}
+            sx={{ bgcolor: '#4caf50', px: 2, py: 0.4, fontSize: '0.8rem', fontWeight: 'bold' }}
+          >
+            저장
           </Button>
         </Box>
-        {/* 중앙 저장 안내 */}
-        <Box sx={{
-          color: '#ff5252',
-          fontWeight: 'bold',
-          fontSize: '0.85rem',
-          textAlign: 'center',
-          flex: 1
-        }}>
-          작업 내용 손실을 막기위해 저장(Ctrl+S)을 일상화 해주세요!
-        </Box>
-        {/* 12차 최적화: 저장 버튼 항상 표시 - state 기반 조건부 렌더링 제거 */}
-        <Button
-          variant="contained"
-          color="success"
-          size="small"
-          onClick={handleSaveChanges}
-          sx={{ bgcolor: '#4caf50', minWidth: 0, px: 1.5, py: 0.3, fontSize: '0.75rem' }}
-        >
-          저장
-        </Button>
       </Box>
 
       <Paper

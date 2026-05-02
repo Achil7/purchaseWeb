@@ -208,12 +208,28 @@ exports.updateSlotsBulk = async (req, res) => {
                 buyerData[key] = null;
               }
             });
+
+            // info_entered_at: order_number가 빈값 → 값 으로 처음 전환되는 순간만 기록
+            // (이미 값이 있으면 유지, 한번 기록되면 덮어쓰지 않음)
+            const prevOrderNumber = existingBuyer.order_number;
+            const newOrderNumber = buyerData.order_number;
+            const wasEmpty = !prevOrderNumber || String(prevOrderNumber).trim() === '';
+            const willHaveValue = newOrderNumber !== undefined && newOrderNumber !== null && String(newOrderNumber).trim() !== '';
+            if (wasEmpty && willHaveValue && !existingBuyer.info_entered_at) {
+              buyerData.info_entered_at = new Date();
+            }
+
             await existingBuyer.update(buyerData);
           }
         } else if (hasNonEmptyBuyerData) {
           // 새 Buyer 생성 (비어있지 않은 데이터가 있을 때만)
           // date는 buyerData에서 가져오거나, 슬롯의 date를 사용
           const newBuyerDate = buyerData.date || slotUpdateData.date || slot.date || null;
+
+          // info_entered_at: order_number가 비어있지 않게 들어오면 기록
+          const orderNumberValue = buyerData.order_number;
+          const hasOrderNumber = orderNumberValue !== undefined && orderNumberValue !== null && String(orderNumberValue).trim() !== '';
+
           const newBuyer = await Buyer.create({
             item_id: slot.item_id,
             order_number: buyerData.order_number || null,
@@ -231,6 +247,7 @@ exports.updateSlotsBulk = async (req, res) => {
             courier_company: buyerData.courier_company || null,
             deposit_name: buyerData.deposit_name || null,
             date: newBuyerDate,
+            info_entered_at: hasOrderNumber ? new Date() : null,
             created_by: userId
           });
           slotUpdateData.buyer_id = newBuyer.id;
@@ -2050,6 +2067,381 @@ exports.adjustDailyCount = async (req, res) => {
     res.status(500).json({
       success: false,
       message: '일건수 조정 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * 진행자: 14일 이상 경과 + 리뷰샷 미제출 슬롯 조회
+ * GET /api/item-slots/operator/overdue?days=14
+ * 기준: Buyer.created_at < NOW - days, buyer 존재, images 0개(approved 기준)
+ * 정렬: brand → monthlyBrand → campaign → item
+ */
+exports.getOverdueSlots = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const days = parseInt(req.query.days, 10) || 14;
+
+    // Admin인 경우 viewAsUserId 지원
+    let targetUserId = userId;
+    let targetRole = userRole;
+    if (userRole === 'admin' && req.query.viewAsUserId) {
+      targetUserId = parseInt(req.query.viewAsUserId, 10);
+      const targetUser = await User.findByPk(targetUserId, { attributes: ['role'] });
+      if (targetUser) {
+        targetRole = targetUser.role;
+      }
+    }
+
+    // 기준 시점: 오늘 - days (KST 기준 자정으로 정규화)
+    const now = new Date();
+    const cutoffDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+    // 1단계: 14일 이상 경과 + 리뷰샷 0개인 buyer_id 목록 조회
+    // 기준: info_entered_at (주문번호가 처음 입력된 시점)
+    // info_entered_at < cutoffDate 조건만으로 NULL은 자연 제외됨 (NULL 비교는 false)
+    const eligibleBuyers = await Buyer.findAll({
+      where: {
+        is_temporary: false,
+        info_entered_at: { [Op.lt]: cutoffDate }
+      },
+      attributes: ['id'],
+      include: [
+        {
+          model: Image,
+          as: 'images',
+          where: { status: 'approved' },
+          required: false,
+          attributes: ['id']
+        }
+      ]
+    });
+
+    // 리뷰샷(approved 이미지)이 0개인 buyer만 필터링
+    const overdueBuyerIds = eligibleBuyers
+      .filter(b => !b.images || b.images.length === 0)
+      .map(b => b.id);
+
+    if (overdueBuyerIds.length === 0) {
+      return res.json({ success: true, data: [], count: 0 });
+    }
+
+    const buyerInclude = {
+      model: Buyer,
+      as: 'buyer',
+      required: true,
+      attributes: [
+        'id', 'order_number', 'buyer_name', 'recipient_name', 'user_id',
+        'contact', 'address', 'account_info', 'amount', 'unit_price', 'payment_status',
+        'payment_confirmed_at', 'notes', 'tracking_number', 'shipping_delayed', 'courier_company', 'deposit_name', 'date', 'created_at'
+      ],
+      include: [
+        {
+          model: Image,
+          as: 'images',
+          where: { status: 'approved' },
+          required: false,
+          attributes: ['id', 's3_url', 'file_name', 'created_at'],
+          order: [['created_at', 'ASC']]
+        }
+      ]
+    };
+
+    const itemInclude = {
+      model: Item,
+      as: 'item',
+      required: true,
+      attributes: [
+        'id', 'campaign_id', 'product_name', 'total_purchase_count', 'daily_purchase_count',
+        'shipping_type', 'courier_service_yn', 'courier_name', 'product_url', 'purchase_option',
+        'keyword', 'product_price', 'unit_price', 'notes', 'platform', 'date', 'display_order'
+      ],
+      include: [
+        {
+          model: Campaign,
+          as: 'campaign',
+          required: true,
+          where: { is_hidden: false },
+          attributes: ['id', 'name', 'monthly_brand_id'],
+          include: [
+            {
+              model: MonthlyBrand,
+              as: 'monthlyBrand',
+              required: true,
+              where: { is_hidden: false },
+              attributes: ['id', 'name', 'brand_id'],
+              include: [
+                {
+                  model: User,
+                  as: 'brand',
+                  required: false,
+                  attributes: ['id', 'name']
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+
+    let slots = [];
+
+    if (targetRole === 'operator') {
+      const assignments = await CampaignOperator.findAll({
+        where: { operator_id: targetUserId },
+        attributes: ['item_id', 'day_group']
+      });
+
+      if (assignments.length === 0) {
+        return res.json({ success: true, data: [], count: 0 });
+      }
+
+      const itemDayGroupMap = {};
+      for (const a of assignments) {
+        if (a.item_id) {
+          if (!itemDayGroupMap[a.item_id]) itemDayGroupMap[a.item_id] = [];
+          if (a.day_group === null) {
+            itemDayGroupMap[a.item_id] = null;
+          } else if (itemDayGroupMap[a.item_id] !== null) {
+            itemDayGroupMap[a.item_id].push(a.day_group);
+          }
+        }
+      }
+
+      const assignedItemIds = Object.keys(itemDayGroupMap).map(id => parseInt(id, 10));
+      const slotConditions = [];
+      for (const itemId of assignedItemIds) {
+        const dayGroups = itemDayGroupMap[itemId];
+        if (dayGroups === null) {
+          slotConditions.push({ item_id: itemId });
+        } else if (dayGroups && dayGroups.length > 0) {
+          slotConditions.push({ item_id: itemId, day_group: { [Op.in]: dayGroups } });
+        }
+      }
+
+      if (slotConditions.length === 0) {
+        return res.json({ success: true, data: [], count: 0 });
+      }
+
+      slots = await ItemSlot.findAll({
+        where: {
+          [Op.and]: [
+            { [Op.or]: slotConditions },
+            { buyer_id: { [Op.in]: overdueBuyerIds } }
+          ]
+        },
+        include: [itemInclude, buyerInclude],
+        order: [['item_id', 'ASC'], ['day_group', 'ASC'], ['slot_number', 'ASC']]
+      });
+    } else {
+      // Admin (no viewAsUserId): 모든 슬롯
+      slots = await ItemSlot.findAll({
+        where: { buyer_id: { [Op.in]: overdueBuyerIds } },
+        include: [itemInclude, buyerInclude],
+        order: [['item_id', 'ASC'], ['day_group', 'ASC'], ['slot_number', 'ASC']]
+      });
+    }
+
+    // 정렬: 브랜드사명 → 연월브랜드명 → 캠페인명 → 제품명
+    const overdueSlots = slots;
+    overdueSlots.sort((a, b) => {
+      const brandA = a.item?.campaign?.monthlyBrand?.brand?.name || '';
+      const brandB = b.item?.campaign?.monthlyBrand?.brand?.name || '';
+      if (brandA !== brandB) return brandA.localeCompare(brandB, 'ko');
+
+      const mbA = a.item?.campaign?.monthlyBrand?.name || '';
+      const mbB = b.item?.campaign?.monthlyBrand?.name || '';
+      if (mbA !== mbB) return mbA.localeCompare(mbB, 'ko');
+
+      const campA = a.item?.campaign?.name || '';
+      const campB = b.item?.campaign?.name || '';
+      if (campA !== campB) return campA.localeCompare(campB, 'ko');
+
+      const itemA = a.item?.product_name || '';
+      const itemB = b.item?.product_name || '';
+      return itemA.localeCompare(itemB, 'ko');
+    });
+
+    res.json({
+      success: true,
+      data: overdueSlots,
+      count: overdueSlots.length
+    });
+  } catch (error) {
+    console.error('Get overdue slots error:', error);
+    res.status(500).json({
+      success: false,
+      message: '미제출건 조회 실패',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * 진행자: 월별 일자별 카운트 (전체/작성/리뷰샷)
+ * GET /api/item-slots/operator/monthly-counts?year=YYYY&month=M
+ * 기준: ItemSlot.date 일자별 집계
+ */
+exports.getMonthlyCounts = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const { year, month } = req.query;
+
+    if (!year || !month) {
+      return res.status(400).json({
+        success: false,
+        message: 'year와 month 파라미터가 필요합니다'
+      });
+    }
+
+    const yearInt = parseInt(year, 10);
+    const monthInt = parseInt(month, 10);
+
+    if (isNaN(yearInt) || isNaN(monthInt) || monthInt < 1 || monthInt > 12) {
+      return res.status(400).json({
+        success: false,
+        message: '유효한 year와 month 값이 필요합니다'
+      });
+    }
+
+    // Admin인 경우 viewAsUserId 지원
+    let targetUserId = userId;
+    let targetRole = userRole;
+    if (userRole === 'admin' && req.query.viewAsUserId) {
+      targetUserId = parseInt(req.query.viewAsUserId, 10);
+      const targetUser = await User.findByPk(targetUserId, { attributes: ['role'] });
+      if (targetUser) {
+        targetRole = targetUser.role;
+      }
+    }
+
+    // 해당 월의 모든 일자 (yyyy-mm-dd, yy-mm-dd) prefix 매칭
+    const yyyy = String(yearInt);
+    const mm = String(monthInt).padStart(2, '0');
+    const yy = yyyy.slice(2);
+
+    // ItemSlot.date는 TEXT라 LIKE 패턴으로 검색
+    const datePatterns = [
+      { date: { [Op.like]: `${yyyy}-${mm}-%` } },
+      { date: { [Op.like]: `${yy}-${mm}-%` } }
+    ];
+
+    const buyerInclude = {
+      model: Buyer,
+      as: 'buyer',
+      required: false,
+      attributes: ['id', 'account_info'],
+      include: [
+        {
+          model: Image,
+          as: 'images',
+          where: { status: 'approved' },
+          required: false,
+          attributes: ['id'],
+          separate: true
+        }
+      ]
+    };
+
+    let slots = [];
+
+    if (targetRole === 'operator') {
+      const assignments = await CampaignOperator.findAll({
+        where: { operator_id: targetUserId },
+        attributes: ['item_id', 'day_group']
+      });
+
+      if (assignments.length === 0) {
+        return res.json({ success: true, data: [] });
+      }
+
+      const itemDayGroupMap = {};
+      for (const a of assignments) {
+        if (a.item_id) {
+          if (!itemDayGroupMap[a.item_id]) itemDayGroupMap[a.item_id] = [];
+          if (a.day_group === null) {
+            itemDayGroupMap[a.item_id] = null;
+          } else if (itemDayGroupMap[a.item_id] !== null) {
+            itemDayGroupMap[a.item_id].push(a.day_group);
+          }
+        }
+      }
+
+      const assignedItemIds = Object.keys(itemDayGroupMap).map(id => parseInt(id, 10));
+      const slotConditions = [];
+      for (const itemId of assignedItemIds) {
+        const dayGroups = itemDayGroupMap[itemId];
+        if (dayGroups === null) {
+          slotConditions.push({ item_id: itemId });
+        } else if (dayGroups && dayGroups.length > 0) {
+          slotConditions.push({ item_id: itemId, day_group: { [Op.in]: dayGroups } });
+        }
+      }
+
+      if (slotConditions.length === 0) {
+        return res.json({ success: true, data: [] });
+      }
+
+      slots = await ItemSlot.findAll({
+        where: {
+          [Op.and]: [
+            { [Op.or]: slotConditions },
+            { [Op.or]: datePatterns }
+          ]
+        },
+        attributes: ['id', 'date', 'buyer_id'],
+        include: [buyerInclude]
+      });
+    } else {
+      // Admin
+      slots = await ItemSlot.findAll({
+        where: { [Op.or]: datePatterns },
+        attributes: ['id', 'date', 'buyer_id'],
+        include: [buyerInclude]
+      });
+    }
+
+    // 일자별 집계
+    const countsMap = {};
+    for (const slot of slots) {
+      let dateStr = slot.date;
+      if (!dateStr) continue;
+      // yy-mm-dd → yyyy-mm-dd 정규화
+      if (dateStr.length === 8) {
+        dateStr = '20' + dateStr;
+      }
+
+      if (!countsMap[dateStr]) {
+        countsMap[dateStr] = { date: dateStr, total: 0, written: 0, reviewed: 0 };
+      }
+
+      countsMap[dateStr].total += 1;
+
+      const buyer = slot.buyer;
+      const hasAccount = buyer && buyer.account_info && String(buyer.account_info).trim() !== '';
+      if (hasAccount) {
+        countsMap[dateStr].written += 1;
+        const imageCount = buyer.images?.length || 0;
+        if (imageCount > 0) {
+          countsMap[dateStr].reviewed += 1;
+        }
+      }
+    }
+
+    const data = Object.values(countsMap).sort((a, b) => a.date.localeCompare(b.date));
+
+    res.json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    console.error('Get monthly counts error:', error);
+    res.status(500).json({
+      success: false,
+      message: '월별 카운트 조회 실패',
       error: error.message
     });
   }

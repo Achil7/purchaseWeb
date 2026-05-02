@@ -172,6 +172,9 @@ exports.createBuyer = async (req, res) => {
     // 계좌번호 정규화
     const account_normalized = normalizeAccountNumber(account_info);
 
+    // 주문번호가 있으면 info_entered_at 기록
+    const hasOrderNumber = order_number && String(order_number).trim() !== '';
+
     const buyer = await Buyer.create({
       item_id: itemId,
       order_number,
@@ -186,6 +189,7 @@ exports.createBuyer = async (req, res) => {
       unit_price: unit_price !== undefined ? unit_price : (item.unit_price || null),
       notes,
       date: req.body.date || null,
+      info_entered_at: hasOrderNumber ? new Date() : null,
       created_by,
       is_temporary: false
     });
@@ -259,6 +263,9 @@ exports.parseBuyer = async (req, res) => {
     // 계좌번호 정규화
     const account_normalized = normalizeAccountNumber(account_info);
 
+    // 주문번호가 있으면 info_entered_at 기록 (parseBuyer는 슬래시 파싱이라 항상 있음)
+    const hasOrderNumber = order_number && String(order_number).trim() !== '';
+
     const buyer = await Buyer.create({
       item_id: itemId,
       order_number,
@@ -270,6 +277,7 @@ exports.parseBuyer = async (req, res) => {
       account_info,
       account_normalized,
       amount: parseInt(amount.replace(/,/g, ''), 10), // 콤마 제거, 정수로 변환
+      info_entered_at: hasOrderNumber ? new Date() : null,
       created_by,
       is_temporary: false
     });
@@ -311,6 +319,17 @@ exports.updateBuyer = async (req, res) => {
     const updateData = { ...req.body };
     if (updateData.account_info !== undefined) {
       updateData.account_normalized = normalizeAccountNumber(updateData.account_info);
+    }
+
+    // info_entered_at: order_number가 빈값 → 값 으로 처음 전환되는 순간만 기록
+    if (updateData.order_number !== undefined) {
+      const prevOrderNumber = buyer.order_number;
+      const newOrderNumber = updateData.order_number;
+      const wasEmpty = !prevOrderNumber || String(prevOrderNumber).trim() === '';
+      const willHaveValue = newOrderNumber !== null && String(newOrderNumber).trim() !== '';
+      if (wasEmpty && willHaveValue && !buyer.info_entered_at) {
+        updateData.info_entered_at = new Date();
+      }
     }
 
     await buyer.update(updateData);
@@ -498,6 +517,7 @@ exports.createBuyersBulk = async (req, res) => {
           unit_price: data.unit_price !== undefined ? data.unit_price : (item.unit_price || null),
           notes: data.notes || null,
           date: data.date || null,
+          info_entered_at: new Date(),
           created_by,
           is_temporary: false
         }, { transaction });

@@ -164,6 +164,31 @@ export const adjustDailyCount = async (itemId, dayGroup, newCount) => {
   return response.data;
 };
 
+/**
+ * 진행자: 14일 이상 경과 + 리뷰샷 미제출 슬롯 조회
+ * @param days - 기준 일수 (기본 14)
+ * @param viewAsUserId - Admin이 특정 진행자의 데이터 조회할 때 사용
+ */
+export const getOverdueSlots = async (days = 14, viewAsUserId = null) => {
+  const params = { days };
+  if (viewAsUserId) params.viewAsUserId = viewAsUserId;
+  const response = await api.get('/item-slots/operator/overdue', { params });
+  return response.data;
+};
+
+/**
+ * 진행자: 월별 일자별 카운트 (전체/작성/리뷰샷)
+ * @param year - 연도
+ * @param month - 월 (1~12)
+ * @param viewAsUserId - Admin이 특정 진행자의 데이터 조회할 때 사용
+ */
+export const getMonthlyCounts = async (year, month, viewAsUserId = null) => {
+  const params = { year, month };
+  if (viewAsUserId) params.viewAsUserId = viewAsUserId;
+  const response = await api.get('/item-slots/operator/monthly-counts', { params });
+  return response.data;
+};
+
 const itemSlotService = {
   getSlotsByItem,
   getSlotsByCampaign,
@@ -181,7 +206,9 @@ const itemSlotService = {
   getSlotsByDate,
   suspendDayGroup,
   resumeDayGroup,
-  adjustDailyCount
+  adjustDailyCount,
+  getOverdueSlots,
+  getMonthlyCounts
 };
 
 export default itemSlotService;
