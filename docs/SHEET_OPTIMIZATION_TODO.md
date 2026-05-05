@@ -2132,7 +2132,19 @@ main 측정값:
 - [ ] 다른 영업사 클릭 → 새로 조회 (다른 사용자 캐시 분리 확인)
 - [ ] 진행자/브랜드사도 동일 패턴 검증
 
-**결론:** ⏳ 테스트 대기
+**측정 결과 (main 서버, 2026-04-25):**
+
+| API | 수치 |
+|-----|------|
+| `/items/my-monthly-brands` (첫 호출) | 582ms |
+| `/monthly-brands?viewAsUserId=` (첫 호출) | 1239ms |
+
+**추가 발견된 병목 (31차 범위 외, 32차 후보):**
+- `/brand-settlements/sales-products` — 548~929ms (30차 LATERAL 적용 후에도 여전히)
+- `/sales-dashboard/overview` — **1395ms**
+- `/sales-dashboard/product-list` — **1240ms**
+
+**결론:** ⏳ 첫 호출 수치는 변화 없음 (예상대로). 캐시 hit 동작은 같은 사용자 반복 클릭으로 별도 검증 필요.
 
 ---
 
