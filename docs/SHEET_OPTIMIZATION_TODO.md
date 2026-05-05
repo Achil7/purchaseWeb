@@ -2148,6 +2148,71 @@ main 측정값:
 
 ---
 
+### 32차 최적화 (2026-04-25) - 영업사 대시보드/정산 admin 캐시 확장
+
+**배경:**
+31차 측정에서 발견된 추가 병목 3개 처리.
+- `/sales-dashboard/overview` — **1395ms**
+- `/sales-dashboard/product-list` — **1240ms**
+- `/brand-settlements/sales-products` — 548~929ms
+
+이미 29차에서 brand-dashboard 패턴(GROUPING SETS, EXISTS) 적용됐고, 30차에서 정산 EXISTS → LATERAL 적용됨.
+남은 병목 = 데이터 양 + admin이 같은 영업사를 반복 조회 시 매번 풀 쿼리.
+
+**적용 내용:**
+
+#### Part 1: salesDashboardController admin 캐시
+- `getOverview` + `getProductList`에 60초 TTL Map 캐시
+- 캐시 키: `${prefix}_${viewAsUserId}_${쿼리파라미터정렬직렬화}`
+- 영업사 본인 호출은 캐시 미적용
+- admin viewAsUserId 호출만 캐시
+- `getBrands`, `getMonths`는 가벼워서 스킵
+
+#### Part 2: brandSettlementController.getSalesProductSummary admin 캐시
+- 60초 TTL Map 캐시
+- 캐시 키: `settlement_${viewAsUserId}`
+- 영업사 본인 호출은 캐시 미적용
+
+**수정 파일:**
+- `backend/src/controllers/salesDashboardController.js` ✅
+- `backend/src/controllers/brandSettlementController.js` ✅
+
+**프론트 수정 없음. 마이그레이션 없음.**
+
+**기능/결과값 불변 보장:**
+- 응답 JSON 구조 100% 동일
+- 영업사 본인 요청 → 캐시 미적용 → 항상 최신
+- Admin viewAsUserId 호출만 캐시 → 60초 TTL
+- 컨테이너 재시작 시 캐시 자동 비워짐
+
+**빌드:** ✅ 백엔드 2개 파일 문법 검증 통과
+
+**예상 효과:**
+
+| API | 첫 호출 | 60초 내 재호출 |
+|-----|--------|---------------|
+| `/sales-dashboard/overview?viewAsUserId=` | 1395ms (변화 없음) | **~5ms** |
+| `/sales-dashboard/product-list?viewAsUserId=` | 1240ms (변화 없음) | **~5ms** |
+| `/brand-settlements/sales-products?viewAsUserId=` | 548~929ms (변화 없음) | **~5ms** |
+
+→ Admin이 영업사 카드 클릭 후 대시보드 탭/필터 전환 시 체감 속도 대폭 개선
+→ 정산 페이지 진입 시 첫 로딩 후 60초 동안 빠름
+
+**기능 검증 항목:**
+- [ ] 영업사 본인 로그인 → 대시보드/정산 정상 (캐시 미적용)
+- [ ] Admin → 영업사 view 진입 → 대시보드 정상
+- [ ] 같은 영업사 다시 진입 (60초 내) → 즉시 표시
+- [ ] 영업사 정산 페이지 동일 검증
+
+**결론:** ⏳ 테스트 대기
+
+**보류 (다음 차수 후보):**
+- 진행자 `getOverdueSlots`, `getMonthlyCounts` 통계 SQL화
+- `Buyer.date` TEXT → DATE 컬럼 마이그레이션
+- 통합 Admin API (3개 호출 → 1개 병렬)
+
+---
+
 ### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
 
 **목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선

@@ -11,6 +11,37 @@ const { sequelize } = require('../models');
  * - 월 필터는 buyer.date 우선, 없으면 item_slot.date, 없으면 item.date 의 첫 5자(YY-MM)
  */
 
+// 32차: Admin embedded 모드 전용 in-memory 캐시 (60초 TTL)
+// admin이 viewAsUserId로 영업사 대시보드 조회 시 반복 클릭 캐싱
+const ADMIN_CACHE_TTL_MS = 60_000;
+const adminSalesCache = new Map();
+
+function getAdminSalesCache(key) {
+  const entry = adminSalesCache.get(key);
+  if (entry && Date.now() - entry.ts < ADMIN_CACHE_TTL_MS) return entry.data;
+  return null;
+}
+
+function setAdminSalesCache(key, data) {
+  adminSalesCache.set(key, { ts: Date.now(), data });
+  if (adminSalesCache.size > 1000) {
+    const first = adminSalesCache.keys().next().value;
+    adminSalesCache.delete(first);
+  }
+}
+
+function isAdminView(req) {
+  return req.user.role === 'admin' && req.query.viewAsUserId;
+}
+
+function adminCacheKey(prefix, req) {
+  // 쿼리 파라미터를 정렬해서 직렬화 (캐시 키 안정성)
+  const userId = parseInt(req.query.viewAsUserId, 10);
+  const sortedKeys = Object.keys(req.query).sort();
+  const paramStr = sortedKeys.map(k => `${k}=${req.query[k]}`).join('&');
+  return `${prefix}_${userId}_${paramStr}`;
+}
+
 function resolveSalesId(req) {
   if (req.user.role === 'sales') return req.user.id;
   if (req.user.role === 'admin') {
@@ -208,6 +239,14 @@ exports.getOverview = async (req, res) => {
     const salesId = resolveSalesId(req);
     if (!salesId) {
       return res.status(400).json({ success: false, message: '인증이 필요합니다' });
+    }
+
+    // 32차: Admin viewAsUserId 캐시 조회
+    const useCache = isAdminView(req);
+    const cacheKey = useCache ? adminCacheKey('sales_overview', req) : null;
+    if (useCache) {
+      const cached = getAdminSalesCache(cacheKey);
+      if (cached) return res.json({ success: true, data: cached });
     }
 
     const brandIdRaw = req.query.brandId;
@@ -487,23 +526,25 @@ exports.getOverview = async (req, res) => {
       reviewCompleted: r.review_completed
     }));
 
-    res.json({
-      success: true,
-      data: {
-        platforms,
-        selectedPlatform,
-        summary: {
-          totalAmount,
-          buyerCount,
-          reviewCompletedCount,
-          reviewCompletionRate,
-          activeCampaignCount,
-          productCount
-        },
-        issues: { lowCompletionRate, noReviewYet, topAmount },
-        dailyTrend
-      }
-    });
+    const responseData = {
+      platforms,
+      selectedPlatform,
+      summary: {
+        totalAmount,
+        buyerCount,
+        reviewCompletedCount,
+        reviewCompletionRate,
+        activeCampaignCount,
+        productCount
+      },
+      issues: { lowCompletionRate, noReviewYet, topAmount },
+      dailyTrend
+    };
+
+    // 32차: Admin viewAsUserId 캐시 저장
+    if (useCache) setAdminSalesCache(cacheKey, responseData);
+
+    res.json({ success: true, data: responseData });
   } catch (error) {
     console.error('Sales dashboard overview error:', error);
     res.status(500).json({ success: false, message: '영업사 대시보드 조회 중 오류가 발생했습니다' });
@@ -520,6 +561,14 @@ exports.getProductList = async (req, res) => {
     const salesId = resolveSalesId(req);
     if (!salesId) {
       return res.status(400).json({ success: false, message: '인증이 필요합니다' });
+    }
+
+    // 32차: Admin viewAsUserId 캐시 조회
+    const useCache = isAdminView(req);
+    const cacheKey = useCache ? adminCacheKey('sales_product_list', req) : null;
+    if (useCache) {
+      const cached = getAdminSalesCache(cacheKey);
+      if (cached) return res.json({ success: true, data: cached });
     }
 
     const brandIdRaw = req.query.brandId;
@@ -658,10 +707,12 @@ exports.getProductList = async (req, res) => {
       campaigns: campaignsByProduct.get(r.product_name) || []
     }));
 
-    res.json({
-      success: true,
-      data: { rows, totalCount, page, pageSize }
-    });
+    const responseData = { rows, totalCount, page, pageSize };
+
+    // 32차: Admin viewAsUserId 캐시 저장
+    if (useCache) setAdminSalesCache(cacheKey, responseData);
+
+    res.json({ success: true, data: responseData });
   } catch (error) {
     console.error('Sales dashboard product-list error:', error);
     res.status(500).json({ success: false, message: '제품 리스트 조회 중 오류가 발생했습니다' });

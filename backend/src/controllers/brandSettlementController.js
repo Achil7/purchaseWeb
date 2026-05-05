@@ -1,5 +1,23 @@
 const { sequelize } = require('../models');
 
+// 32차: Admin viewAsUserId 캐시 (60초 TTL)
+const ADMIN_SETTLEMENT_CACHE_TTL_MS = 60_000;
+const adminSettlementCache = new Map();
+
+function getAdminSettlementCache(key) {
+  const entry = adminSettlementCache.get(key);
+  if (entry && Date.now() - entry.ts < ADMIN_SETTLEMENT_CACHE_TTL_MS) return entry.data;
+  return null;
+}
+
+function setAdminSettlementCache(key, data) {
+  adminSettlementCache.set(key, { ts: Date.now(), data });
+  if (adminSettlementCache.size > 500) {
+    const first = adminSettlementCache.keys().next().value;
+    adminSettlementCache.delete(first);
+  }
+}
+
 /**
  * Admin 브랜드/캠페인별 정산 요약
  * 브랜드사(User role=brand) > 연월브랜드 > 캠페인 3단 계층으로
@@ -203,6 +221,14 @@ exports.getSalesProductSummary = async (req, res) => {
       return res.status(400).json({ success: false, message: 'userId 누락' });
     }
 
+    // 32차: Admin viewAsUserId 캐시 조회
+    const useCache = isAdmin && req.query.viewAsUserId;
+    const cacheKey = useCache ? `settlement_${targetUserId}` : null;
+    if (useCache) {
+      const cached = getAdminSettlementCache(cacheKey);
+      if (cached) return res.json({ success: true, data: cached });
+    }
+
     const rows = await sequelize.query(
       `
       SELECT
@@ -333,10 +359,12 @@ exports.getSalesProductSummary = async (req, res) => {
       });
     }
 
-    return res.json({
-      success: true,
-      data: { brands },
-    });
+    const responseData = { brands };
+
+    // 32차: Admin viewAsUserId 캐시 저장
+    if (useCache) setAdminSettlementCache(cacheKey, responseData);
+
+    return res.json({ success: true, data: responseData });
   } catch (error) {
     console.error('getSalesProductSummary error:', error);
     return res.status(500).json({
