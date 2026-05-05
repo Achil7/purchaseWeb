@@ -32,7 +32,7 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
 
     const { sequelize } = require('../models');
 
-    // ✅ Step 1: Buyer/Image 없이 기본 구조만 로드
+    // 30차: 27차 패턴 적용 - 4단계 JOIN → 2단계로 축소 (Item/ItemSlot 분리)
     const monthlyBrands = await MonthlyBrand.findAll({
       where: {
         brand_id: brandUserId,
@@ -52,32 +52,50 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
         {
           model: Campaign,
           as: 'campaigns',
-          include: [
-            {
-              model: Item,
-              as: 'items',
-              attributes: ['id', 'product_name', 'shipping_type', 'courier_service_yn', 'product_price', 'status', 'total_purchase_count', 'daily_purchase_count', 'purchase_option', 'keyword', 'notes'],
-              include: [
-                {
-                  model: ItemSlot,
-                  as: 'slots',
-                  attributes: ['id']
-                }
-              ]
-            }
-          ]
+          where: { is_hidden: false },
+          required: false,
+          attributes: ['id', 'name', 'status', 'registered_at', 'created_at', 'created_by', 'monthly_brand_id', 'brand_id', 'description', 'start_date', 'end_date']
         }
       ],
       order: [['sort_order', 'ASC'], ['created_at', 'ASC']]
     });
 
-    // ✅ Step 2: 품목 ID 수집
-    const allItemIds = [];
+    // 30차: 캠페인 ID 수집
+    const allCampaignIds = [];
     monthlyBrands.forEach(mb => {
-      (mb.campaigns || []).forEach(campaign => {
-        (campaign.items || []).forEach(item => allItemIds.push(item.id));
-      });
+      (mb.campaigns || []).forEach(c => allCampaignIds.push(c.id));
     });
+
+    // 30차: Item을 별도 쿼리로 조회 (raw:true)
+    let itemsByCampaign = {};
+    let slotsByItem = {};
+    let allItemIds = [];
+
+    if (allCampaignIds.length > 0) {
+      const items = await Item.findAll({
+        where: { campaign_id: { [Op.in]: allCampaignIds } },
+        attributes: ['id', 'campaign_id', 'product_name', 'shipping_type', 'courier_service_yn', 'product_price', 'status', 'total_purchase_count', 'daily_purchase_count', 'purchase_option', 'keyword', 'notes'],
+        raw: true
+      });
+      for (const item of items) {
+        if (!itemsByCampaign[item.campaign_id]) itemsByCampaign[item.campaign_id] = [];
+        itemsByCampaign[item.campaign_id].push(item);
+        allItemIds.push(item.id);
+      }
+
+      // 30차: ItemSlot도 별도 쿼리
+      if (allItemIds.length > 0) {
+        const slots = await ItemSlot.findAll({
+          where: { item_id: { [Op.in]: allItemIds } },
+          attributes: ['id', 'item_id'],
+          raw: true
+        });
+        for (const slot of slots) {
+          if (!slotsByItem[slot.item_id]) slotsByItem[slot.item_id] = [];
+          slotsByItem[slot.item_id].push(slot);
+        }
+      }
+    }
 
     // ✅ Step 3: COUNT/SUM 쿼리로 통계만 조회 (객체 전체 로드 안 함)
     let buyerStatsMap = {};
@@ -128,23 +146,24 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
       }
     }
 
-    // ✅ Step 4: 통계 합쳐서 응답
+    // 30차: 통계 + Item/Slot 메모리 병합
     const result = monthlyBrands.map(mb => {
       const mbData = mb.toJSON();
       if (mbData.campaigns) {
         mbData.campaigns = mbData.campaigns.map(campaign => {
-          if (campaign.items) {
-            campaign.items = campaign.items.map(item => {
-              const stats = buyerStatsMap[item.id] || { normalCount: 0, totalAmount: 0, reviewCount: 0, imageCount: 0 };
-              return {
-                ...item,
-                normalBuyerCount: stats.normalCount,
-                reviewCompletedCount: stats.reviewCount,
-                totalImageCount: stats.imageCount,
-                totalAmount: stats.totalAmount
-              };
-            });
-          }
+          const items = itemsByCampaign[campaign.id] || [];
+          campaign.items = items.map(item => {
+            const stats = buyerStatsMap[item.id] || { normalCount: 0, totalAmount: 0, reviewCount: 0, imageCount: 0 };
+            const slots = slotsByItem[item.id] || [];
+            return {
+              ...item,
+              slots,
+              normalBuyerCount: stats.normalCount,
+              reviewCompletedCount: stats.reviewCount,
+              totalImageCount: stats.imageCount,
+              totalAmount: stats.totalAmount
+            };
+          });
           return campaign;
         });
       }

@@ -15,6 +15,8 @@ const { sequelize } = require('../models');
  */
 exports.getSummary = async (req, res) => {
   try {
+    // 30차: EXISTS 서브쿼리 3회 → 1회 LATERAL 평가로 통합
+    // (buyer 단위에서 has_approved_image 한 번만 계산해 SUM/COUNT에 재사용)
     const rows = await sequelize.query(
       `
       SELECT
@@ -35,18 +37,11 @@ exports.getSummary = async (req, res) => {
           NULLIF(REGEXP_REPLACE(COALESCE(b.unit_price, s.unit_price, i.unit_price, ''), '[^0-9]', '', 'g'), '')::bigint
         ), 0) AS total_unit_price,
         COUNT(DISTINCT b.id) AS total_buyer_count,
-        COALESCE(SUM(CASE WHEN EXISTS (
-          SELECT 1 FROM images im
-          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-        ) THEN NULLIF(REGEXP_REPLACE(COALESCE(b.amount, ''), '[^0-9]', '', 'g'), '')::bigint END), 0) AS submitted_amount,
-        COALESCE(SUM(CASE WHEN EXISTS (
-          SELECT 1 FROM images im
-          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-        ) THEN NULLIF(REGEXP_REPLACE(COALESCE(s.review_cost, ''), '[^0-9]', '', 'g'), '')::bigint END), 0) AS submitted_review_cost,
-        COUNT(DISTINCT CASE WHEN EXISTS (
-          SELECT 1 FROM images im
-          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-        ) THEN b.id END) AS submitted_buyer_count
+        COALESCE(SUM(CASE WHEN bi.has_image
+          THEN NULLIF(REGEXP_REPLACE(COALESCE(b.amount, ''), '[^0-9]', '', 'g'), '')::bigint END), 0) AS submitted_amount,
+        COALESCE(SUM(CASE WHEN bi.has_image
+          THEN NULLIF(REGEXP_REPLACE(COALESCE(s.review_cost, ''), '[^0-9]', '', 'g'), '')::bigint END), 0) AS submitted_review_cost,
+        COUNT(DISTINCT CASE WHEN bi.has_image THEN b.id END) AS submitted_buyer_count
       FROM users u
       JOIN monthly_brands mb
         ON mb.brand_id = u.id
@@ -67,6 +62,12 @@ exports.getSummary = async (req, res) => {
         ON b.id = s.buyer_id
        AND b.deleted_at IS NULL
        AND COALESCE(b.is_temporary, false) = false
+      LEFT JOIN LATERAL (
+        SELECT EXISTS (
+          SELECT 1 FROM images im
+          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
+        ) AS has_image
+      ) bi ON b.id IS NOT NULL
       WHERE u.role = 'brand'
         AND COALESCE(u.is_active, true) = true
       GROUP BY u.id, u.name, mb.id, mb.name, mb.year_month, c.id, c.name
@@ -225,18 +226,11 @@ exports.getSalesProductSummary = async (req, res) => {
           NULLIF(REGEXP_REPLACE(COALESCE(b.unit_price, s.unit_price, i.unit_price, ''), '[^0-9]', '', 'g'), '')::bigint
         ), 0) AS total_unit_price,
         COUNT(DISTINCT b.id) AS total_buyer_count,
-        COALESCE(SUM(CASE WHEN EXISTS (
-          SELECT 1 FROM images im
-          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-        ) THEN NULLIF(REGEXP_REPLACE(COALESCE(b.amount, ''), '[^0-9]', '', 'g'), '')::bigint END), 0) AS submitted_amount,
-        COALESCE(SUM(CASE WHEN EXISTS (
-          SELECT 1 FROM images im
-          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-        ) THEN NULLIF(REGEXP_REPLACE(COALESCE(s.review_cost, ''), '[^0-9]', '', 'g'), '')::bigint END), 0) AS submitted_review_cost,
-        COUNT(DISTINCT CASE WHEN EXISTS (
-          SELECT 1 FROM images im
-          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-        ) THEN b.id END) AS submitted_buyer_count
+        COALESCE(SUM(CASE WHEN bi.has_image
+          THEN NULLIF(REGEXP_REPLACE(COALESCE(b.amount, ''), '[^0-9]', '', 'g'), '')::bigint END), 0) AS submitted_amount,
+        COALESCE(SUM(CASE WHEN bi.has_image
+          THEN NULLIF(REGEXP_REPLACE(COALESCE(s.review_cost, ''), '[^0-9]', '', 'g'), '')::bigint END), 0) AS submitted_review_cost,
+        COUNT(DISTINCT CASE WHEN bi.has_image THEN b.id END) AS submitted_buyer_count
       FROM users u
       JOIN monthly_brands mb
         ON mb.brand_id = u.id
@@ -258,6 +252,12 @@ exports.getSalesProductSummary = async (req, res) => {
         ON b.id = s.buyer_id
        AND b.deleted_at IS NULL
        AND COALESCE(b.is_temporary, false) = false
+      LEFT JOIN LATERAL (
+        SELECT EXISTS (
+          SELECT 1 FROM images im
+          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
+        ) AS has_image
+      ) bi ON b.id IS NOT NULL
       WHERE u.role = 'brand'
         AND COALESCE(u.is_active, true) = true
       GROUP BY u.id, u.name, mb.id, mb.name, mb.year_month, c.id, c.name, i.id, i.product_name, i.platform

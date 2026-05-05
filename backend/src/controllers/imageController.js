@@ -7,7 +7,7 @@ const { normalizeAccountNumber } = require('../utils/accountNormalizer');
 const { createNotification } = require('./notificationController');
 const { getNextBusinessDay, formatDateToYYYYMMDD } = require('../utils/dateUtils');
 const { v4: uuidv4 } = require('uuid');
-const { extractForBuyerAsync } = require('../services/imageExtractor');
+const { extractForBuyerAsync, extractForBuyers } = require('../services/imageExtractor');
 
 // multer 설정 - 메모리 스토리지 사용 (S3로 직접 업로드)
 const storage = multer.memoryStorage();
@@ -455,12 +455,15 @@ exports.uploadImages = async (req, res) => {
 
     // 리뷰 텍스트 추출 트리거 (신규 approved 업로드만)
     // - 재제출(pending)은 승인 시 approveImage에서 처리
-    // - fire-and-forget: 에러는 내부에서 처리, 응답에 영향 없음
+    // - 30차: 동시성 제한 (concurrency=3) — OpenAI 레이트 리밋 회피
     if (uploadedImages.length > 0) {
       const newBuyerIds = [...new Set(uploadedImages.map(img => img.buyer_id))];
-      for (const buyerId of newBuyerIds) {
-        extractForBuyerAsync(buyerId);
-      }
+      // fire-and-forget — 에러는 내부에서 처리, 응답에 영향 없음
+      setImmediate(() => {
+        extractForBuyers(newBuyerIds, { concurrency: 3 }).catch(err => {
+          console.error('extractForBuyers (uploadImages) failed:', err);
+        });
+      });
     }
 
     // 응답 메시지 구성
@@ -1102,14 +1105,18 @@ exports.searchImages = async (req, res) => {
 
     // 플랫폼은 ItemSlot.platform에 day_group별로 저장됨 (Item.platform은 placeholder).
     // image.upload_token ↔ item_slots.upload_link_token으로 매칭하는 EXISTS 서브쿼리 사용.
+    // 30차: SQL injection 방어 강화 — 화이트리스트 문자만 허용 + 길이 제한
     if (platformTrimmed) {
-      const escaped = platformTrimmed.replace(/'/g, "''");
-      imageWhere[Op.and] = imageWhere[Op.and] || [];
-      imageWhere[Op.and].push(
-        Sequelize.literal(
-          `EXISTS (SELECT 1 FROM item_slots s WHERE s.upload_link_token = "Image"."upload_token" AND s.platform ILIKE '%${escaped}%')`
-        )
-      );
+      // 한글, 영문, 숫자, 공백만 허용 (SQL 메타문자 전부 차단)
+      const sanitized = platformTrimmed.replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, '').slice(0, 50);
+      if (sanitized) {
+        imageWhere[Op.and] = imageWhere[Op.and] || [];
+        imageWhere[Op.and].push(
+          Sequelize.literal(
+            `EXISTS (SELECT 1 FROM item_slots s WHERE s.upload_link_token = "Image"."upload_token" AND s.platform ILIKE '%${sanitized}%')`
+          )
+        );
+      }
     }
 
     const buyerWhere = {};

@@ -14,16 +14,18 @@ exports.getMyNotifications = async (req, res) => {
       whereClause.is_read = false;
     }
 
-    const notifications = await Notification.findAll({
-      where: whereClause,
-      order: [['created_at', 'DESC']],
-      limit: 50
-    });
-
-    // 읽지 않은 알림 수
-    const unreadCount = await Notification.count({
-      where: { user_id: userId, is_read: false }
-    });
+    // 30차: findAll + count 병렬 실행 + raw:true로 toJSON 오버헤드 제거
+    const [notifications, unreadCount] = await Promise.all([
+      Notification.findAll({
+        where: whereClause,
+        order: [['created_at', 'DESC']],
+        limit: 50,
+        raw: true
+      }),
+      Notification.count({
+        where: { user_id: userId, is_read: false }
+      })
+    ]);
 
     res.json({
       success: true,

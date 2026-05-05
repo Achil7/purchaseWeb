@@ -1989,6 +1989,88 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ---
 
+### 30차 최적화 (2026-04-25) - 잔여 병목 + 최근 추가 기능 점검
+
+**배경:**
+29차 이후 다수 기능 추가 (영업사 정산, 영업사 대시보드, 진행자 카운트 탭, admin 리뷰샷 검색, GPT-4o Vision 등).
+29차 측정에서 잔여 병목 2개 + 신규 기능 비효율 패턴 일부 확인.
+
+**적용 내용:**
+
+#### Part A: notifications 복합 인덱스 추가 (마이그레이션 신규)
+- `idx_notifications_user_id_is_read` (안 읽은 알림 COUNT 최적화)
+- `idx_notifications_user_id_created_at` (정렬 + 필터)
+
+#### Part B: notifications 컨트롤러 — 쿼리 병렬화 + raw
+- `findAll` await → `count` await 순차 → `Promise.all`로 병렬
+- `findAll`에 `raw: true` 추가 (toJSON 오버헤드 제거)
+- 응답 구조 100% 동일
+
+#### Part C: monthly-brands/my-brand JOIN 분리 (27차 패턴 적용)
+- 4단계 include (MonthlyBrand → Campaign → Item → ItemSlot) → 2단계로 축소
+- Item, ItemSlot 별도 쿼리 (`raw: true`)
+- Campaign include에 `where: { is_hidden: false }` 추가 (숨김 캠페인 제외)
+- 응답 구조 100% 동일
+
+#### Part D: brandSettlementController EXISTS 3회 → LATERAL 1회
+- `getSummary()`: `CASE WHEN EXISTS(...)` 3번 반복 → `LEFT JOIN LATERAL` 한 번 + `bi.has_image` 재사용
+- `getSalesProductSummary()`: 동일 패턴 적용
+- 매 buyer 행마다 images 테이블 3번 스캔 → 1번으로
+- 응답 JSON 구조 동일, 결제금액·수수료·VAT 계산 로직 동일
+
+#### Part E: imageController.searchImages SQL injection 보강
+- `platform` 입력값 화이트리스트 sanitize: 한글/영문/숫자/공백만 허용 + 50자 제한
+- SQL 메타문자 차단 (`'`, `\\`, `;`, `--` 등 모두 제거)
+- 기능 동일, 보안만 강화
+
+#### Part F: GPT-4o Vision 추출 동시성 제한
+- `uploadImages` 훅에서 `extractForBuyerAsync` forEach → `extractForBuyers(ids, { concurrency: 3 })`
+- OpenAI API 레이트 리밋 회피 + 다른 요청 처리 여유 확보
+- 기능 동일, 호출 타이밍만 분산
+
+**수정 파일:**
+- `backend/migrations/20260425000001-add-notification-indexes.js` ✅ (신규)
+- `backend/src/controllers/notificationController.js` ✅ (Part B)
+- `backend/src/routes/monthlyBrands.js` ✅ (Part C)
+- `backend/src/controllers/brandSettlementController.js` ✅ (Part D)
+- `backend/src/controllers/imageController.js` ✅ (Part E + F)
+
+**빌드:** ✅ 백엔드 5개 파일 모두 문법 검증 통과
+
+**기능/결과값 불변 보장:**
+- `notifications` 응답 동일 (`data`, `unreadCount`)
+- `my-brand` 응답 동일 (`mb.campaigns[].items[]`, 통계 필드 동일)
+- 정산 응답 동일 (영업사별 캠페인/제품별 합계, EXISTS 결과 LATERAL과 동일)
+- 검색 결과 동일 (sanitize는 한글/영문/숫자/공백만 허용 → 정상 입력은 영향 없음)
+- GPT 추출 결과 동일 (호출 타이밍만 분산)
+
+**예상 효과:**
+- `notifications` 256ms → **60-80ms** (인덱스 + 병렬화)
+- `monthly-brands/my-brand` 168ms → **50ms 이하** (JOIN 분리)
+- 정산 API: EXISTS 3회 → 1회 → **30~50% 감소** 예상
+- OpenAI API 레이트 리밋 안정화
+
+⚠️ **배포 후 마이그레이션 필요:**
+```bash
+docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
+```
+
+**기능 검증 항목:**
+- [ ] 알림 헤더 정상 (안 읽은 개수 정확)
+- [ ] 브랜드사 사이드바 연월브랜드/캠페인 정상 + 진행률 동일
+- [ ] 영업사 정산 페이지 — 캠페인별/제품별 금액·수수료·리뷰 합계 동일
+- [ ] Admin 리뷰샷 검색 — 플랫폼 필터 정상 (예: '쿠팡', '네이버')
+- [ ] 이미지 업로드 후 자동 추출 — 정상 동작 (서버 로그에서 동시 3개 단위 확인)
+
+**결론:** ⏳ 테스트 대기
+
+**보류 (다음 차수 후보):**
+- `salesDashboardController` 동일 buyer_view 3회 재사용 → 29차 brand 패턴 적용 필요
+- `getOverdueSlots`, `getMonthlyCounts` (진행자 탭) 통계 SQL화
+- `Buyer.date` TEXT → DATE 컬럼 마이그레이션 (큰 작업)
+
+---
+
 ### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
 
 **목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선
