@@ -42,6 +42,7 @@ import SalesMonthlyBrandDialog from './SalesMonthlyBrandDialog';
 import SalesAddItemDialog from './SalesAddItemDialog';
 import SalesAddCampaignDialog from './SalesAddCampaignDialog';
 import SalesItemSheet from './SalesItemSheet';
+import SalesBrandSettlement from './SalesBrandSettlement';
 import UnifiedItemSheet from '../common/UnifiedItemSheet';
 import DailyWorkSheet from '../common/DailyWorkSheet';
 import { monthlyBrandService, itemService, campaignService } from '../../services';
@@ -127,7 +128,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
   const ITEMS_PER_PAGE = 15;
 
   // 시트 탭 상태 (0: 기본 시트, 1: 날짜별 작업)
-  // 메인 탭 모드: 0=캠페인 시트, 1=날짜별 작업, 2=현황 대시보드
+  // 메인 탭 모드: 0=캠페인 시트, 1=날짜별 작업, 2=현황 대시보드, 3=브랜드 정산
   // 새로고침 시 위치 유지용 localStorage. 기본값은 현황 대시보드(2)
   // - 반대로 뒤집고 싶다면 아래 fallback 의 0/2 만 바꾸면 됨
   const SHEET_TAB_KEY = 'sales_sheet_tab';
@@ -135,7 +136,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     try {
       const saved = localStorage.getItem(SHEET_TAB_KEY);
       const n = parseInt(saved, 10);
-      return [0, 1, 2].includes(n) ? n : 2;
+      return [0, 1, 2, 3].includes(n) ? n : 2;
     } catch { return 2; }
   });
   useEffect(() => {
@@ -863,14 +864,25 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             </Button>
             <Button
               color="inherit"
-              onClick={() => setSheetTab(sheetTab === 2 ? 0 : sheetTab)}
+              onClick={() => setSheetTab(sheetTab === 2 || sheetTab === 3 ? 0 : sheetTab)}
               sx={{
-                fontWeight: sheetTab !== 2 ? 'bold' : 'normal',
-                borderBottom: sheetTab !== 2 ? '2px solid #fff' : '2px solid transparent',
+                fontWeight: (sheetTab === 0 || sheetTab === 1) ? 'bold' : 'normal',
+                borderBottom: (sheetTab === 0 || sheetTab === 1) ? '2px solid #fff' : '2px solid transparent',
                 borderRadius: 0, px: 2
               }}
             >
               캠페인 시트
+            </Button>
+            <Button
+              color="inherit"
+              onClick={() => setSheetTab(3)}
+              sx={{
+                fontWeight: sheetTab === 3 ? 'bold' : 'normal',
+                borderBottom: sheetTab === 3 ? '2px solid #fff' : '2px solid transparent',
+                borderRadius: 0, px: 2
+              }}
+            >
+              브랜드 정산
             </Button>
           </Box>
 
@@ -925,9 +937,9 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       {/* 메인 컨테이너 - 사이드바 + 콘텐츠 */}
       <Box sx={{ display: 'flex', flex: 1, pt: isEmbedded ? 0 : 8, overflow: 'hidden', minHeight: 0 }}>
       {/* 왼쪽 사이드바 - 연월브랜드/캠페인 목록
-          - 현황 대시보드(sheetTab=2) 일 때만 숨김
+          - 현황 대시보드(sheetTab=2), 브랜드 정산(sheetTab=3) 일 때 숨김
           - 캠페인 시트 / 날짜별 작업 두 서브탭 모두에서 사이드바 노출 */}
-      {sheetTab !== 2 && (
+      {sheetTab !== 2 && sheetTab !== 3 && (
       <Box sx={{ display: 'flex', flexShrink: 0, position: 'relative' }}>
         <Paper
           ref={sidebarRef}
@@ -1416,7 +1428,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         {isDefaultRoute ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
             {/* 캠페인 시트 메인 탭일 때만 [캠페인 시트 / 날짜별 작업] 서브탭 노출 */}
-            {sheetTab !== 2 && (
+            {sheetTab !== 2 && sheetTab !== 3 && (
               <Box sx={{ borderBottom: 1, borderColor: 'divider', flexShrink: 0, bgcolor: 'white' }}>
                 <Tabs
                   value={sheetTab}
@@ -1517,6 +1529,13 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             {sheetTab === 2 && (
               <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 <SalesDashboard viewAsUserId={viewAsUserId} />
+              </Box>
+            )}
+
+            {/* 탭 3: 브랜드 정산 */}
+            {sheetTab === 3 && (
+              <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+                <SalesBrandSettlement />
               </Box>
             )}
           </Box>
