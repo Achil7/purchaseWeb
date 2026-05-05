@@ -4,6 +4,24 @@ const { v4: uuidv4 } = require('uuid');
 const { notifyAllAdmins, createNotification } = require('./notificationController');
 const { deleteFromS3 } = require('../config/s3');
 
+// 31차: Admin embedded 모드 진행자 대시보드 캐시 (60초 TTL)
+const ADMIN_OPERATOR_CACHE_TTL_MS = 60_000;
+const adminOperatorMonthlyBrandsCache = new Map();
+
+function getAdminOperatorCache(operatorId) {
+  const entry = adminOperatorMonthlyBrandsCache.get(operatorId);
+  if (entry && Date.now() - entry.ts < ADMIN_OPERATOR_CACHE_TTL_MS) return entry.data;
+  return null;
+}
+
+function setAdminOperatorCache(operatorId, data) {
+  adminOperatorMonthlyBrandsCache.set(operatorId, { ts: Date.now(), data });
+  if (adminOperatorMonthlyBrandsCache.size > 500) {
+    const first = adminOperatorMonthlyBrandsCache.keys().next().value;
+    adminOperatorMonthlyBrandsCache.delete(first);
+  }
+}
+
 /**
  * 일 구매 건수 문자열 파싱 (예: "6/6" -> [6, 6], "1/3/4/2" -> [1, 3, 4, 2])
  * 숫자만 입력된 경우 단일 배열로 반환 (예: "20" -> [20])
@@ -597,6 +615,15 @@ exports.getMyMonthlyBrands = async (req, res) => {
       operatorId = req.user.id;
     }
 
+    // 31차: Admin viewAsUserId 호출 시 캐시 조회
+    const isAdminView = req.user.role === 'admin' && req.query.viewAsUserId;
+    if (isAdminView) {
+      const cached = getAdminOperatorCache(operatorId);
+      if (cached) {
+        return res.json({ success: true, data: cached, count: cached.length });
+      }
+    }
+
     // 26차: ItemSlot include 제거 (3단계 JOIN → 2단계로 축소, 데카르트곱 방지)
     const assignments = await CampaignOperator.findAll({
       where: { operator_id: operatorId },
@@ -785,6 +812,11 @@ exports.getMyMonthlyBrands = async (req, res) => {
       if (b.id === 0) return -1;
       return (b.year_month || '').localeCompare(a.year_month || '');
     });
+
+    // 31차: Admin viewAsUserId 호출 시 캐시 저장
+    if (isAdminView) {
+      setAdminOperatorCache(operatorId, result);
+    }
 
     res.json({
       success: true,

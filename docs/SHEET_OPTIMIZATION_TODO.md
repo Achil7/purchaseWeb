@@ -2071,6 +2071,71 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ---
 
+### 31차 최적화 (2026-04-25) - Admin embedded 사용자 대시보드 조회 캐싱
+
+**배경:**
+Admin이 컨트롤타워에서 진행자/영업사/브랜드사 사용자를 클릭할 때 첫 조회가 너무 오래 걸림.
+main 측정값:
+- `/monthly-brands?viewAsUserId=` (영업사) — **1068ms**
+- `/items/my-monthly-brands?viewAsUserId=` (진행자) — **540ms**
+- `/monthly-brands/my-brand?viewAsUserId=` (브랜드사) — **2034ms**
+
+3개 API 모두 27차/28차/30차에서 기본 최적화 완료. 인덱스도 모두 존재.
+남은 병목 = **데이터 양 자체** + **Admin이 같은 사용자 반복 클릭 시 매번 풀 쿼리**.
+
+**적용 내용:**
+
+#### Admin embedded 모드 전용 in-memory 캐시 (60초 TTL)
+- 일반 user 요청에는 캐시 적용 안 함 (자기 데이터 항상 최신 필요)
+- `req.user.role === 'admin' && req.query.viewAsUserId` 일 때만 캐시 작동
+- 29차 brand dashboard trend 캐시와 동일한 패턴
+- 메모리 제한: 캐시 size > 500 시 가장 오래된 엔트리 자동 제거
+
+**3개 API에 동일한 캐시 적용:**
+
+| API | 캐시 변수 |
+|-----|-----------|
+| `monthly-brands/my-brand` | `adminMyBrandCache` |
+| `monthly-brands` (영업사) | `adminSalesMonthlyBrandsCache` |
+| `items/my-monthly-brands` | `adminOperatorMonthlyBrandsCache` |
+
+**수정 파일:**
+- `backend/src/routes/monthlyBrands.js` ✅ (Part 1 + Part 2)
+- `backend/src/controllers/itemController.js` ✅ (Part 3)
+
+**프론트 수정 없음. 마이그레이션 없음.**
+
+**기능/결과값 불변 보장:**
+- 응답 JSON 구조 100% 동일
+- 일반 사용자(영업사/진행자/브랜드사 본인) 요청 → 캐시 미적용 → 항상 최신
+- Admin viewAsUserId 호출만 캐시 → 60초 TTL
+- 데이터 변경 시 최대 60초 후 반영 (admin 모니터링 용도라 허용)
+- 컨테이너 재시작 시 캐시 자동 비워짐
+
+**빌드:** ✅ 백엔드 2개 파일 문법 검증 통과
+
+**예상 효과:**
+
+| API | 첫 호출 | 60초 내 재호출 |
+|-----|--------|---------------|
+| `/monthly-brands?viewAsUserId=` | 1068ms (변화 없음) | **~5ms** |
+| `/items/my-monthly-brands?viewAsUserId=` | 540ms (변화 없음) | **~5ms** |
+| `/monthly-brands/my-brand?viewAsUserId=` | 2034ms (변화 없음) | **~5ms** |
+
+→ Admin이 사용자 카드 반복 클릭 시 체감 속도 대폭 개선
+→ 다른 사용자 보다가 돌아왔을 때 즉시 표시
+
+**기능 검증 항목:**
+- [ ] 일반 영업사/진행자/브랜드사 로그인 → 사이드바 정상 (캐시 미적용 확인)
+- [ ] Admin 컨트롤타워 → 영업사 카드 클릭 → 정상 표시
+- [ ] 같은 영업사 카드 다시 클릭 (60초 내) → 즉시 표시 (서버 로그에 SLOW 안 뜸)
+- [ ] 다른 영업사 클릭 → 새로 조회 (다른 사용자 캐시 분리 확인)
+- [ ] 진행자/브랜드사도 동일 패턴 검증
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
 
 **목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선

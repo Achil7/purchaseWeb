@@ -4,6 +4,27 @@ const { MonthlyBrand, Campaign, Item, User, Buyer, Image, ItemSlot, CampaignOper
 const { authenticate, authorize } = require('../middleware/auth');
 const { Op } = require('sequelize');
 
+// 31차: Admin embedded 모드 전용 in-memory 캐시 (60초 TTL)
+// admin이 viewAsUserId로 사용자 대시보드 조회 시 반복 클릭 캐싱
+const ADMIN_CACHE_TTL_MS = 60_000;
+
+const adminMyBrandCache = new Map();
+const adminSalesMonthlyBrandsCache = new Map();
+
+function getAdminCache(cache, key) {
+  const entry = cache.get(key);
+  if (entry && Date.now() - entry.ts < ADMIN_CACHE_TTL_MS) return entry.data;
+  return null;
+}
+
+function setAdminCache(cache, key, data) {
+  cache.set(key, { ts: Date.now(), data });
+  if (cache.size > 500) {
+    const first = cache.keys().next().value;
+    cache.delete(first);
+  }
+}
+
 /**
  * @route   GET /api/monthly-brands/my-brand
  * @desc    브랜드사용 - 자신의 브랜드에 연결된 연월브랜드 목록 조회
@@ -28,6 +49,15 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
     } else {
       // 브랜드사는 자신의 ID 사용
       brandUserId = req.user.id;
+    }
+
+    // 31차: Admin viewAsUserId 호출 시 캐시 조회
+    const isAdminView = req.user.role === 'admin' && req.query.viewAsUserId;
+    if (isAdminView) {
+      const cached = getAdminCache(adminMyBrandCache, brandUserId);
+      if (cached) {
+        return res.json({ success: true, data: cached });
+      }
     }
 
     const { sequelize } = require('../models');
@@ -169,6 +199,11 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
       }
       return mbData;
     });
+
+    // 31차: Admin viewAsUserId 호출 시 캐시 저장
+    if (isAdminView) {
+      setAdminCache(adminMyBrandCache, brandUserId, result);
+    }
 
     res.json({ success: true, data: result });
   } catch (error) {
@@ -390,6 +425,15 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
       salesId = req.user.id;
     }
 
+    // 31차: Admin viewAsUserId 호출 시 캐시 조회
+    const isAdminView = req.user.role === 'admin' && req.query.viewAsUserId;
+    if (isAdminView) {
+      const cached = getAdminCache(adminSalesMonthlyBrandsCache, salesId);
+      if (cached) {
+        return res.json({ success: true, data: cached });
+      }
+    }
+
     // 1. 해당 영업사가 담당하는 캠페인이 속한 연월브랜드 ID 조회
     const campaignsWithMonthlyBrand = await Campaign.findAll({
       where: { created_by: salesId },
@@ -555,6 +599,11 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
       }
       return mbData;
     });
+
+    // 31차: Admin viewAsUserId 호출 시 캐시 저장
+    if (isAdminView) {
+      setAdminCache(adminSalesMonthlyBrandsCache, salesId, processedMonthlyBrands);
+    }
 
     res.json({
       success: true,
