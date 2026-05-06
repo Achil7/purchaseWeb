@@ -143,6 +143,30 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     try { localStorage.setItem(SHEET_TAB_KEY, String(sheetTab)); } catch {}
   }, [sheetTab]);
 
+  // 현황 대시보드에서 캠페인 바로가기: ?openCampaign=123 으로 들어오면
+  // 캠페인 시트 탭 + 해당 캠페인을 자동 선택해 시트를 바로 표시 (BrandLayout 동일 패턴)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const openCampaignId = params.get('openCampaign');
+    if (!openCampaignId || monthlyBrands.length === 0) return;
+    const targetId = parseInt(openCampaignId, 10);
+    let found = null;
+    for (const mb of monthlyBrands) {
+      const hit = (mb.campaigns || []).find(c => c.id === targetId);
+      if (hit) { found = hit; break; }
+    }
+    if (found) {
+      setSheetTab(0); // 캠페인 시트 탭으로 전환
+      setSelectedCampaign(found);
+      // URL 정리: openCampaign 파라미터만 제거 (userId 등은 보존)
+      const cleanParams = new URLSearchParams(location.search);
+      cleanParams.delete('openCampaign');
+      const cleanQuery = cleanParams.toString();
+      const cleanBase = isAdminMode ? '/admin/view-sales' : '/sales';
+      navigate(cleanBase + (cleanQuery ? `?${cleanQuery}` : ''), { replace: true });
+    }
+  }, [location.search, monthlyBrands, navigate, isAdminMode]);
+
   // 사이드바 접기/펼치기 상태
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -460,11 +484,6 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     if (!isEmbedded && location.pathname !== basePathOnly && location.pathname !== `${basePathOnly}/`) {
       navigate(basePath);
     }
-  };
-
-  // 품목 클릭 - 품목 상세로 이동
-  const handleItemClick = (campaignId, itemId) => {
-    navigate(`/sales/campaign/${campaignId}/item/${itemId}`);
   };
 
   // 품목 추가
@@ -1528,14 +1547,36 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             {/* 탭 2: 현황 대시보드 */}
             {sheetTab === 2 && (
               <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-                <SalesDashboard viewAsUserId={viewAsUserId} />
+                <SalesDashboard
+                  viewAsUserId={viewAsUserId}
+                  isAdminMode={isAdminMode}
+                  isEmbedded={true}
+                  onCampaignSelect={(campaignId) => {
+                    let found = null;
+                    for (const mb of monthlyBrands) {
+                      const hit = (mb.campaigns || []).find(c => c.id === campaignId);
+                      if (hit) { found = hit; break; }
+                    }
+                    if (found) {
+                      setSheetTab(0); // 캠페인 시트 탭으로 전환
+                      setSelectedCampaign(found);
+                    } else {
+                      // monthlyBrands에 없는 경우 (사이드바 미로드 등): 쿼리 방식 fallback
+                      const params = new URLSearchParams();
+                      params.set('openCampaign', String(campaignId));
+                      if (isAdminMode && viewAsUserId) params.set('userId', String(viewAsUserId));
+                      const cleanBase = isAdminMode ? '/admin/view-sales' : '/sales';
+                      navigate(`${cleanBase}?${params.toString()}`);
+                    }
+                  }}
+                />
               </Box>
             )}
 
             {/* 탭 3: 브랜드 정산 */}
             {sheetTab === 3 && (
               <Box sx={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-                <SalesBrandSettlement />
+                <SalesBrandSettlement viewAsUserId={viewAsUserId} />
               </Box>
             )}
           </Box>

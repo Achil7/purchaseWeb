@@ -3,11 +3,14 @@ import {
   Box, Paper, Typography, Stack, Button, CircularProgress, Alert, Divider,
   Table, TableHead, TableBody, TableRow, TableCell, TableFooter,
   FormControl, InputLabel, Select, MenuItem, Tooltip, Chip,
+  TextField, TablePagination, InputAdornment,
 } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import * as brandSettlementService from '../../services/brandSettlementService';
+import { formatYearMonthLabel } from '../../utils/dateFormat';
 
 const fmt = (n) => `₩${Number(n || 0).toLocaleString('ko-KR')}`;
 const ALL = '__ALL__';
@@ -103,7 +106,7 @@ function reduceProducts(products) {
   return acc;
 }
 
-function SalesBrandSettlement() {
+function SalesBrandSettlement({ viewAsUserId = null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState({ brands: [] });
@@ -111,12 +114,15 @@ function SalesBrandSettlement() {
   const [selectedBrandId, setSelectedBrandId] = useState('');
   const [selectedPlatform, setSelectedPlatform] = useState(ALL);
   const [selectedYearMonth, setSelectedYearMonth] = useState(ALL);
+  const [searchText, setSearchText] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await brandSettlementService.getSalesProductSummary();
+      const res = await brandSettlementService.getSalesProductSummary(viewAsUserId);
       setData(res?.data || { brands: [] });
     } catch (e) {
       console.error(e);
@@ -124,7 +130,7 @@ function SalesBrandSettlement() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [viewAsUserId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -148,14 +154,26 @@ function SalesBrandSettlement() {
 
   const filteredProducts = useMemo(() => {
     if (!selectedBrand) return [];
+    const q = searchText.trim().toLowerCase();
     return selectedBrand.products.filter((p) => {
       if (selectedPlatform !== ALL && p.platform !== selectedPlatform) return false;
       if (selectedYearMonth !== ALL && p.yearMonth !== selectedYearMonth) return false;
+      if (q && !(p.productName || '').toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [selectedBrand, selectedPlatform, selectedYearMonth]);
+  }, [selectedBrand, selectedPlatform, selectedYearMonth, searchText]);
 
   const subtotal = useMemo(() => reduceProducts(filteredProducts), [filteredProducts]);
+
+  // 필터/검색 변경 시 페이지 초기화
+  useEffect(() => {
+    setPage(0);
+  }, [selectedBrandId, selectedPlatform, selectedYearMonth, searchText]);
+
+  const pagedProducts = useMemo(
+    () => filteredProducts.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [filteredProducts, page, rowsPerPage]
+  );
 
   const headStyle = { fontWeight: 'bold', bgcolor: '#f3f6fb' };
   const totalEmphasis = { ...headStyle, bgcolor: '#e3efff' };
@@ -212,19 +230,35 @@ function SalesBrandSettlement() {
           </FormControl>
 
           <FormControl size="small" sx={{ minWidth: 180 }}>
-            <InputLabel>월별 (year_month)</InputLabel>
+            <InputLabel>월별</InputLabel>
             <Select
-              label="월별 (year_month)"
+              label="월별"
               value={selectedYearMonth}
               onChange={(e) => setSelectedYearMonth(e.target.value)}
               disabled={!selectedBrand}
             >
               <MenuItem value={ALL}>전체</MenuItem>
               {selectedBrand?.yearMonths?.map((ym) => (
-                <MenuItem key={ym} value={ym}>{ym}</MenuItem>
+                <MenuItem key={ym} value={ym}>{formatYearMonthLabel(ym)}</MenuItem>
               ))}
             </Select>
           </FormControl>
+
+          <TextField
+            size="small"
+            placeholder="제품명 검색"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            disabled={!selectedBrand}
+            sx={{ minWidth: 220 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
 
           <Box sx={{ flexGrow: 1 }} />
 
@@ -285,7 +319,7 @@ function SalesBrandSettlement() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredProducts.map((p) => (
+                  pagedProducts.map((p) => (
                     <TableRow key={p.productId} hover>
                       <TableCell>{p.productName}</TableCell>
                       <TableCell>{p.platform || '-'}</TableCell>
@@ -311,7 +345,7 @@ function SalesBrandSettlement() {
               {filteredProducts.length > 0 && (
                 <TableFooter>
                   <TableRow sx={{ '& td': { fontWeight: 'bold', bgcolor: '#fafafa' } }}>
-                    <TableCell colSpan={4}>소계</TableCell>
+                    <TableCell colSpan={4}>소계 (필터 전체)</TableCell>
                     <TableCell align="right">{fmt(subtotal.total.amount)}</TableCell>
                     <TableCell align="right">{fmt(subtotal.total.paymentAmount)}</TableCell>
                     <TableCell align="right">{fmt(subtotal.total.reviewCost)}</TableCell>
@@ -327,6 +361,22 @@ function SalesBrandSettlement() {
                 </TableFooter>
               )}
             </Table>
+            {filteredProducts.length > 0 && (
+              <TablePagination
+                component="div"
+                count={filteredProducts.length}
+                page={page}
+                onPageChange={(_, newPage) => setPage(newPage)}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={(e) => {
+                  setRowsPerPage(parseInt(e.target.value, 10));
+                  setPage(0);
+                }}
+                rowsPerPageOptions={[25, 50, 100, 200]}
+                labelRowsPerPage="페이지당 행 수"
+                labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
+              />
+            )}
           </Paper>
         </>
       )}

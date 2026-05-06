@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography, Tooltip } from '@mui/material';
+import { Box, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Typography, Tooltip, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import DownloadIcon from '@mui/icons-material/Download';
 import CloseIcon from '@mui/icons-material/Close';
@@ -21,6 +21,7 @@ import 'handsontable/dist/handsontable.full.min.css';
 import itemSlotService from '../../services/itemSlotService';
 import imageService from '../../services/imageService';
 import { downloadExcel, convertSlotsToExcelData } from '../../utils/excelExport';
+import { formatYearMonthLabel } from '../../utils/dateFormat';
 
 // Handsontable 모든 모듈 등록
 registerAllModules();
@@ -984,6 +985,49 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
   // 리뷰샷 필터 상태
   const [reviewFilter, setReviewFilter] = useState('all');
 
+  // 월 필터 상태 (overdue 모드 전용, 'all' 또는 'YYYY-MM')
+  const [monthFilter, setMonthFilter] = useState('all');
+
+  // slot.date에서 'YYYY-MM' 추출 (TEXT 타입이라 형식 다양: 'YYYY-MM-DD', 'YY-MM-DD', 'YYYY.MM.DD' 등)
+  const extractMonth = useCallback((dateStr) => {
+    if (!dateStr) return '';
+    const s = String(dateStr).trim();
+    // 4자리 연도: 2026-02-07, 2026.02.07, 2026/02/07, 2026-02
+    let m = s.match(/^(\d{4})[-./](\d{1,2})/);
+    if (m) {
+      return `${m[1]}-${m[2].padStart(2, '0')}`;
+    }
+    // 2자리 연도: 26-02-07, 26.02.07, 26/02/07 → 20XX 로 보정
+    m = s.match(/^(\d{2})[-./](\d{1,2})/);
+    if (m) {
+      return `20${m[1]}-${m[2].padStart(2, '0')}`;
+    }
+    return '';
+  }, []);
+
+  // 슬롯 1개의 효과적인 날짜 (buyer.date → slot.date → item.date 폴백)
+  // 화면에 보이는 BUYER_DATA col2 = (mergedBuyer.date || mergedSlot.date)와 일치하는 우선순위
+  const getSlotEffectiveDate = useCallback((slot) => {
+    return slot?.buyer?.date || slot?.date || slot?.item?.date || '';
+  }, []);
+
+  // overdue 모드에서 사용할 월 옵션 목록 (slot.date → item.date 폴백 적용)
+  const monthOptions = useMemo(() => {
+    if (!isOverdueMode) return [];
+    const set = new Set();
+    slots.forEach((slot) => {
+      const ym = extractMonth(getSlotEffectiveDate(slot));
+      if (ym) set.add(ym);
+    });
+    return [...set].sort(); // 오름차순
+  }, [slots, isOverdueMode, extractMonth, getSlotEffectiveDate]);
+
+  // 월 필터를 적용한 slots (통계 계산용)
+  const monthFilteredSlots = useMemo(() => {
+    if (!isOverdueMode || monthFilter === 'all') return slots;
+    return slots.filter((slot) => extractMonth(getSlotEffectiveDate(slot)) === monthFilter);
+  }, [slots, monthFilter, isOverdueMode, extractMonth, getSlotEffectiveDate]);
+
   // 리뷰샷 필터로 숨길 BUYER_DATA 행 인덱스 계산
   const computeReviewHiddenRows = useCallback((filter, dataRows) => {
     if (filter === 'all') return [];
@@ -1026,13 +1070,70 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
     return hidden;
   }, [baseTableData, collapsedItems]);
 
-  // collapse + 리뷰샷 필터 합집합
+  // 월 필터로 숨길 행 인덱스 계산 (overdue 모드 전용)
+  // 그룹의 월 판정 우선순위: PRODUCT_DATA의 productInfo.date → 그룹 내 BUYER_DATA 행의 날짜
+  // (일마감 후 새 day_group은 제품 날짜가 비어있을 수 있어, 구매자 행 날짜로 fallback 필수)
+  const computeMonthHiddenRows = useCallback((filter, dataRows) => {
+    if (!isOverdueMode || filter === 'all') return [];
+
+    // 1단계: 그룹별 월 수집 (한 그룹에 여러 월이 섞여 있으면 모두 모음)
+    const groupMonths = new Map(); // groupKey -> Set<'YYYY-MM'>
+    for (const row of dataRows) {
+      if (!row?._groupKey) continue;
+      let dateStr = null;
+      if (row._rowType === ROW_TYPES.PRODUCT_DATA) {
+        dateStr = row._productInfo?.date;
+      } else if (row._rowType === ROW_TYPES.BUYER_DATA) {
+        // BUYER_DATA: col2가 화면 표시되는 날짜 (mergedBuyer.date || mergedSlot.date)
+        dateStr = row.col2;
+      }
+      const ym = extractMonth(dateStr);
+      if (!ym) continue;
+      if (!groupMonths.has(row._groupKey)) groupMonths.set(row._groupKey, new Set());
+      groupMonths.get(row._groupKey).add(ym);
+    }
+
+    // 2단계: 선택된 월이 그룹의 월 집합에 없으면 숨김 대상
+    const hiddenGroupKeys = new Set();
+    for (const row of dataRows) {
+      if (!row?._groupKey) continue;
+      const months = groupMonths.get(row._groupKey);
+      if (!months || !months.has(filter)) {
+        hiddenGroupKeys.add(row._groupKey);
+      }
+    }
+
+    // 3단계: 해당 그룹에 속한 모든 행 인덱스 수집
+    // PRODUCT_HEADER와 ITEM_SEPARATOR는 _groupKey가 없으므로,
+    // 바로 뒤에 오는 PRODUCT_DATA의 _groupKey가 숨김 대상이면 같이 숨김
+    const hidden = new Set();
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i];
+      if (row?._groupKey && hiddenGroupKeys.has(row._groupKey)) {
+        hidden.add(i);
+        // 이 행이 PRODUCT_DATA면 그 앞의 PRODUCT_HEADER, ITEM_SEPARATOR도 같이 숨김
+        if (row._rowType === ROW_TYPES.PRODUCT_DATA) {
+          // 직전 PRODUCT_HEADER (1칸 위)
+          const prev = dataRows[i - 1];
+          if (prev?._rowType === ROW_TYPES.PRODUCT_HEADER) hidden.add(i - 1);
+          // 그 앞의 ITEM_SEPARATOR (2칸 위)
+          const prev2 = dataRows[i - 2];
+          if (prev2?._rowType === ROW_TYPES.ITEM_SEPARATOR) hidden.add(i - 2);
+        }
+      }
+    }
+    return [...hidden];
+  }, [isOverdueMode, extractMonth]);
+
+  // collapse + 리뷰샷 + 월 필터 합집합
   const hiddenRowIndices = useMemo(() => {
     const collapseSet = new Set(collapseHiddenIndices);
     const reviewHidden = computeReviewHiddenRows(reviewFilter, baseTableData);
     for (const idx of reviewHidden) collapseSet.add(idx);
+    const monthHidden = computeMonthHiddenRows(monthFilter, baseTableData);
+    for (const idx of monthHidden) collapseSet.add(idx);
     return [...collapseSet];
-  }, [collapseHiddenIndices, baseTableData, computeReviewHiddenRows, reviewFilter]);
+  }, [collapseHiddenIndices, baseTableData, computeReviewHiddenRows, reviewFilter, computeMonthHiddenRows, monthFilter]);
 
   // hiddenRowIndices를 ref로 유지 (afterLoadData/handleReviewFilterChange에서 사용)
   const hiddenRowIndicesRef = useRef(hiddenRowIndices);
@@ -1125,12 +1226,12 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
 
   // 총 구매자 건수 계산 (원본 slots 데이터 기준 - 접기와 무관하게 전체 건수 표시)
   const totalDataCount = useMemo(() => {
-    return slots.length;
-  }, [slots]);
+    return monthFilteredSlots.length;
+  }, [monthFilteredSlots]);
 
   // 작성 건수 (계좌번호 존재 기준) - changedSlotsRef 반영
   const writtenCount = useMemo(() => {
-    return slots.reduce((count, slot) => {
+    return monthFilteredSlots.reduce((count, slot) => {
       const slotChanges = changedSlotsRef.current[slot.id] || {};
       const accountInfo = slotChanges.account_info ?? slot.buyer?.account_info ?? '';
       if (accountInfo && String(accountInfo).trim() !== '') {
@@ -1139,11 +1240,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
       return count;
     }, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slots]);
+  }, [monthFilteredSlots]);
 
   // 리뷰샷 존재 건수 (계좌번호 있는 슬롯 중 이미지 보유)
   const reviewShotCount = useMemo(() => {
-    return slots.reduce((count, slot) => {
+    return monthFilteredSlots.reduce((count, slot) => {
       const slotChanges = changedSlotsRef.current[slot.id] || {};
       const accountInfo = slotChanges.account_info ?? slot.buyer?.account_info ?? '';
       const hasAccount = accountInfo && String(accountInfo).trim() !== '';
@@ -1154,15 +1255,15 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
       return count;
     }, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slots]);
+  }, [monthFilteredSlots]);
 
   // 금액 합계 계산 (원본 slots 데이터 기준)
   const totalAmount = useMemo(() => {
-    return slots.reduce((sum, slot) => {
+    return monthFilteredSlots.reduce((sum, slot) => {
       const buyer = slot.buyer || {};
       return sum + parseAmount(buyer.amount);
     }, 0);
-  }, [slots, parseAmount]);
+  }, [monthFilteredSlots, parseAmount]);
 
   // 엑셀 다운로드 핸들러
   const handleDownloadExcel = useCallback(() => {
@@ -1690,11 +1791,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
   // 배정된 품목 수 계산 (day_group별 고유 품목)
   const uniqueItemCount = useMemo(() => {
     const uniqueItems = new Set();
-    slots.forEach(slot => {
+    monthFilteredSlots.forEach(slot => {
       uniqueItems.add(`${slot.item_id}_${slot.day_group}`);
     });
     return uniqueItems.size;
-  }, [slots]);
+  }, [monthFilteredSlots]);
 
   // ========== 성능 최적화: HotTable inline props → useCallback/useMemo (updateSettings 방지, IME 깨짐 방지) ==========
 
@@ -2020,6 +2121,26 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
               <Typography variant="body2" color="text.secondary">
                 배정 품목 {uniqueItemCount}개 · 브랜드/연월브랜드/캠페인/제품명 순 정렬
               </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                월별:
+              </Typography>
+              <FormControl size="small" sx={{ minWidth: 110 }}>
+                <Select
+                  value={monthFilter}
+                  onChange={(e) => setMonthFilter(e.target.value)}
+                  displayEmpty
+                  sx={{
+                    height: 32,
+                    fontSize: '0.8rem',
+                    '& .MuiSelect-select': { py: 0.5 }
+                  }}
+                >
+                  <MenuItem value="all" sx={{ fontSize: '0.8rem' }}>전체</MenuItem>
+                  {monthOptions.map((ym) => (
+                    <MenuItem key={ym} value={ym} sx={{ fontSize: '0.8rem' }}>{formatYearMonthLabel(ym)}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
               <Button
                 variant="outlined"
                 size="small"

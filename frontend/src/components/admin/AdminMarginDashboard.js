@@ -5,6 +5,7 @@ import {
 } from '@mui/material';
 import { useAuth } from '../../context/AuthContext';
 import * as settlementService from '../../services/settlementService';
+import { formatYearMonthLabel } from '../../utils/dateFormat';
 import EstimateTab from './margin/EstimateTab';
 import RevenueTab from './margin/RevenueTab';
 import ExpenseTab from './margin/ExpenseTab';
@@ -85,7 +86,7 @@ function AdminMarginDashboard() {
               <InputLabel>월 선택</InputLabel>
               <Select value={selectedMonth} onChange={handleMonthChange} label="월 선택">
                 {monthOptions.map(m => (
-                  <MenuItem key={m} value={m}>{m}</MenuItem>
+                  <MenuItem key={m} value={m}>{formatYearMonthLabel(m)}</MenuItem>
                 ))}
               </Select>
             </FormControl>

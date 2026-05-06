@@ -26,6 +26,7 @@ import {
   XAxis, YAxis, Tooltip as RTooltip, CartesianGrid
 } from 'recharts';
 import * as salesDashboardService from '../../services/salesDashboardService';
+import { formatYearMonthLabel } from '../../utils/dateFormat';
 import { CircularGauge, SummaryCard, CampaignSubTable, IssueList } from '../brand/BrandDashboard';
 
 const fmtNumber = (n) => {
@@ -38,12 +39,18 @@ const fmtAmount = (n) => `${fmtNumber(n)}원`;
 const ALL = '__ALL__';
 const PLATFORM_ORDER_KEY = 'sales_platform_order';
 
-function SalesDashboard({ viewAsUserId: viewAsUserIdProp } = {}) {
+function SalesDashboard({
+  viewAsUserId: viewAsUserIdProp,
+  isAdminMode: isAdminModeProp,
+  isEmbedded = false,
+  onCampaignSelect,
+} = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const viewAsUserId = viewAsUserIdProp != null ? viewAsUserIdProp : searchParams.get('userId');
-  const isAdminMode = location.pathname.startsWith('/admin/view-sales');
+  // isAdminMode prop이 명시되면 우선 사용, 없으면 URL로 판정 (Admin 컨트롤타워 embedded 대응)
+  const isAdminMode = isAdminModeProp != null ? isAdminModeProp : location.pathname.startsWith('/admin/view-sales');
 
   // 브랜드 / 월 / 플랫폼 선택 state
   const [brands, setBrands] = useState([]);
@@ -177,11 +184,20 @@ function SalesDashboard({ viewAsUserId: viewAsUserIdProp } = {}) {
 
   useEffect(() => { loadProductList(); }, [loadProductList]);
 
+  // 캠페인 클릭
+  // - embedded (Admin 컨트롤타워 또는 SalesLayout 내부 탭): 부모 콜백으로 알림 (URL 변경 없이 탭/캠페인만 전환)
+  // - 그 외: 대시보드 루트로 ?openCampaign= 쿼리 이동 → SalesLayout이 쿼리 감지해 자동 선택
   const goToCampaign = useCallback((campaignId) => {
+    if (isEmbedded && typeof onCampaignSelect === 'function') {
+      onCampaignSelect(campaignId);
+      return;
+    }
     const base = isAdminMode ? '/admin/view-sales' : '/sales';
-    const suffix = isAdminMode && viewAsUserId ? `?userId=${viewAsUserId}` : '';
-    navigate(`${base}/campaign/${campaignId}${suffix}`);
-  }, [navigate, isAdminMode, viewAsUserId]);
+    const params = new URLSearchParams();
+    params.set('openCampaign', String(campaignId));
+    if (isAdminMode && viewAsUserId) params.set('userId', String(viewAsUserId));
+    navigate(`${base}?${params.toString()}`);
+  }, [navigate, isAdminMode, viewAsUserId, isEmbedded, onCampaignSelect]);
 
   // 플랫폼 정렬 적용
   const rawPlatforms = overview?.platforms || [];
@@ -255,7 +271,7 @@ function SalesDashboard({ viewAsUserId: viewAsUserIdProp } = {}) {
           size="small"
           sx={{ minWidth: 180 }}
           options={[ALL, ...months]}
-          getOptionLabel={(opt) => opt === ALL ? '전체' : opt}
+          getOptionLabel={(opt) => opt === ALL ? '전체' : formatYearMonthLabel(opt)}
           value={selectedMonth}
           onChange={(_e, newVal) => setSelectedMonth(newVal || ALL)}
           renderInput={(params) => <TextField {...params} label="월" />}
@@ -263,7 +279,7 @@ function SalesDashboard({ viewAsUserId: viewAsUserIdProp } = {}) {
         />
         {selectedBrand && (
           <Typography variant="body2" color="text.secondary">
-            <b>{selectedBrand.name}</b> · {selectedMonth === ALL ? '전체 월' : selectedMonth} 기준
+            <b>{selectedBrand.name}</b> · {selectedMonth === ALL ? '전체 월' : formatYearMonthLabel(selectedMonth)} 기준
           </Typography>
         )}
       </Paper>

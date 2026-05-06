@@ -22,17 +22,9 @@ import AdminReviewSearch from './components/admin/AdminReviewSearch';
 
 // --- 영업사 관련 페이지 ---
 import SalesLayout from './components/sales/SalesLayout';
-import SalesCampaignTable from './components/sales/SalesCampaignTable';
-import SalesItemTable from './components/sales/SalesItemTable';
-import SalesItemDetail from './components/sales/SalesItemDetail';
-import SalesMonthlyBuyers from './components/sales/SalesMonthlyBuyers';
 
 // --- 진행자 관련 페이지 ---
 import OperatorLayout from './components/operator/OperatorLayout';
-import OperatorCampaignTable from './components/operator/OperatorCampaignTable';
-import OperatorItemTable from './components/operator/OperatorItemTable';
-import OperatorBuyerTable from './components/operator/OperatorBuyerTable';
-import OperatorMonthlyBuyers from './components/operator/OperatorMonthlyBuyers';
 
 // --- 브랜드사 관련 페이지 ---
 import BrandLayout from './components/brand/BrandLayout';
@@ -108,12 +100,7 @@ function App() {
                 <AdminViewSales />
               </ProtectedRoute>
             }
-          >
-            <Route index element={<SalesCampaignTable />} />
-            <Route path="campaign/:campaignId" element={<SalesItemTable />} />
-            <Route path="campaign/:campaignId/item/:itemId" element={<SalesItemDetail />} />
-            <Route path="daily-items" element={<SalesMonthlyBuyers />} />
-          </Route>
+          />
 
           {/* Admin이 진행자 페이지를 그대로 볼 수 있는 라우트 (쿼리: ?userId=xxx) */}
           <Route
@@ -123,12 +110,7 @@ function App() {
                 <AdminViewOperator />
               </ProtectedRoute>
             }
-          >
-            <Route index element={<OperatorCampaignTable />} />
-            <Route path="campaign/:campaignId" element={<OperatorItemTable />} />
-            <Route path="campaign/:campaignId/item/:itemId" element={<OperatorBuyerTable />} />
-            <Route path="daily-items" element={<OperatorMonthlyBuyers />} />
-          </Route>
+          />
 
           {/* Admin이 브랜드사 페이지를 그대로 볼 수 있는 라우트 (쿼리: ?userId=xxx) */}
           <Route
@@ -142,7 +124,7 @@ function App() {
             <Route index element={<BrandDashboard />} />
           </Route>
 
-          {/* 영업사 드릴다운 구조 */}
+          {/* 영업사 - 모든 콘텐츠는 SalesLayout 내부 탭으로 처리 */}
           <Route
             path="/sales"
             element={
@@ -150,14 +132,9 @@ function App() {
                 <SalesLayout />
               </ProtectedRoute>
             }
-          >
-            <Route index element={<SalesCampaignTable />} />
-            <Route path="campaign/:campaignId" element={<SalesItemTable />} />
-            <Route path="campaign/:campaignId/item/:itemId" element={<SalesItemDetail />} />
-            <Route path="daily-items" element={<SalesMonthlyBuyers />} />
-          </Route>
+          />
 
-          {/* 진행자 드릴다운 구조 */}
+          {/* 진행자 - 모든 콘텐츠는 OperatorLayout 내부 탭으로 처리 */}
           <Route
             path="/operator"
             element={
@@ -165,12 +142,7 @@ function App() {
                 <OperatorLayout />
               </ProtectedRoute>
             }
-          >
-            <Route index element={<OperatorCampaignTable />} />
-            <Route path="campaign/:campaignId" element={<OperatorItemTable />} />
-            <Route path="campaign/:campaignId/item/:itemId" element={<OperatorBuyerTable />} />
-            <Route path="daily-items" element={<OperatorMonthlyBuyers />} />
-          </Route>
+          />
 
           {/* 브랜드사 드릴다운 구조 */}
           <Route

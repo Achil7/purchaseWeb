@@ -2,12 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, IconButton, Avatar,
-  Badge, Menu, MenuItem, ListItemText, Divider, Chip, Alert,
+  Alert,
   Tabs, Tab
 } from '@mui/material';
 import AssignmentIcon from '@mui/icons-material/Assignment';
-import NotificationsIcon from '@mui/icons-material/Notifications';
-import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
 import NoteAltIcon from '@mui/icons-material/NoteAlt';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -55,9 +53,6 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   const [monthlyCalendarSelectedDate, setMonthlyCalendarSelectedDate] = useState(null);
 
   // 선 업로드 알림 관련 상태
-  const [preUploads, setPreUploads] = useState([]);
-  const [totalPreUploadCount, setTotalPreUploadCount] = useState(0);
-  const [notificationAnchor, setNotificationAnchor] = useState(null);
 
   // 새로 추가된 캠페인 ID 추적 (실시간 업데이트용)
   const [newlyAddedCampaignIds, setNewlyAddedCampaignIds] = useState(new Set());
@@ -181,17 +176,6 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
     }
   }, [viewAsUserId]);
 
-  // 선 업로드 데이터 로드
-  const loadPreUploads = useCallback(async () => {
-    try {
-      const response = await itemService.getMyPreUploads();
-      setPreUploads(response.data || []);
-      setTotalPreUploadCount(response.totalCount || 0);
-    } catch (err) {
-      console.error('Failed to load pre-uploads:', err);
-    }
-  }, []);
-
   // SalesLayout과 동일하게 loadMonthlyBrands 변경 시 로드
   useEffect(() => {
     loadMonthlyBrands();
@@ -209,17 +193,6 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
 
     return () => clearInterval(interval);
   }, [isAdminMode, loadMonthlyBrands, selectedCampaign?.id]);
-
-  // 선 업로드는 일반 모드에서만 폴링
-  useEffect(() => {
-    if (isAdminMode) return;
-    loadPreUploads();
-    const interval = setInterval(() => {
-      if (document.hidden) return;  // 탭 비활성 시 폴링 중지
-      loadPreUploads();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [isAdminMode, loadPreUploads]);
 
   // 한국 시간(UTC+9) 기준 날짜 가져오기
   const getKoreanDateString = (date) => {
@@ -312,19 +285,6 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
       navigate(localBasePath);
     }
   }, [newlyAddedCampaignIds, isEmbedded, location.pathname, isAdminMode, viewAsUserId, navigate]);
-
-  const handleNotificationClick = useCallback((event) => {
-    setNotificationAnchor(event.currentTarget);
-  }, []);
-
-  const handleNotificationClose = useCallback(() => {
-    setNotificationAnchor(null);
-  }, []);
-
-  const handleNavigateToItem = useCallback((campaignId, itemId) => {
-    setNotificationAnchor(null);
-    navigate(`/operator/campaign/${campaignId}/item/${itemId}`);
-  }, [navigate]);
 
   const handleLogout = useCallback(async () => {
     if (isAdminMode) {
@@ -421,75 +381,6 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
           >
             메모장
           </Button>
-
-          {/* 오른쪽: 선 업로드 알림 */}
-          <IconButton color="inherit" onClick={handleNotificationClick}>
-            <Badge badgeContent={totalPreUploadCount} color="error">
-              <NotificationsIcon />
-            </Badge>
-          </IconButton>
-          <Menu
-            anchorEl={notificationAnchor}
-            open={Boolean(notificationAnchor)}
-            onClose={handleNotificationClose}
-            PaperProps={{
-              sx: { minWidth: 320, maxHeight: 400 }
-            }}
-          >
-            <Box sx={{ px: 2, py: 1, bgcolor: '#fff3e0' }}>
-              <Typography variant="subtitle2" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <HourglassEmptyIcon fontSize="small" color="warning" />
-                선 업로드 알림
-                {totalPreUploadCount > 0 && (
-                  <Chip label={`${totalPreUploadCount}건`} size="small" color="warning" />
-                )}
-              </Typography>
-            </Box>
-            <Divider />
-            {preUploads.length > 0 ? (
-              preUploads.map((item, index) => (
-                <MenuItem
-                  key={`${item.campaignId}-${item.itemId}`}
-                  onClick={() => handleNavigateToItem(item.campaignId, item.itemId)}
-                  sx={{
-                    py: 1.5,
-                    borderBottom: index < preUploads.length - 1 ? '1px solid #eee' : 'none'
-                  }}
-                >
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" fontWeight="bold">
-                          {item.itemName}
-                        </Typography>
-                        <Chip
-                          label={`${item.preUploadCount}건`}
-                          size="small"
-                          color="warning"
-                          sx={{ height: 20, fontSize: '0.7rem' }}
-                        />
-                      </Box>
-                    }
-                    secondary={
-                      <Typography variant="caption" color="text.secondary">
-                        {item.campaignName}
-                      </Typography>
-                    }
-                  />
-                </MenuItem>
-              ))
-            ) : (
-              <MenuItem disabled>
-                <ListItemText
-                  primary={
-                    <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-                      선 업로드된 이미지가 없습니다
-                    </Typography>
-                  }
-                />
-              </MenuItem>
-            )}
-          </Menu>
 
           {/* 오른쪽: 프로필 정보 박스 (클릭 시 프로필 수정) */}
           <Box

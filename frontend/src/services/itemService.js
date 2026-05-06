@@ -21,16 +21,6 @@ const itemService = {
     }
   },
 
-  // 내게 배정된 품목 중 선 업로드가 있는 품목 조회 (Operator용 - 알림)
-  getMyPreUploads: async () => {
-    try {
-      const response = await apiClient.get('/items/my-preuploads');
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  },
-
   // 내게 배정된 연월브랜드 목록 조회 (Operator용 - SalesLayout과 동일한 구조)
   // viewAsUserId: Admin이 특정 진행자의 데이터 조회할 때 사용
   getMyMonthlyBrands: async (viewAsUserId = null) => {

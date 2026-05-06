@@ -32,13 +32,6 @@ router.get('/my-assigned', authenticate, authorize(['operator', 'admin']), itemC
 router.get('/my-monthly-brands', authenticate, authorize(['operator', 'admin']), itemController.getMyMonthlyBrands);
 
 /**
- * @route   GET /api/items/my-preuploads
- * @desc    내게 배정된 품목 중 선 업로드가 있는 품목 (Operator용 - 알림)
- * @access  Private (Operator, Admin)
- */
-router.get('/my-preuploads', authenticate, authorize(['operator', 'admin']), itemController.getMyPreUploads);
-
-/**
  * @route   GET /api/items/by-brand
  * @desc    브랜드별 품목 목록 (Brand용 - 캠페인 없이 품목 직접 표시)
  * @access  Private (Brand, Admin)
