@@ -178,6 +178,14 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     try { localStorage.setItem(VIEW_MODE_KEY, viewMode); } catch {}
   }, [viewMode]);
 
+  // /rankings 자식 라우트 진입 시 viewMode='dashboard' 로 강제 (Outlet 렌더링되도록)
+  useEffect(() => {
+    if (location.pathname.includes('/rankings')) {
+      setViewMode('dashboard');
+      setSelectedCampaign(null);
+    }
+  }, [location.pathname]);
+
   // selectedCampaign id 저장 (새로고침 시 캠페인 복원)
   useEffect(() => {
     try {
@@ -652,6 +660,25 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               }}
             >
               {isMobile ? '캠페인' : '캠페인 보기'}
+            </Button>
+            <Button
+              color="inherit"
+              onClick={() => {
+                const target = isAdminMode && viewAsUserId
+                  ? `/admin/view-brand/rankings?userId=${viewAsUserId}`
+                  : '/brand/rankings';
+                navigate(target);
+              }}
+              sx={{
+                fontWeight: location.pathname.includes('/rankings') ? 'bold' : 'normal',
+                borderBottom: location.pathname.includes('/rankings') ? '2px solid #fff' : '2px solid transparent',
+                borderRadius: 0,
+                px: { xs: 1, md: 2 },
+                fontSize: { xs: '0.75rem', md: '0.875rem' },
+                minWidth: { xs: 'auto', md: 64 }
+              }}
+            >
+              {isMobile ? '랭킹' : '올리브영 랭킹'}
             </Button>
           </Box>
 
@@ -1229,7 +1256,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         {viewMode === 'dashboard' ? (
           /* 현황 대시보드 탭: 기본은 index 라우트의 Outlet (BrandDashboard).
              Admin 컨트롤타워에서 embedded 모드면 라우트 자식이 없으므로 직접 렌더 */
-          isEmbedded ? (
+          isEmbedded && !location.pathname.includes('/rankings') ? (
             <BrandDashboard
               isAdminMode={isAdminMode}
               viewAsUserId={viewAsUserId}

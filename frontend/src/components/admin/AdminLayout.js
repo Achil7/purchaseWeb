@@ -15,6 +15,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import ImageSearchIcon from '@mui/icons-material/ImageSearch';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import LeaderboardIcon from '@mui/icons-material/Leaderboard';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import AdminUserCreate from './AdminUserCreate';
@@ -183,6 +184,16 @@ function AdminLayout() {
             sx={{ mr: 2 }}
           >
             휴지통
+          </Button>
+
+          {/* 올리브영 랭킹 버튼 */}
+          <Button
+            color="inherit"
+            startIcon={<LeaderboardIcon />}
+            onClick={() => navigate('/admin/rankings')}
+            sx={{ mr: 2 }}
+          >
+            올리브영 랭킹
           </Button>
 
           {/* 리뷰샷 검색 버튼 */}

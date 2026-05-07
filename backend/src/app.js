@@ -74,6 +74,7 @@ app.use('/api/settlements', require('./routes/settlements'));
 app.use('/api/brand-settlements', require('./routes/brandSettlements'));
 app.use('/api/brand-dashboard', require('./routes/brandDashboard'));
 app.use('/api/sales-dashboard', require('./routes/salesDashboard'));
+app.use('/api/rankings', require('./routes/rankings'));
 
 // Serve static files from React build (production)
 if (process.env.NODE_ENV === 'production') {

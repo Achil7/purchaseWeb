@@ -42,6 +42,7 @@ db.Settlement = require('./Settlement')(sequelize, Sequelize.DataTypes);
 db.SettlementProduct = require('./SettlementProduct')(sequelize, Sequelize.DataTypes);
 db.MarginSetting = require('./MarginSetting')(sequelize, Sequelize.DataTypes);
 db.ReviewExtractedText = require('./ReviewExtractedText')(sequelize, Sequelize.DataTypes);
+db.PlatformRanking = require('./PlatformRanking')(sequelize, Sequelize.DataTypes);
 
 // 모델 관계 설정
 Object.keys(db).forEach((modelName) => {

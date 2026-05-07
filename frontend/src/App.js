@@ -19,6 +19,7 @@ import AdminTrash from './components/admin/AdminTrash';
 import AdminImageApproval from './components/admin/AdminImageApproval';
 import AdminBrandCampaignSettlement from './components/admin/AdminBrandCampaignSettlement';
 import AdminReviewSearch from './components/admin/AdminReviewSearch';
+import AdminRankingDashboard from './components/admin/AdminRankingDashboard';
 
 // --- 영업사 관련 페이지 ---
 import SalesLayout from './components/sales/SalesLayout';
@@ -29,6 +30,7 @@ import OperatorLayout from './components/operator/OperatorLayout';
 // --- 브랜드사 관련 페이지 ---
 import BrandLayout from './components/brand/BrandLayout';
 import BrandDashboard from './components/brand/BrandDashboard';
+import BrandRankingView from './components/brand/BrandRankingView';
 
 // --- 이미지 업로드 페이지 (Public) ---
 import UploadPage from './components/upload/UploadPage';
@@ -90,6 +92,7 @@ function App() {
             <Route path="image-approval" element={<AdminImageApproval />} />
             <Route path="review-search" element={<AdminReviewSearch />} />
             <Route path="brand-settlement" element={<AdminBrandCampaignSettlement />} />
+            <Route path="rankings" element={<AdminRankingDashboard />} />
           </Route>
 
           {/* Admin이 영업사 페이지를 그대로 볼 수 있는 라우트 (쿼리: ?userId=xxx) */}
@@ -122,6 +125,7 @@ function App() {
             }
           >
             <Route index element={<BrandDashboard />} />
+            <Route path="rankings" element={<BrandRankingView />} />
           </Route>
 
           {/* 영업사 - 모든 콘텐츠는 SalesLayout 내부 탭으로 처리 */}
@@ -154,6 +158,7 @@ function App() {
             }
           >
             <Route index element={<BrandDashboard />} />
+            <Route path="rankings" element={<BrandRankingView />} />
           </Route>
 
           {/* 404 - 로그인으로 리다이렉트 */}
