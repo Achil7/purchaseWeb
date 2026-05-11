@@ -721,12 +721,17 @@ router.post('/', authenticate, authorize(['sales', 'admin']), async (req, res) =
     });
     const newSortOrder = (maxSortOrder || 0) + 1;
 
+    // name 앞 4자리가 YYMM 패턴이면 year_month 강제 동기화
+    // (다이얼로그에서 name 만 수정하고 year_month 갱신을 누락하는 운영 패턴 방어)
+    const nameYM = /^(\d{4})/.exec(String(name || ''));
+    const finalYearMonth = nameYM ? nameYM[1] : (year_month || null);
+
     // 연월브랜드 생성
     const monthlyBrand = await MonthlyBrand.create({
       name,
       brand_id,
       created_by: createdBy,
-      year_month: year_month || null,
+      year_month: finalYearMonth,
       description: description || null,
       status: status || 'active',
       sort_order: newSortOrder
@@ -789,10 +794,18 @@ router.put('/:id', authenticate, authorize(['sales', 'admin']), async (req, res)
       });
     }
 
+    // name 앞 4자리가 YYMM 패턴이면 year_month 강제 동기화
+    // (다이얼로그에서 name 만 수정하고 year_month 갱신을 누락하는 운영 패턴 방어)
+    const finalName = name !== undefined ? name : monthlyBrand.name;
+    const nameYM = /^(\d{4})/.exec(String(finalName || ''));
+    const finalYearMonth = nameYM
+      ? nameYM[1]
+      : (year_month !== undefined ? year_month : monthlyBrand.year_month);
+
     // 수정
     await monthlyBrand.update({
-      name: name !== undefined ? name : monthlyBrand.name,
-      year_month: year_month !== undefined ? year_month : monthlyBrand.year_month,
+      name: finalName,
+      year_month: finalYearMonth,
       description: description !== undefined ? description : monthlyBrand.description,
       status: status !== undefined ? status : monthlyBrand.status
     });

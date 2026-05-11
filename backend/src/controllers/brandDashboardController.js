@@ -55,6 +55,16 @@ function buildBuyerLevelView({ withImageCount }) {
                                  AND s.is_suspended = false
     WHERE b.is_temporary = false
       AND b.deleted_at IS NULL
+      AND (
+        NULLIF(TRIM(b.order_number), '')   IS NOT NULL
+        OR NULLIF(TRIM(b.buyer_name), '')     IS NOT NULL
+        OR NULLIF(TRIM(b.recipient_name), '') IS NOT NULL
+        OR NULLIF(TRIM(b.user_id), '')        IS NOT NULL
+        OR NULLIF(TRIM(b.contact), '')        IS NOT NULL
+        OR NULLIF(TRIM(b.address), '')        IS NOT NULL
+        OR NULLIF(TRIM(b.account_info), '')   IS NOT NULL
+        OR NULLIF(TRIM(b.amount), '')         IS NOT NULL
+      )
   `;
 }
 
@@ -330,6 +340,16 @@ exports.getOverview = async (req, res) => {
                                    AND s.is_suspended = false
             WHERE b.is_temporary = false
               AND b.deleted_at IS NULL
+              AND (
+                NULLIF(TRIM(b.order_number), '')   IS NOT NULL
+                OR NULLIF(TRIM(b.buyer_name), '')     IS NOT NULL
+                OR NULLIF(TRIM(b.recipient_name), '') IS NOT NULL
+                OR NULLIF(TRIM(b.user_id), '')        IS NOT NULL
+                OR NULLIF(TRIM(b.contact), '')        IS NOT NULL
+                OR NULLIF(TRIM(b.address), '')        IS NOT NULL
+                OR NULLIF(TRIM(b.account_info), '')   IS NOT NULL
+                OR NULLIF(TRIM(b.amount), '')         IS NOT NULL
+              )
               ${trendPlatformCond}
           ) sub
           WHERE d >= ((NOW() AT TIME ZONE 'Asia/Seoul')::date - INTERVAL '13 days')
