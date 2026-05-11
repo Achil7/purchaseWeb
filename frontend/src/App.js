@@ -20,6 +20,7 @@ import AdminImageApproval from './components/admin/AdminImageApproval';
 import AdminBrandCampaignSettlement from './components/admin/AdminBrandCampaignSettlement';
 import AdminReviewSearch from './components/admin/AdminReviewSearch';
 import AdminRankingDashboard from './components/admin/AdminRankingDashboard';
+import AdminBuyerAnalytics from './components/admin/AdminBuyerAnalytics';
 
 // --- 영업사 관련 페이지 ---
 import SalesLayout from './components/sales/SalesLayout';
@@ -93,6 +94,7 @@ function App() {
             <Route path="review-search" element={<AdminReviewSearch />} />
             <Route path="brand-settlement" element={<AdminBrandCampaignSettlement />} />
             <Route path="rankings" element={<AdminRankingDashboard />} />
+            <Route path="buyer-analytics" element={<AdminBuyerAnalytics />} />
           </Route>
 
           {/* Admin이 영업사 페이지를 그대로 볼 수 있는 라우트 (쿼리: ?userId=xxx) */}

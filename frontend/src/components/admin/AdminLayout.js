@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import {
   Box, AppBar, Toolbar, Typography, Button, Container, IconButton, Avatar,
-  Badge, Menu, MenuItem, ListItemText, Divider
+  Badge, Menu, MenuItem, ListItemText, ListItemIcon, Divider
 } from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import PaymentsIcon from '@mui/icons-material/Payments';
@@ -16,6 +17,7 @@ import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import ImageSearchIcon from '@mui/icons-material/ImageSearch';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import LeaderboardIcon from '@mui/icons-material/Leaderboard';
+import PersonSearchIcon from '@mui/icons-material/PersonSearch';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import AdminUserCreate from './AdminUserCreate';
@@ -36,6 +38,13 @@ function AdminLayout() {
 
   // 재제출 이미지 대기 카운트
   const [pendingImageCount, setPendingImageCount] = useState(0);
+
+  // 메인 메뉴 (햄버거)
+  const [menuAnchorEl, setMenuAnchorEl] = useState(null);
+  const handleMenuItemClick = (path) => {
+    setMenuAnchorEl(null);
+    navigate(path);
+  };
 
   // 알림 목록 조회
   const loadNotifications = async () => {
@@ -144,81 +153,65 @@ function AdminLayout() {
           {/* Spacer */}
           <Box sx={{ flexGrow: 1 }} />
 
-          {/* 날짜별 입금관리 버튼 */}
-          <Button
-            color="inherit"
-            startIcon={<PaymentsIcon />}
-            onClick={() => navigate('/admin/daily-payments')}
-            sx={{ mr: 2 }}
-          >
-            날짜 별 입금관리
-          </Button>
-
-          {/* 마진 현황 버튼 - masterkangwoo 계정에서만 표시 */}
-          {user?.username === 'masterkangwoo' && (
-            <Button
-              color="inherit"
-              startIcon={<TrendingUpIcon />}
-              onClick={() => navigate('/admin/margin')}
-              sx={{ mr: 2 }}
-            >
-              마진 현황
-            </Button>
-          )}
-
-          {/* 브랜드 정산 버튼 */}
-          <Button
-            color="inherit"
-            startIcon={<ReceiptLongIcon />}
-            onClick={() => navigate('/admin/brand-settlement')}
-            sx={{ mr: 2 }}
-          >
-            브랜드 정산
-          </Button>
-
-          {/* 휴지통 버튼 */}
-          <Button
-            color="inherit"
-            startIcon={<DeleteIcon />}
-            onClick={() => navigate('/admin/trash')}
-            sx={{ mr: 2 }}
-          >
-            휴지통
-          </Button>
-
-          {/* 올리브영 랭킹 버튼 */}
-          <Button
-            color="inherit"
-            startIcon={<LeaderboardIcon />}
-            onClick={() => navigate('/admin/rankings')}
-            sx={{ mr: 2 }}
-          >
-            올리브영 랭킹
-          </Button>
-
-          {/* 리뷰샷 검색 버튼 */}
-          <Button
-            color="inherit"
-            startIcon={<ImageSearchIcon />}
-            onClick={() => navigate('/admin/review-search')}
-            sx={{ mr: 2 }}
-          >
-            리뷰샷 검색
-          </Button>
-
-          {/* 이미지 재제출 승인 버튼 */}
+          {/* 메뉴 (햄버거) - 여러 페이지를 드롭다운으로 통합 */}
           <Button
             color="inherit"
             startIcon={
               <Badge badgeContent={pendingImageCount} color="error">
-                <PhotoLibraryIcon />
+                <MenuIcon />
               </Badge>
             }
-            onClick={() => navigate('/admin/image-approval')}
-            sx={{ mr: 2 }}
+            onClick={(e) => setMenuAnchorEl(e.currentTarget)}
+            sx={{ mr: 2, fontWeight: 'bold' }}
           >
-            이미지 승인
+            메뉴
           </Button>
+          <Menu
+            anchorEl={menuAnchorEl}
+            open={Boolean(menuAnchorEl)}
+            onClose={() => setMenuAnchorEl(null)}
+            PaperProps={{ sx: { minWidth: 220 } }}
+          >
+            <MenuItem onClick={() => handleMenuItemClick('/admin/daily-payments')}>
+              <ListItemIcon><PaymentsIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="날짜 별 입금관리" />
+            </MenuItem>
+            {user?.username === 'masterkangwoo' && (
+              <MenuItem onClick={() => handleMenuItemClick('/admin/margin')}>
+                <ListItemIcon><TrendingUpIcon fontSize="small" /></ListItemIcon>
+                <ListItemText primary="마진 현황" />
+              </MenuItem>
+            )}
+            <MenuItem onClick={() => handleMenuItemClick('/admin/brand-settlement')}>
+              <ListItemIcon><ReceiptLongIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="브랜드 정산" />
+            </MenuItem>
+            <MenuItem onClick={() => handleMenuItemClick('/admin/rankings')}>
+              <ListItemIcon><LeaderboardIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="올리브영 랭킹" />
+            </MenuItem>
+            <MenuItem onClick={() => handleMenuItemClick('/admin/review-search')}>
+              <ListItemIcon><ImageSearchIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="리뷰샷 검색" />
+            </MenuItem>
+            <MenuItem onClick={() => handleMenuItemClick('/admin/buyer-analytics')}>
+              <ListItemIcon><PersonSearchIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="구매자 분석" />
+            </MenuItem>
+            <MenuItem onClick={() => handleMenuItemClick('/admin/image-approval')}>
+              <ListItemIcon>
+                <Badge badgeContent={pendingImageCount} color="error">
+                  <PhotoLibraryIcon fontSize="small" />
+                </Badge>
+              </ListItemIcon>
+              <ListItemText primary="이미지 승인" />
+            </MenuItem>
+            <Divider />
+            <MenuItem onClick={() => handleMenuItemClick('/admin/trash')}>
+              <ListItemIcon><DeleteIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="휴지통" />
+            </MenuItem>
+          </Menu>
 
           {/* 사용자 등록 버튼 */}
           <Button
