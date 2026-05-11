@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-renderer/
+*.log
+.DS_Store
+.env*
+
+# 보안: DB 비밀번호 + SSH 키 포함 (개인 PC에만 보관)
+src/main/embeddedConfig.js
