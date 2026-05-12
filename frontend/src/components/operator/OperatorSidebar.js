@@ -27,6 +27,9 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
+import SortByAlphaIcon from '@mui/icons-material/SortByAlpha';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { monthlyBrandService } from '../../services';
 
 const DEFAULT_DRAWER_WIDTH = 280;
@@ -34,6 +37,9 @@ const MIN_DRAWER_WIDTH = 200;
 const MAX_DRAWER_WIDTH = 500;
 const SIDEBAR_WIDTH_KEY = 'operator_sidebar_width';
 const EXPANDED_MB_KEY = 'operator_expanded_monthly_brands';
+const SORT_ORDER_KEY = 'operator_sidebar_sort_order';
+// 정렬 모드: 'none' (드래그/기본 순서) | 'asc' (이름 오름차순) | 'desc' (이름 내림차순)
+const SORT_ORDER_VALUES = ['none', 'asc', 'desc'];
 
 // 캠페인 아이템 컴포넌트 - React.memo로 불필요한 리렌더링 방지
 const CampaignItem = React.memo(({
@@ -225,6 +231,16 @@ function OperatorSidebar({
   // 연월브랜드 검색 상태
   const [searchQuery, setSearchQuery] = useState('');
 
+  // 정렬 모드: 'none' | 'asc' | 'desc'
+  const [sortOrder, setSortOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SORT_ORDER_KEY);
+      return SORT_ORDER_VALUES.includes(saved) ? saved : 'none';
+    } catch {
+      return 'none';
+    }
+  });
+
   // 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 15;
@@ -286,7 +302,7 @@ function OperatorSidebar({
   const filteredMonthlyBrands = useMemo(() => {
     const searchLower = searchQuery.trim().toLowerCase();
 
-    return monthlyBrands.map(mb => {
+    const result = monthlyBrands.map(mb => {
       const filteredCampaigns = (mb.campaigns || []).filter(c => {
         const isHidden = hiddenCampaignIdsSet.has(c.id);
         const hiddenFilter = showHidden ? isHidden : !isHidden;
@@ -304,7 +320,18 @@ function OperatorSidebar({
       }
       return !isMbHidden;
     });
-  }, [monthlyBrands, hiddenCampaignIdsSet, hiddenMonthlyBrandIdsSet, showHidden, searchQuery]);
+
+    // 이름 정렬 (none이면 기본 드래그 순서 유지)
+    if (sortOrder !== 'none') {
+      const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+      result.sort((a, b) => {
+        const cmp = collator.compare(a.name || '', b.name || '');
+        return sortOrder === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return result;
+  }, [monthlyBrands, hiddenCampaignIdsSet, hiddenMonthlyBrandIdsSet, showHidden, searchQuery, sortOrder]);
 
   // 페이지네이션 계산
   const totalPages = Math.ceil(filteredMonthlyBrands.length / ITEMS_PER_PAGE);
@@ -370,6 +397,18 @@ function OperatorSidebar({
       catch (e) { console.error('Failed to save expanded state:', e); }
     }, 300);
   }, [monthlyBrands]);
+
+  // 정렬 모드 순환 토글: none -> asc -> desc -> none
+  const handleSortToggle = useCallback(() => {
+    setSortOrder(prev => {
+      const idx = SORT_ORDER_VALUES.indexOf(prev);
+      const next = SORT_ORDER_VALUES[(idx + 1) % SORT_ORDER_VALUES.length];
+      try {
+        localStorage.setItem(SORT_ORDER_KEY, next);
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // 캠페인 클릭
   const handleCampaignClick = useCallback((campaign) => {
@@ -473,6 +512,8 @@ function OperatorSidebar({
 
     // 숨김 항목 모드에서는 드래그 불가
     if (showHidden) return;
+    // 정렬 모드일 때는 드래그로 순서 변경 불가
+    if (sortOrder !== 'none') return;
 
     const items = Array.from(filteredMonthlyBrands);
     const [reorderedItem] = items.splice(result.source.index, 1);
@@ -496,7 +537,7 @@ function OperatorSidebar({
         onMonthlyBrandsReorder(null); // null은 새로고침 필요 신호
       }
     }
-  }, [filteredMonthlyBrands, showHidden, viewAsUserId, onMonthlyBrandsReorder]);
+  }, [filteredMonthlyBrands, showHidden, sortOrder, viewAsUserId, onMonthlyBrandsReorder]);
 
   // ========== 렌더링 ==========
 
@@ -534,6 +575,11 @@ function OperatorSidebar({
                     <Tooltip title="모두 접기">
                       <IconButton size="small" onClick={handleCollapseAll} sx={{ p: 0.5 }}>
                         <UnfoldLessIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title={sortOrder === 'asc' ? '이름 오름차순 (클릭: 내림차순)' : sortOrder === 'desc' ? '이름 내림차순 (클릭: 기본순)' : '기본 순서 (클릭: 오름차순)'}>
+                      <IconButton size="small" onClick={handleSortToggle} sx={{ p: 0.5 }} color={sortOrder === 'none' ? 'default' : 'primary'}>
+                        {sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : sortOrder === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortByAlphaIcon fontSize="small" />}
                       </IconButton>
                     </Tooltip>
                   </>
@@ -612,7 +658,7 @@ function OperatorSidebar({
             </Box>
           ) : (
             <DragDropContext onDragEnd={handleDragEnd}>
-              <Droppable droppableId="monthly-brands-operator" isDropDisabled={showHidden}>
+              <Droppable droppableId="monthly-brands-operator" isDropDisabled={showHidden || sortOrder !== 'none'}>
                 {(provided) => (
                   <List
                     component="nav"
@@ -630,7 +676,7 @@ function OperatorSidebar({
                           key={monthlyBrand.id}
                           draggableId={`mb-${monthlyBrand.id}`}
                           index={index}
-                          isDragDisabled={showHidden}
+                          isDragDisabled={showHidden || sortOrder !== 'none'}
                         >
                           {(provided, snapshot) => (
                             <React.Fragment>
@@ -647,8 +693,8 @@ function OperatorSidebar({
                                     boxShadow: snapshot.isDragging ? 3 : 0
                                   }}
                                 >
-                                  {/* 드래그 핸들 - 숨김 항목이 아닐 때만 표시 */}
-                                  {!showHidden && (
+                                  {/* 드래그 핸들 - 숨김 항목/정렬 모드가 아닐 때만 표시 */}
+                                  {!showHidden && sortOrder === 'none' && (
                                     <Box
                                       {...provided.dragHandleProps}
                                       sx={{

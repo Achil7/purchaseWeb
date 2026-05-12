@@ -35,6 +35,9 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import EditIcon from '@mui/icons-material/Edit';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
+import SortByAlphaIcon from '@mui/icons-material/SortByAlpha';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import SalesBrandCreateDialog from './SalesBrandCreateDialog';
@@ -51,6 +54,9 @@ const DEFAULT_DRAWER_WIDTH = 280;
 const MIN_DRAWER_WIDTH = 200;
 const MAX_DRAWER_WIDTH = 500;
 const SIDEBAR_WIDTH_KEY = 'sales_sidebar_width';
+const SORT_ORDER_KEY = 'sales_sidebar_sort_order';
+// 정렬 모드: 'none' (드래그/기본 순서) | 'asc' (이름 오름차순) | 'desc' (이름 내림차순)
+const SORT_ORDER_VALUES = ['none', 'asc', 'desc'];
 
 // 통합 시트 사용 여부 (true: UnifiedItemSheet 사용, false: 기존 SalesItemSheet 사용)
 const USE_UNIFIED_SHEET = false;
@@ -122,6 +128,16 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 연월브랜드 검색 상태
   const [searchQuery, setSearchQuery] = useState('');
+
+  // 정렬 모드: 'none' | 'asc' | 'desc'
+  const [sortOrder, setSortOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SORT_ORDER_KEY);
+      return SORT_ORDER_VALUES.includes(saved) ? saved : 'none';
+    } catch {
+      return 'none';
+    }
+  });
 
   // 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
@@ -418,6 +434,18 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     return statsMap;
   }, [monthlyBrands]);
 
+  // 정렬 모드 순환 토글: none -> asc -> desc -> none
+  const handleSortToggle = useCallback(() => {
+    setSortOrder(prev => {
+      const idx = SORT_ORDER_VALUES.indexOf(prev);
+      const next = SORT_ORDER_VALUES[(idx + 1) % SORT_ORDER_VALUES.length];
+      try {
+        localStorage.setItem(SORT_ORDER_KEY, next);
+      } catch {}
+      return next;
+    });
+  }, []);
+
   // 드래그 앤 드롭 완료 핸들러
   const handleDragEnd = useCallback(async (result) => {
     if (!result.destination) return;
@@ -425,6 +453,8 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
     // 숨김 모드에서는 드래그 비활성화
     if (showHidden) return;
+    // 정렬 모드일 때는 드래그로 순서 변경 불가
+    if (sortOrder !== 'none') return;
 
     // result.source/destination.index는 현재 페이지 내(paginatedMonthlyBrands) 기준이므로
     // 페이지 오프셋을 더해 visibleMonthlyBrands(검색 적용 후) 전체 인덱스로 변환
@@ -474,7 +504,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       // 실패 시 원래 순서로 복원
       loadMonthlyBrands();
     }
-  }, [monthlyBrands, showHidden, viewAsUserId, loadMonthlyBrands, currentPage, searchQuery]);
+  }, [monthlyBrands, showHidden, sortOrder, viewAsUserId, loadMonthlyBrands, currentPage, searchQuery]);
 
   // 캠페인 클릭 - 오른쪽에 시트 표시
   const handleCampaignClick = (campaign) => {
@@ -993,6 +1023,11 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                           <UnfoldLessIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title={sortOrder === 'asc' ? '이름 오름차순 (클릭: 내림차순)' : sortOrder === 'desc' ? '이름 내림차순 (클릭: 기본순)' : '기본 순서 (클릭: 오름차순)'}>
+                        <IconButton size="small" onClick={handleSortToggle} sx={{ p: 0.5 }} color={sortOrder === 'none' ? 'default' : 'primary'}>
+                          {sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : sortOrder === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortByAlphaIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
                     </>
                   )}
                   {showHidden && selectedForBulkDelete.size > 0 && (
@@ -1088,6 +1123,15 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 return !mb._isHidden;
               });
 
+              // 이름 정렬 (none이면 기본 드래그 순서 유지)
+              if (sortOrder !== 'none') {
+                const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+                filteredMonthlyBrands.sort((a, b) => {
+                  const cmp = collator.compare(a.name || '', b.name || '');
+                  return sortOrder === 'asc' ? cmp : -cmp;
+                });
+              }
+
               // 페이지네이션 계산
               const salesTotalPages = Math.ceil(filteredMonthlyBrands.length / ITEMS_PER_PAGE);
               const salesStartIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -1115,7 +1159,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               return (
                 <>
                 <DragDropContext onDragEnd={handleDragEnd}>
-                  <Droppable droppableId="monthly-brands" isDropDisabled={showHidden}>
+                  <Droppable droppableId="monthly-brands" isDropDisabled={showHidden || sortOrder !== 'none'}>
                     {(provided) => (
                       <List
                         component="nav"
@@ -1133,7 +1177,7 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                               key={monthlyBrand.id}
                               draggableId={`mb-${monthlyBrand.id}`}
                               index={index}
-                              isDragDisabled={showHidden}
+                              isDragDisabled={showHidden || sortOrder !== 'none'}
                             >
                               {(provided, snapshot) => (
                                 <React.Fragment>
@@ -1156,8 +1200,8 @@ function SalesLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                       boxShadow: snapshot.isDragging ? 3 : 0
                                     }}
                                   >
-                                    {/* 드래그 핸들 */}
-                                    {!showHidden && (
+                                    {/* 드래그 핸들 - 숨김 항목/정렬 모드가 아닐 때만 표시 */}
+                                    {!showHidden && sortOrder === 'none' && (
                                       <Box
                                         {...provided.dragHandleProps}
                                         sx={{

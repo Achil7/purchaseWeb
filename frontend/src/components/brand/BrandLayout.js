@@ -27,6 +27,9 @@ import RestoreIcon from '@mui/icons-material/Restore';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import SortByAlphaIcon from '@mui/icons-material/SortByAlpha';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import BrandItemSheet from './BrandItemSheet';
@@ -37,6 +40,9 @@ const DEFAULT_DRAWER_WIDTH = 280;
 const MIN_DRAWER_WIDTH = 200;
 const MAX_DRAWER_WIDTH = 500;
 const SIDEBAR_WIDTH_KEY = 'brand_sidebar_width';
+const SORT_ORDER_KEY = 'brand_sidebar_sort_order';
+// 정렬 모드: 'none' (드래그/기본 순서) | 'asc' (이름 오름차순) | 'desc' (이름 내림차순)
+const SORT_ORDER_VALUES = ['none', 'asc', 'desc'];
 
 function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = false }) {
   const navigate = useNavigate();
@@ -98,6 +104,16 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
   // 연월브랜드 검색 쿼리
   const [searchQuery, setSearchQuery] = useState('');
+
+  // 정렬 모드: 'none' | 'asc' | 'desc'
+  const [sortOrder, setSortOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SORT_ORDER_KEY);
+      return SORT_ORDER_VALUES.includes(saved) ? saved : 'none';
+    } catch {
+      return 'none';
+    }
+  });
 
   // 제품명 통합 검색 (입력값 / 확정값 분리)
   const [productSearchQuery, setProductSearchQuery] = useState('');
@@ -475,6 +491,18 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     });
   }, []);
 
+  // 정렬 모드 순환 토글: none -> asc -> desc -> none
+  const handleSortToggle = useCallback(() => {
+    setSortOrder(prev => {
+      const idx = SORT_ORDER_VALUES.indexOf(prev);
+      const next = SORT_ORDER_VALUES[(idx + 1) % SORT_ORDER_VALUES.length];
+      try {
+        localStorage.setItem(SORT_ORDER_KEY, next);
+      } catch {}
+      return next;
+    });
+  }, []);
+
   // 드래그 앤 드롭 핸들러 (연월브랜드 순서 변경)
   const handleDragEnd = useCallback(async (result) => {
     if (!result.destination) return;
@@ -482,6 +510,8 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
 
     // 숨김 항목은 드래그 불가
     if (showHidden) return;
+    // 정렬 모드일 때는 드래그로 순서 변경 불가
+    if (sortOrder !== 'none') return;
 
     const filteredMonthlyBrands = monthlyBrands.filter(mb => !mb._isHidden);
     const items = Array.from(filteredMonthlyBrands);
@@ -503,7 +533,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
       // 실패 시 원래 상태로 복원
       loadMonthlyBrands();
     }
-  }, [monthlyBrands, showHidden, viewAsUserId, loadMonthlyBrands]);
+  }, [monthlyBrands, showHidden, sortOrder, viewAsUserId, loadMonthlyBrands]);
 
   const handleLogout = async () => {
     if (isAdminMode) {
@@ -661,6 +691,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             >
               {isMobile ? '캠페인' : '캠페인 보기'}
             </Button>
+            {/*
             <Button
               color="inherit"
               onClick={() => {
@@ -680,6 +711,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             >
               {isMobile ? '랭킹' : '올리브영 랭킹'}
             </Button>
+            */}
           </Box>
 
           {/* Spacer */}
@@ -828,9 +860,18 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                       <CalendarMonthIcon fontSize="small" />
                       {showHidden ? '숨긴 항목' : '내 캠페인 (연월브랜드)'}
                     </Typography>
-                    <IconButton size="small" onClick={() => setMobileOpen(false)}>
-                      <ClearIcon fontSize="small" />
-                    </IconButton>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      {!showHidden && (
+                        <Tooltip title={sortOrder === 'asc' ? '이름 오름차순 (클릭: 내림차순)' : sortOrder === 'desc' ? '이름 내림차순 (클릭: 기본순)' : '기본 순서 (클릭: 오름차순)'}>
+                          <IconButton size="small" onClick={handleSortToggle} sx={{ p: 0.5 }} color={sortOrder === 'none' ? 'default' : 'primary'}>
+                            {sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : sortOrder === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortByAlphaIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      <IconButton size="small" onClick={() => setMobileOpen(false)}>
+                        <ClearIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
                   </Box>
                   {!showHidden && (
                     <TextField
@@ -859,14 +900,23 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                   </Box>
                 ) : (
                   <List dense sx={{ py: 0 }}>
-                    {monthlyBrands
-                      .filter(mb => {
+                    {(() => {
+                      const list = monthlyBrands.filter(mb => {
                         const isMbHidden = hiddenMonthlyBrandIds.includes(mb.id);
                         if (showHidden) return isMbHidden;
                         const q = searchQuery.trim().toLowerCase();
                         if (q && !mb.name.toLowerCase().includes(q)) return false;
                         return !isMbHidden;
-                      })
+                      });
+                      if (sortOrder !== 'none') {
+                        const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+                        list.sort((a, b) => {
+                          const cmp = collator.compare(a.name || '', b.name || '');
+                          return sortOrder === 'asc' ? cmp : -cmp;
+                        });
+                      }
+                      return list;
+                    })()
                       .map(mb => (
                         <Box key={mb.id}>
                           <ListItemButton
@@ -945,6 +995,11 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                           <UnfoldLessIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title={sortOrder === 'asc' ? '이름 오름차순 (클릭: 내림차순)' : sortOrder === 'desc' ? '이름 내림차순 (클릭: 기본순)' : '기본 순서 (클릭: 오름차순)'}>
+                        <IconButton size="small" onClick={handleSortToggle} sx={{ p: 0.5 }} color={sortOrder === 'none' ? 'default' : 'primary'}>
+                          {sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : sortOrder === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <SortByAlphaIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
                     </>
                   )}
                   <Tooltip title={showHidden ? '일반 목록 보기' : '숨긴 항목 보기'}>
@@ -1010,6 +1065,15 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                 return !mb._isHidden;
               });
 
+              // 이름 정렬 (none이면 기본 드래그 순서 유지)
+              if (sortOrder !== 'none') {
+                const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+                filteredMonthlyBrands.sort((a, b) => {
+                  const cmp = collator.compare(a.name || '', b.name || '');
+                  return sortOrder === 'asc' ? cmp : -cmp;
+                });
+              }
+
               // 페이지네이션 계산
               const brandTotalPages = Math.ceil(filteredMonthlyBrands.length / ITEMS_PER_PAGE);
               const brandStartIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -1033,7 +1097,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               return (
                 <>
                 <DragDropContext onDragEnd={handleDragEnd}>
-                  <Droppable droppableId="monthly-brands-brand" isDropDisabled={showHidden}>
+                  <Droppable droppableId="monthly-brands-brand" isDropDisabled={showHidden || sortOrder !== 'none'}>
                     {(provided) => (
                       <List
                         component="nav"
@@ -1049,7 +1113,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                               key={monthlyBrand.id}
                               draggableId={`mb-${monthlyBrand.id}`}
                               index={index}
-                              isDragDisabled={showHidden}
+                              isDragDisabled={showHidden || sortOrder !== 'none'}
                             >
                               {(provided, snapshot) => (
                                 <React.Fragment>
@@ -1066,8 +1130,8 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
                                         boxShadow: snapshot.isDragging ? 3 : 0
                                       }}
                                     >
-                                      {/* 드래그 핸들 - 숨김 항목이 아닐 때만 표시 */}
-                                      {!showHidden && (
+                                      {/* 드래그 핸들 - 숨김 항목/정렬 모드가 아닐 때만 표시 */}
+                                      {!showHidden && sortOrder === 'none' && (
                                         <Box
                                           {...provided.dragHandleProps}
                                           sx={{
