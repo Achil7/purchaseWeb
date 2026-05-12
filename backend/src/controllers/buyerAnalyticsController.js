@@ -30,6 +30,10 @@ exports.getAccounts = async (req, res) => {
     const endDate = req.query.endDate || null;
     const overdueDays = parseInt(req.query.overdueDays, 10) || 14;
     const minParticipation = parseInt(req.query.minParticipation, 10) || 1;
+    // 택배대행 필터: 'all' (전체), 'Y' (대행만), 'N' (대행 안함만)
+    const courierFilter = req.query.courierFilter || 'all';
+    // 계좌(account_info) 부분 일치 검색어
+    const accountKeyword = (req.query.accountKeyword || '').trim();
 
     // operator인 경우 본인 배정 (item_id, day_group) 집합 미리 계산
     let operatorScope = null; // null=전체, { itemFull: Set, itemDayGroups: Map(item_id -> Set(day_group)) }
@@ -81,6 +85,20 @@ exports.getAccounts = async (req, res) => {
     if (endDate) {
       conditions.push('b.info_entered_at <= :endDate');
       replacements.endDate = endDate;
+    }
+
+    // 계좌 부분 일치 검색 (account_info 안의 계좌주명/계좌번호 일부 매칭)
+    if (accountKeyword) {
+      conditions.push("b.account_info ILIKE :accountKeyword");
+      replacements.accountKeyword = `%${accountKeyword}%`;
+    }
+
+    // 택배대행 필터: Item / ItemSlot.courier_service_yn (TEXT, 파이프 가능)
+    // 'Y'면 'Y' 포함, 'N'면 'N' 포함 (대소문자 무시)
+    if (courierFilter === 'Y') {
+      conditions.push("UPPER(COALESCE(s.courier_service_yn, i.courier_service_yn)) LIKE '%Y%'");
+    } else if (courierFilter === 'N') {
+      conditions.push("UPPER(COALESCE(s.courier_service_yn, i.courier_service_yn)) LIKE '%N%'");
     }
 
     // operator 권한 필터를 SQL 절로 변환
@@ -200,6 +218,14 @@ exports.getAccountBuyers = async (req, res) => {
     }
 
     const overdueDays = parseInt(req.query.overdueDays, 10) || 14;
+    const courierFilter = req.query.courierFilter || 'all';
+
+    let courierClause = '';
+    if (courierFilter === 'Y') {
+      courierClause = "AND UPPER(COALESCE(s.courier_service_yn, i.courier_service_yn)) LIKE '%Y%'";
+    } else if (courierFilter === 'N') {
+      courierClause = "AND UPPER(COALESCE(s.courier_service_yn, i.courier_service_yn)) LIKE '%N%'";
+    }
 
     // operator 권한 필터
     let operatorClause = '';
@@ -256,6 +282,7 @@ exports.getAccountBuyers = async (req, res) => {
         s.id AS slot_id,
         s.day_group,
         COALESCE(s.shipping_type, i.shipping_type) AS shipping_type,
+        COALESCE(s.courier_service_yn, i.courier_service_yn) AS courier_service_yn,
         EXISTS(
           SELECT 1 FROM images im
           WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
@@ -282,6 +309,7 @@ exports.getAccountBuyers = async (req, res) => {
         AND b.deleted_at IS NULL
         AND b.account_normalized = :accountNormalized
         ${operatorClause}
+        ${courierClause}
       ORDER BY b.info_entered_at DESC NULLS LAST, b.created_at DESC
     `;
 
