@@ -1,6 +1,7 @@
 const app = require('./src/app');
 const { sequelize } = require('./src/models');
 const { startTrashCleanupScheduler } = require('./src/schedulers/trashCleanup');
+const rankingScheduler = require('./src/schedulers/rankingScheduler');
 
 const PORT = process.env.PORT || 5000;
 
@@ -24,6 +25,9 @@ sequelize
 
       // 휴지통 자동 정리 스케줄러 시작
       startTrashCleanupScheduler();
+
+      // 올리브영 랭킹 자동 수집 스케줄러 시작 (.env: RANKING_AUTO_ENABLED=true)
+      rankingScheduler.start();
     });
   })
   .catch((err) => {

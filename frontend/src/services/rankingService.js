@@ -18,6 +18,16 @@ const rankingService = {
     if (viewAsUserId) params.viewAsUserId = viewAsUserId;
     const response = await apiClient.get('/rankings/my-products', { params });
     return response.data;
+  },
+
+  trigger: async (forceFresh = false) => {
+    const response = await apiClient.post('/rankings/trigger', { forceFresh });
+    return response.data;
+  },
+
+  getProgress: async () => {
+    const response = await apiClient.get('/rankings/progress');
+    return response.data;
   }
 };
 

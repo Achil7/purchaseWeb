@@ -1,9 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Box, Container, Typography, Paper, Table, TableHead, TableRow,
-  TableCell, TableBody, Avatar, Chip, Alert, CircularProgress, Stack, Link
+  TableCell, TableBody, Avatar, Chip, Alert, CircularProgress, Stack, Link,
+  Button, LinearProgress
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import { rankingService } from '../../services';
 
 function BrandRankingView() {
@@ -11,6 +13,12 @@ function BrandRankingView() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const [progress, setProgress] = useState({ job: { running: false }, lastCollectedAt: null });
+  const [triggering, setTriggering] = useState(false);
+  const [triggerMsg, setTriggerMsg] = useState(null);
+  const pollRef = useRef(null);
+  const prevRunningRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -32,16 +40,70 @@ function BrandRankingView() {
     }
   }, []);
 
+  const loadProgress = useCallback(async () => {
+    try {
+      const res = await rankingService.getProgress();
+      if (res.success) setProgress(res.data);
+    } catch (_) { /* ignore */ }
+  }, []);
+
+  const handleTrigger = useCallback(async () => {
+    setTriggering(true);
+    setTriggerMsg(null);
+    try {
+      const res = await rankingService.trigger(false);
+      if (res.status === 'cached') {
+        const minutes = Math.round((res.cacheTtlMs || 1800000) / 60000);
+        setTriggerMsg({ severity: 'info', text: `최근 ${minutes}분 이내 수집된 데이터를 보여드립니다.` });
+      } else if (res.status === 'started') {
+        setTriggerMsg({ severity: 'success', text: '수집이 시작되었습니다. 약 5분 후 결과가 갱신됩니다.' });
+      } else if (res.status === 'busy') {
+        setTriggerMsg({ severity: 'warning', text: '다른 사용자의 수집이 진행 중입니다. 완료되면 함께 갱신됩니다.' });
+      } else if (res.status === 'cooldown') {
+        setTriggerMsg({ severity: 'warning', text: `너무 빠른 연타입니다. ${res.remainSec}초 후 다시 시도해주세요.` });
+      } else if (res.status === 'hourly_limit') {
+        setTriggerMsg({ severity: 'error', text: `최근 1시간 내 ${res.limit}회 한도를 모두 사용했습니다. 자동 수집은 계속 진행됩니다.` });
+      } else if (res.status === 'ip_blocked') {
+        setTriggerMsg({ severity: 'error', text: '비정상적 호출이 감지되어 일시 차단되었습니다. 약 1시간 후 다시 시도해주세요.' });
+      }
+      loadProgress();
+    } catch (err) {
+      const data = err.response?.data;
+      setTriggerMsg({ severity: 'error', text: data?.message || err.message });
+    } finally {
+      setTriggering(false);
+    }
+  }, [loadProgress]);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadProgress();
+  }, [load, loadProgress]);
+
+  useEffect(() => {
+    const interval = progress.job?.running ? 2000 : 30000;
+    pollRef.current && clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => {
+      if (document.hidden) return;
+      loadProgress();
+    }, interval);
+    return () => pollRef.current && clearInterval(pollRef.current);
+  }, [progress.job?.running, loadProgress]);
+
+  useEffect(() => {
+    if (prevRunningRef.current && !progress.job?.running) {
+      load();
+    }
+    prevRunningRef.current = !!progress.job?.running;
+  }, [progress.job?.running, load]);
 
   const exposed = products.filter((p) => p.rankings.length > 0);
   const notExposed = products.filter((p) => p.rankings.length === 0);
+  const job = progress.job || { running: false };
 
   return (
     <Container maxWidth="xl" sx={{ pt: 12, pb: 4 }}>
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
+      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
         <Typography variant="h5" fontWeight="bold">올리브영 BEST 노출 현황</Typography>
         <Chip
           icon={<RefreshIcon />}
@@ -49,11 +111,41 @@ function BrandRankingView() {
           color={collectedAt ? 'success' : 'default'}
           variant="outlined"
         />
+        <Box sx={{ flexGrow: 1 }} />
+        <Button
+          variant="contained"
+          color="primary"
+          startIcon={<CloudSyncIcon />}
+          onClick={handleTrigger}
+          disabled={triggering || job.running}
+        >
+          {job.running ? '수집 중...' : '🔄 지금 확인'}
+        </Button>
       </Stack>
 
       <Alert severity="info" sx={{ mb: 2 }}>
         등록하신 제품 URL의 올리브영 상품코드를 카테고리 BEST 100과 매칭한 결과입니다.
+        30분 이내 수집 데이터가 있으면 즉시 표시되고, 그렇지 않으면 새로 수집합니다 (약 5분 소요).
       </Alert>
+
+      {triggerMsg && (
+        <Alert severity={triggerMsg.severity} sx={{ mb: 2 }} onClose={() => setTriggerMsg(null)}>
+          {triggerMsg.text}
+        </Alert>
+      )}
+
+      {job.running && (
+        <Paper sx={{ p: 2, mb: 2, bgcolor: '#f9f9ff' }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            🚀 수집 진행 중 ({job.completed || 0} / {job.total || 21}) — 현재: {job.currentCategory || '시작 중'}
+          </Typography>
+          <LinearProgress
+            variant="determinate"
+            value={((job.completed || 0) / (job.total || 21)) * 100}
+            sx={{ height: 10, borderRadius: 5 }}
+          />
+        </Paper>
+      )}
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 

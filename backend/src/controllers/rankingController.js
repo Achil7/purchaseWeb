@@ -1,6 +1,13 @@
 const { PlatformRanking, User, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const { CATEGORIES } = require('../services/rankingTracker/categories');
+const {
+  triggerCollectionRound,
+  getRunningJobState,
+  getLastCollectedAt,
+  CACHE_TTL_MS
+} = require('../services/rankingTracker/collectionService');
+const { getStatus: getSchedulerStatus } = require('../schedulers/rankingScheduler');
 
 /**
  * 카테고리 목록
@@ -213,8 +220,66 @@ async function getMyProductsRankings(req, res) {
   }
 }
 
+/**
+ * 수집 트리거 (Admin/Brand 버튼)
+ *
+ * 응답:
+ *  - 200 { status: 'started' | 'cached' | 'busy', ... }
+ *  - 일일 한도 제한 없음. 캐시(30분) + 동시 실행 lock 으로만 제한.
+ */
+async function triggerCollection(req, res) {
+  try {
+    const triggeredBy = req.user.role === 'admin' ? 'admin' : 'brand';
+    if (triggeredBy !== 'admin' && triggeredBy !== 'brand') {
+      return res.status(403).json({ success: false, message: '접근 권한이 없습니다' });
+    }
+    // forceFresh는 admin만 허용 (캐시 무시하고 강제 새 수집)
+    const forceFresh = triggeredBy === 'admin' && req.body && req.body.forceFresh === true;
+
+    // 클라이언트 IP 추출 (X-Forwarded-For 고려)
+    const xff = req.headers['x-forwarded-for'];
+    const ip = (xff ? String(xff).split(',')[0].trim() : null) || req.ip || req.connection?.remoteAddress || null;
+
+    const result = await triggerCollectionRound({
+      triggeredBy,
+      userId: req.user.id,
+      ip,
+      forceFresh
+    });
+
+    return res.json({ success: true, ...result, cacheTtlMs: CACHE_TTL_MS });
+  } catch (err) {
+    console.error('triggerCollection error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+/**
+ * 진행 상태 + 마지막 수집 시각 (프론트 폴링용)
+ */
+async function getProgress(req, res) {
+  try {
+    const job = getRunningJobState();
+    const lastCollectedAt = await getLastCollectedAt();
+    const scheduler = getSchedulerStatus();
+    return res.json({
+      success: true,
+      data: {
+        job,
+        lastCollectedAt,
+        scheduler
+      }
+    });
+  } catch (err) {
+    console.error('getProgress error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 module.exports = {
   getCategories,
   getLatest,
-  getMyProductsRankings
+  getMyProductsRankings,
+  triggerCollection,
+  getProgress
 };

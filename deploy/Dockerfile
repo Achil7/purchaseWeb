@@ -16,24 +16,26 @@ COPY frontend/public ./public
 RUN npm run build
 
 # Stage 2: Build Node.js backend
-FROM node:18-alpine AS backend-build
+# - 올리브영 랭킹 수집(Playwright + Chromium) 포함을 위해 Playwright 공식 이미지 사용
+FROM mcr.microsoft.com/playwright:v1.50.0-jammy AS backend-build
 WORKDIR /app/backend
 
 # Copy backend package files
 COPY backend/package*.json ./
-RUN npm install --production
+# optionalDependencies(playwright, cheerio, playwright-extra, puppeteer-extra-plugin-stealth, node-notifier) 포함 설치
+RUN npm install --production --include=optional
 
 # Copy backend source
 COPY backend ./
 
-# Stage 3: Final production image
-FROM node:18-alpine
+# Stage 3: Final production image (Playwright 이미지 = Ubuntu jammy + Chromium 사전 설치)
+FROM mcr.microsoft.com/playwright:v1.50.0-jammy
 WORKDIR /app
 
 # Install PM2 globally
 RUN npm install -g pm2
 
-# Copy backend from build stage
+# Copy backend from build stage (node_modules 포함)
 COPY --from=backend-build /app/backend ./backend
 
 # Copy frontend build from build stage
