@@ -2213,6 +2213,99 @@ main 측정값:
 
 ---
 
+### 33차 최적화 (2026-05-06) - 신규 기능(랭킹/구매자 분석) 캐시 + 응답 상한
+
+**배경:**
+32차 이후 추가된 기능 다수 점검:
+- 올리브영 랭킹 (rankingController 1000줄+, 모델/스케줄러/마이그레이션) — **수집 코드는 손대지 않음 (사용자 명시)**
+- 구매자 분석 대시보드 (buyerAnalyticsController 신규)
+- 영업사 일괄 이전 (users.js)
+- 프론트엔드 (랭킹 대시보드, 구매자 분석, 사이드바 정렬, 영업사 캠페인 클릭) — 분석 결과 **이미 잘됨, 손대지 않음**
+
+**적용 내용:**
+
+#### Part F: 랭킹 조회 API in-memory 캐시 (TTL 30분, 자동 무효화)
+- `getLatest`, `getChanges`, `getInsights`, `getMyProductsRankings`, `getMyChanges` 모두 적용
+- 캐시 키에 lastCollectedAt 저장 → 새 수집 시 자동 무효화 (수집 코드 미접근)
+- 수집 주기와 동일한 30분 TTL이므로 데이터 신선도 유지
+
+#### Part C: `buyerAnalytics.getAccounts` 응답 상한 (LIMIT 2000, 최대 5000)
+- HAVING + ORDER BY participation DESC → LIMIT 추가
+- 클라이언트 useMemo 정렬 동작 그대로 유지 (Top N 자르므로 LIMIT 영향 작음)
+
+#### Part D: `buyerAnalytics.getAccountBuyers` 응답 상한 (LIMIT 1000, 최대 5000)
+- 한 계좌의 buyer 무제한 반환 → 안전 상한
+- 응답에 `limit` 필드 추가
+
+#### Part G: `users.js` BrandSales 일괄 이전 4단계 → raw SQL 2회
+- `findAll → findAll → destroy → update` (4단계)
+- → `DELETE ... WHERE ... IN (SELECT ...)` + `UPDATE ...` (2개 raw SQL)
+- 결과 정확성 동일, 더 빠름
+
+**보류 (이번엔 안 함):**
+- Part A: getMyChanges 응답 크기 제한 (캐싱으로 우선 완화, 추후 페이지네이션 검토)
+- Part B: getInsights DB 집계 전환 (현재 캐싱으로 30분 내 부담 없음)
+- Part E: getChanges DISTINCT 정리 (캐싱으로 부담 분산됨)
+- account_info GIN trgm 인덱스 (사용자가 실제 느려진다 보고하면)
+
+**수정 파일:**
+- `backend/src/controllers/rankingController.js` ✅ (캐시 헬퍼 + 5개 API 적용)
+- `backend/src/controllers/buyerAnalyticsController.js` ✅ (LIMIT 추가)
+- `backend/src/routes/users.js` ✅ (BrandSales raw SQL 2회)
+
+**프론트 수정 없음. 마이그레이션 없음. 크롤링/수집 코드 미접근.**
+
+**기능/결과값 불변 보장:**
+- 응답 JSON 구조 100% 동일 (캐싱은 응답을 그대로 저장/반환)
+- 자동 무효화: lastCollectedAt 비교로 새 수집 시 캐시 자동 만료
+- BrandSales 이전 결과 정확성 동일
+- LIMIT는 안전 상한선 (정상 사용 범위에선 영향 없음)
+
+**빌드:** ✅ 백엔드 3개 파일 문법 검증 통과
+
+**예상 효과:**
+
+| API | 첫 호출 | 30분 내 재호출 |
+|-----|--------|---------------|
+| `GET /api/rankings/latest` | 변화 없음 | **~5ms** |
+| `GET /api/rankings/changes` | 변화 없음 | **~5ms** |
+| `GET /api/rankings/insights` | 변화 없음 | **~5ms** |
+| `GET /api/rankings/my-products` | 변화 없음 | **~5ms** |
+| `GET /api/rankings/my-changes` | 변화 없음 | **~5ms** |
+| `GET /api/buyer-analytics/accounts` | 변화 없음 | 행 수 보호 |
+| 영업사 일괄 이전 | 4단계 → 2단계 | 빠름 |
+
+#### 추가: DB 인덱스 마이그레이션 2개 (캐시 미스 시 첫 호출 빠르게)
+
+- `idx_platform_rankings_category_collected_rank` (category_id, collected_at, rank)
+  - getLatest/getChanges/getInsights에서 활용 (캐시 미스 시 첫 호출 가속)
+- `idx_platform_rankings_goods_no_collected` (goods_no, collected_at)
+  - getHistory/getMyChanges에서 활용
+- `idx_buyers_account_info_trgm` (GIN trgm)
+  - `pg_trgm` extension 자동 활성화
+  - buyerAnalytics ILIKE 검색 풀스캔 제거
+
+**기능/응답 100% 동일 (인덱스만 추가, 쿼리/컬럼 변경 없음)**
+
+⚠️ **배포 후 마이그레이션 필요:**
+```bash
+docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
+```
+
+**기능 검증 항목:**
+- [ ] Admin 랭킹 대시보드 — 카테고리별 100위 + 변동 동일
+- [ ] Admin 인사이트 탭 4종 패널 동일
+- [ ] Brand 자사 랭킹 종합 분석 KPI + 4패널 동일
+- [ ] 같은 카테고리/브랜드 30분 내 재조회 → 즉시 응답
+- [ ] 새 수집 완료 후 → 캐시 자동 무효화 → 새 데이터 표시
+- [ ] Admin 구매자 분석 — 4탭 + 상세 Dialog 정상
+- [ ] 영업사 일괄 이전 (전체/브랜드별) — 결과 무결성 동일
+- [ ] 구매자 분석 계좌 검색 (account_info ILIKE) — 결과 동일, 더 빠름
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
 
 **목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선

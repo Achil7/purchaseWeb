@@ -695,40 +695,20 @@ router.post('/sales/:fromSalesId/transfer-all/:toSalesId', authenticate, authori
     // 3. BrandSales 매핑 이전 (unique 제약 회피)
     //    A가 담당하는 brand_id 중 B가 이미 담당하는 것은 A 레코드만 삭제
     //    나머지는 sales_id를 A -> B로 UPDATE
-    const fromBrandSales = await BrandSales.findAll({
-      where: { sales_id: fromSalesId },
-      attributes: ['brand_id'],
-      raw: true,
-      transaction
-    });
-    const fromBrandIds = fromBrandSales.map(r => r.brand_id);
+    // 33차: 4단계 findAll/findAll/destroy/update → 2개 raw SQL로 정리
+    const [, deletedMeta] = await sequelize.query(
+      `DELETE FROM brand_sales
+       WHERE sales_id = :fromSalesId
+         AND brand_id IN (SELECT brand_id FROM brand_sales WHERE sales_id = :toSalesId)`,
+      { replacements: { fromSalesId, toSalesId }, transaction }
+    );
+    const brandSalesDeleted = deletedMeta.rowCount || 0;
 
-    let brandSalesUpdated = 0;
-    let brandSalesDeleted = 0;
-    if (fromBrandIds.length > 0) {
-      const toExisting = await BrandSales.findAll({
-        where: { sales_id: toSalesId, brand_id: { [Op.in]: fromBrandIds } },
-        attributes: ['brand_id'],
-        raw: true,
-        transaction
-      });
-      const duplicatedBrandIds = toExisting.map(r => r.brand_id);
-
-      if (duplicatedBrandIds.length > 0) {
-        // B가 이미 담당 중 -> A 레코드 삭제
-        brandSalesDeleted = await BrandSales.destroy({
-          where: { sales_id: fromSalesId, brand_id: { [Op.in]: duplicatedBrandIds } },
-          transaction
-        });
-      }
-
-      // 나머지는 sales_id 변경
-      const [updatedCount] = await BrandSales.update(
-        { sales_id: toSalesId },
-        { where: { sales_id: fromSalesId }, transaction }
-      );
-      brandSalesUpdated = updatedCount;
-    }
+    const [, updatedMeta] = await sequelize.query(
+      `UPDATE brand_sales SET sales_id = :toSalesId WHERE sales_id = :fromSalesId`,
+      { replacements: { fromSalesId, toSalesId }, transaction }
+    );
+    const brandSalesUpdated = updatedMeta.rowCount || 0;
 
     // 4. User.assigned_sales_id (레거시 단일 담당 필드)
     const [assignedUsersAffected] = await User.update(

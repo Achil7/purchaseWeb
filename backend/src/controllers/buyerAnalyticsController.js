@@ -122,6 +122,11 @@ exports.getAccounts = async (req, res) => {
 
     const whereSQL = conditions.join(' AND ');
 
+    // 33차: 응답 행 수 상한 (DOM 폭증 방지). 기본 2000, 최대 5000.
+    const limitRaw = parseInt(req.query.limit, 10);
+    const limit = Math.min(5000, Math.max(1, isNaN(limitRaw) ? 2000 : limitRaw));
+    replacements.limit = limit;
+
     const sql = `
       WITH scoped_buyers AS (
         SELECT
@@ -181,6 +186,8 @@ exports.getAccounts = async (req, res) => {
       FROM scoped_buyers
       GROUP BY account_normalized
       HAVING COUNT(*) >= :minParticipation
+      ORDER BY COUNT(*) DESC
+      LIMIT :limit
     `;
 
     const rows = await sequelize.query(sql, {
@@ -191,7 +198,8 @@ exports.getAccounts = async (req, res) => {
     res.json({
       success: true,
       data: rows,
-      count: rows.length
+      count: rows.length,
+      limit
     });
   } catch (error) {
     console.error('Buyer analytics getAccounts error:', error);
@@ -262,6 +270,10 @@ exports.getAccountBuyers = async (req, res) => {
       operatorClause = `AND (${orParts.join(' OR ')})`;
     }
 
+    // 33차: 응답 행 수 상한 (DOM 폭증 방지). 기본 1000, 최대 5000.
+    const limitRaw = parseInt(req.query.limit, 10);
+    const limit = Math.min(5000, Math.max(1, isNaN(limitRaw) ? 1000 : limitRaw));
+
     const sql = `
       SELECT
         b.id,
@@ -311,14 +323,15 @@ exports.getAccountBuyers = async (req, res) => {
         ${operatorClause}
         ${courierClause}
       ORDER BY b.info_entered_at DESC NULLS LAST, b.created_at DESC
+      LIMIT :limit
     `;
 
     const rows = await sequelize.query(sql, {
-      replacements: { accountNormalized, overdueDays },
+      replacements: { accountNormalized, overdueDays, limit },
       type: QueryTypes.SELECT
     });
 
-    res.json({ success: true, data: rows, count: rows.length });
+    res.json({ success: true, data: rows, count: rows.length, limit });
   } catch (error) {
     console.error('Buyer analytics getAccountBuyers error:', error);
     res.status(500).json({

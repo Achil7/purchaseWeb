@@ -9,6 +9,52 @@ const {
 } = require('../services/rankingTracker/collectionService');
 const { getStatus: getSchedulerStatus } = require('../schedulers/rankingScheduler');
 
+// 33차: 조회 API in-memory 캐시 (TTL 30분 — 수집 주기와 동일)
+// 자동 무효화: 캐시 저장 시 lastCollectedAt 시각을 함께 저장
+// → 조회 시 현재 lastCollectedAt이 더 새로우면 캐시 미스 처리 (수집 로직 미접근)
+const QUERY_CACHE_TTL_MS = 30 * 60 * 1000;
+const queryCache = new Map();
+
+async function getQueryCache(key) {
+  const entry = queryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts >= QUERY_CACHE_TTL_MS) {
+    queryCache.delete(key);
+    return null;
+  }
+  // 새 수집이 발생했는지 확인 (lastCollectedAt 비교)
+  try {
+    const latest = await getLastCollectedAt();
+    if (latest && new Date(latest).getTime() > entry.collectedAt) {
+      queryCache.delete(key);
+      return null;
+    }
+  } catch (e) {
+    // getLastCollectedAt 실패 시 캐시 유지 (안전)
+  }
+  return entry.data;
+}
+
+async function setQueryCache(key, data) {
+  let collectedAt = 0;
+  try {
+    const latest = await getLastCollectedAt();
+    collectedAt = latest ? new Date(latest).getTime() : 0;
+  } catch (e) {
+    // 실패 시 0 (어떤 새 수집이든 캐시 무효화)
+  }
+  queryCache.set(key, { ts: Date.now(), collectedAt, data });
+  if (queryCache.size > 500) {
+    const first = queryCache.keys().next().value;
+    queryCache.delete(first);
+  }
+}
+
+// 외부 호출용 (수동 무효화 필요 시)
+function invalidateQueryCache() {
+  queryCache.clear();
+}
+
 /**
  * 카테고리 목록
  */
@@ -40,6 +86,11 @@ async function getLatest(req, res) {
       return res.status(400).json({ success: false, message: '유효하지 않은 category_id' });
     }
 
+    // 33차: 캐시 hit
+    const cacheKey = `latest_${categoryId}`;
+    const cached = await getQueryCache(cacheKey);
+    if (cached) return res.json({ success: true, data: cached });
+
     const latest = await PlatformRanking.findOne({
       where: { category_id: categoryId },
       attributes: ['collected_at'],
@@ -47,7 +98,9 @@ async function getLatest(req, res) {
     });
 
     if (!latest) {
-      return res.json({ success: true, data: { collected_at: null, rankings: [] } });
+      const empty = { collected_at: null, rankings: [] };
+      await setQueryCache(cacheKey, empty);
+      return res.json({ success: true, data: empty });
     }
 
     const rankings = await PlatformRanking.findAll({
@@ -55,13 +108,13 @@ async function getLatest(req, res) {
       order: [['rank', 'ASC']]
     });
 
-    return res.json({
-      success: true,
-      data: {
-        collected_at: latest.collected_at,
-        rankings
-      }
-    });
+    const responseData = {
+      collected_at: latest.collected_at,
+      rankings
+    };
+
+    await setQueryCache(cacheKey, responseData);
+    return res.json({ success: true, data: responseData });
   } catch (err) {
     console.error('getLatest error:', err);
     return res.status(500).json({ success: false, message: err.message });
@@ -100,6 +153,11 @@ async function getChanges(req, res) {
     if (!CATEGORIES.find((c) => c.id === categoryId)) {
       return res.status(400).json({ success: false, message: '유효하지 않은 category_id' });
     }
+
+    // 33차: 캐시 hit
+    const cacheKey = `changes_${categoryId}_${windowHours}`;
+    const cached = await getQueryCache(cacheKey);
+    if (cached) return res.json({ success: true, data: cached });
 
     // 1) 최신 + 직전 collected_at 조회
     const distinctTimes = await PlatformRanking.findAll({
@@ -238,17 +296,16 @@ async function getChanges(req, res) {
       ? new Date(currentCollectedAt).getTime() - new Date(previousCollectedAt).getTime()
       : null;
 
-    return res.json({
-      success: true,
-      data: {
-        currentCollectedAt,
-        previousCollectedAt,
-        windowHours,
-        collectionIntervalMs,
-        current,
-        dropouts
-      }
-    });
+    const responseData = {
+      currentCollectedAt,
+      previousCollectedAt,
+      windowHours,
+      collectionIntervalMs,
+      current,
+      dropouts
+    };
+    await setQueryCache(cacheKey, responseData);
+    return res.json({ success: true, data: responseData });
   } catch (err) {
     console.error('getChanges error:', err);
     return res.status(500).json({ success: false, message: err.message });
@@ -323,6 +380,11 @@ async function getInsights(req, res) {
     if (!CATEGORIES.find((c) => c.id === categoryId)) {
       return res.status(400).json({ success: false, message: '유효하지 않은 category_id' });
     }
+
+    // 33차: 캐시 hit
+    const cacheKey = `insights_${categoryId}_${windowHours}`;
+    const cached = await getQueryCache(cacheKey);
+    if (cached) return res.json({ success: true, data: cached });
 
     const windowStart = new Date(Date.now() - windowHours * 3600 * 1000);
 
@@ -459,16 +521,15 @@ async function getInsights(req, res) {
         samples: g.ranks.length
       }));
 
-    return res.json({
-      success: true,
-      data: {
-        windowHours,
-        biggestGainers,
-        biggestLosers,
-        newEntries,
-        consistent
-      }
-    });
+    const responseData = {
+      windowHours,
+      biggestGainers,
+      biggestLosers,
+      newEntries,
+      consistent
+    };
+    await setQueryCache(cacheKey, responseData);
+    return res.json({ success: true, data: responseData });
   } catch (err) {
     console.error('getInsights error:', err);
     return res.status(500).json({ success: false, message: err.message });
@@ -552,11 +613,18 @@ async function getMyProductsRankings(req, res) {
       return res.status(error.status).json({ success: false, message: error.message });
     }
 
+    // 33차: 캐시 hit
+    const cacheKey = `myProducts_${brandId}`;
+    const cached = await getQueryCache(cacheKey);
+    if (cached) return res.json({ success: true, data: cached });
+
     // 자사 product_url 목록 (item_slots, items 모두에서)
     const rows = await fetchOwnedGoodsRows(brandId);
 
     if (!rows || rows.length === 0) {
-      return res.json({ success: true, data: { collected_at: null, products: [] } });
+      const empty = { collected_at: null, products: [] };
+      await setQueryCache(cacheKey, empty);
+      return res.json({ success: true, data: empty });
     }
 
     const goodsNos = [...new Set(rows.map((r) => r.goods_no).filter(Boolean))];
@@ -632,13 +700,12 @@ async function getMyProductsRankings(req, res) {
       return aMin - bMin;
     });
 
-    return res.json({
-      success: true,
-      data: {
-        collected_at: latest.collected_at,
-        products
-      }
-    });
+    const responseData = {
+      collected_at: latest.collected_at,
+      products
+    };
+    await setQueryCache(cacheKey, responseData);
+    return res.json({ success: true, data: responseData });
   } catch (err) {
     console.error('getMyProductsRankings error:', err);
     return res.status(500).json({ success: false, message: err.message });
@@ -664,23 +731,27 @@ async function getMyChanges(req, res) {
 
     const windowHours = parseWindowHours(req.query.window);
 
+    // 33차: 캐시 hit
+    const cacheKey = `myChanges_${brandId}_${windowHours}`;
+    const cached = await getQueryCache(cacheKey);
+    if (cached) return res.json({ success: true, data: cached });
+
     // 자사 등록 goods_no 추출
     const ownedRows = await fetchOwnedGoodsRows(brandId);
     const totalRegistered = new Set(ownedRows.map(r => r.goods_no).filter(Boolean)).size;
 
     if (totalRegistered === 0) {
-      return res.json({
-        success: true,
-        data: {
-          currentCollectedAt: null,
-          previousCollectedAt: null,
-          windowHours,
-          products: [],
-          dropouts: [],
-          summary: { totalRegistered: 0, exposedNow: 0, exposedRankings: 0, top10Count: 0 },
-          insights: { biggestGainers: [], biggestLosers: [], newEntries: [], consistent: [] }
-        }
-      });
+      const empty = {
+        currentCollectedAt: null,
+        previousCollectedAt: null,
+        windowHours,
+        products: [],
+        dropouts: [],
+        summary: { totalRegistered: 0, exposedNow: 0, exposedRankings: 0, top10Count: 0 },
+        insights: { biggestGainers: [], biggestLosers: [], newEntries: [], consistent: [] }
+      };
+      await setQueryCache(cacheKey, empty);
+      return res.json({ success: true, data: empty });
     }
 
     const goodsNos = [...new Set(ownedRows.map(r => r.goods_no))];
@@ -967,28 +1038,27 @@ async function getMyChanges(req, res) {
         samples: it.samples
       }));
 
-    return res.json({
-      success: true,
-      data: {
-        currentCollectedAt,
-        previousCollectedAt,
-        windowHours,
-        products,
-        dropouts,
-        summary: {
-          totalRegistered,
-          exposedNow,
-          exposedRankings,
-          top10Count
-        },
-        insights: {
-          biggestGainers,
-          biggestLosers,
-          newEntries,
-          consistent
-        }
+    const responseData = {
+      currentCollectedAt,
+      previousCollectedAt,
+      windowHours,
+      products,
+      dropouts,
+      summary: {
+        totalRegistered,
+        exposedNow,
+        exposedRankings,
+        top10Count
+      },
+      insights: {
+        biggestGainers,
+        biggestLosers,
+        newEntries,
+        consistent
       }
-    });
+    };
+    await setQueryCache(cacheKey, responseData);
+    return res.json({ success: true, data: responseData });
   } catch (err) {
     console.error('getMyChanges error:', err);
     return res.status(500).json({ success: false, message: err.message });
@@ -1110,5 +1180,7 @@ module.exports = {
   getProgress,
   getChanges,
   getHistory,
-  getInsights
+  getInsights,
+  // 33차: 새 수집 완료 시 caller가 호출 (수집 로직은 건드리지 않음)
+  invalidateQueryCache
 };
