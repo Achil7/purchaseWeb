@@ -33,7 +33,11 @@ import {
   getBrandSales,
   addBrandSales,
   removeBrandSales,
-  updateUser
+  updateUser,
+  previewSalesTransfer,
+  transferAllFromSales,
+  previewBrandTransfer,
+  transferBrandSales
 } from '../../services/userService';
 import { campaignService } from '../../services';
 import monthlyBrandService from '../../services/monthlyBrandService';
@@ -128,6 +132,25 @@ function AdminControlTower() {
   const [allSalesUsers, setAllSalesUsers] = useState([]);
   const [selectedSalesToAdd, setSelectedSalesToAdd] = useState('');
   const [addingSales, setAddingSales] = useState(false);
+
+  // 영업사 인수인계 다이얼로그 상태 (영업사 탭 전용)
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [transferFromUser, setTransferFromUser] = useState(null);
+  const [transferToSalesId, setTransferToSalesId] = useState('');
+  const [transferPreview, setTransferPreview] = useState(null);
+  const [transferPreviewLoading, setTransferPreviewLoading] = useState(false);
+  const [transferConfirmName, setTransferConfirmName] = useState('');
+  const [transferExecuting, setTransferExecuting] = useState(false);
+  const [transferResult, setTransferResult] = useState(null);
+
+  // 브랜드사 단위 이전 다이얼로그 상태 (브랜드사 탭의 담당 영업사 관리 패널 전용)
+  const [brandTransferDialogOpen, setBrandTransferDialogOpen] = useState(false);
+  const [brandTransferFromSales, setBrandTransferFromSales] = useState(null); // { id, name, username }
+  const [brandTransferToSalesId, setBrandTransferToSalesId] = useState('');
+  const [brandTransferPreview, setBrandTransferPreview] = useState(null);
+  const [brandTransferPreviewLoading, setBrandTransferPreviewLoading] = useState(false);
+  const [brandTransferExecuting, setBrandTransferExecuting] = useState(false);
+  const [brandTransferResult, setBrandTransferResult] = useState(null);
 
   // 사용자 삭제 다이얼로그 상태
   const [userDeleteDialogOpen, setUserDeleteDialogOpen] = useState(false);
@@ -439,6 +462,119 @@ function AdminControlTower() {
     } catch (err) {
       console.error('Failed to remove sales from brand:', err);
       alert(err.response?.data?.message || '영업사 제거에 실패했습니다.');
+    }
+  };
+
+  // 영업사 인수인계 다이얼로그 열기
+  const handleOpenTransferDialog = async (user, e) => {
+    if (e) e.stopPropagation();
+    setTransferFromUser(user);
+    setTransferToSalesId('');
+    setTransferConfirmName('');
+    setTransferPreview(null);
+    setTransferResult(null);
+    setTransferDialogOpen(true);
+
+    // 영업사 목록 + 미리보기 동시 로드
+    try {
+      setTransferPreviewLoading(true);
+      const [salesResp, previewResp] = await Promise.all([
+        getUsers('sales'),
+        previewSalesTransfer(user.id)
+      ]);
+      setAllSalesUsers(salesResp.data || []);
+      setTransferPreview(previewResp.data);
+    } catch (err) {
+      console.error('Failed to load transfer preview:', err);
+      alert(err.response?.data?.message || '미리보기 로드에 실패했습니다.');
+    } finally {
+      setTransferPreviewLoading(false);
+    }
+  };
+
+  // 영업사 인수인계 다이얼로그 닫기
+  const handleCloseTransferDialog = () => {
+    if (transferExecuting) return;
+    setTransferDialogOpen(false);
+    setTransferFromUser(null);
+    setTransferToSalesId('');
+    setTransferConfirmName('');
+    setTransferPreview(null);
+    setTransferResult(null);
+  };
+
+  // 영업사 인수인계 실행
+  const handleExecuteTransfer = async () => {
+    if (!transferFromUser || !transferToSalesId) return;
+    if (transferConfirmName.trim() !== (transferFromUser.name || '').trim()) {
+      alert('확인을 위해 보내는 영업사 이름을 정확히 입력해주세요.');
+      return;
+    }
+
+    try {
+      setTransferExecuting(true);
+      const result = await transferAllFromSales(transferFromUser.id, transferToSalesId);
+      setTransferResult(result);
+      // 사용자 목록 새로고침
+      await loadUsers();
+    } catch (err) {
+      console.error('Failed to execute transfer:', err);
+      alert(err.response?.data?.message || '인수인계에 실패했습니다.');
+    } finally {
+      setTransferExecuting(false);
+    }
+  };
+
+  // 브랜드사 단위 이전 다이얼로그 열기
+  const handleOpenBrandTransferDialog = async (fromSales) => {
+    if (!selectedUser) return;
+    setBrandTransferFromSales(fromSales);
+    setBrandTransferToSalesId('');
+    setBrandTransferPreview(null);
+    setBrandTransferResult(null);
+    setBrandTransferDialogOpen(true);
+
+    try {
+      setBrandTransferPreviewLoading(true);
+      const previewResp = await previewBrandTransfer(selectedUser.id, fromSales.id);
+      setBrandTransferPreview(previewResp.data);
+    } catch (err) {
+      console.error('Failed to load brand transfer preview:', err);
+      alert(err.response?.data?.message || '미리보기 로드에 실패했습니다.');
+    } finally {
+      setBrandTransferPreviewLoading(false);
+    }
+  };
+
+  // 브랜드사 단위 이전 다이얼로그 닫기
+  const handleCloseBrandTransferDialog = () => {
+    if (brandTransferExecuting) return;
+    setBrandTransferDialogOpen(false);
+    setBrandTransferFromSales(null);
+    setBrandTransferToSalesId('');
+    setBrandTransferPreview(null);
+    setBrandTransferResult(null);
+  };
+
+  // 브랜드사 단위 이전 실행
+  const handleExecuteBrandTransfer = async () => {
+    if (!selectedUser || !brandTransferFromSales || !brandTransferToSalesId) return;
+
+    try {
+      setBrandTransferExecuting(true);
+      const result = await transferBrandSales(
+        selectedUser.id,
+        brandTransferFromSales.id,
+        brandTransferToSalesId
+      );
+      setBrandTransferResult(result);
+      // 담당 영업사 목록 새로고침
+      await loadBrandSales(selectedUser.id);
+    } catch (err) {
+      console.error('Failed to execute brand transfer:', err);
+      alert(err.response?.data?.message || '이전에 실패했습니다.');
+    } finally {
+      setBrandTransferExecuting(false);
     }
   };
 
@@ -1060,15 +1196,28 @@ function AdminControlTower() {
                       </TableCell>
                       <TableCell sx={{ py: 0.5, fontSize: '0.75rem' }}>{user.today_login_count}</TableCell>
                       <TableCell sx={{ py: 0.5 }}>
-                        <Tooltip title="상세보기">
-                          <IconButton
-                            size="small"
-                            onClick={(e) => handleOpenDetailDialog(user, e)}
-                            sx={{ p: 0.2 }}
-                          >
-                            <InfoIcon sx={{ fontSize: 16 }} color="info" />
-                          </IconButton>
-                        </Tooltip>
+                        <Box sx={{ display: 'flex', gap: 0.2 }}>
+                          {tabValue === 2 && (
+                            <Tooltip title="인수인계 (모든 권한 다른 영업사로 이전)">
+                              <IconButton
+                                size="small"
+                                onClick={(e) => handleOpenTransferDialog(user, e)}
+                                sx={{ p: 0.2 }}
+                              >
+                                <SwapHorizIcon sx={{ fontSize: 16 }} color="warning" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          <Tooltip title="상세보기">
+                            <IconButton
+                              size="small"
+                              onClick={(e) => handleOpenDetailDialog(user, e)}
+                              sx={{ p: 0.2 }}
+                            >
+                              <InfoIcon sx={{ fontSize: 16 }} color="info" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1130,20 +1279,30 @@ function AdminControlTower() {
               <>
                 {/* 현재 담당 영업사 목록 */}
                 {brandSalesList.map((sales) => (
-                  <Chip
-                    key={sales.id}
-                    label={sales.name}
-                    onDelete={() => handleRemoveSalesFromBrand(sales.id)}
-                    deleteIcon={
-                      <Tooltip title="담당 해제">
-                        <PersonRemoveIcon sx={{ fontSize: 14 }} />
-                      </Tooltip>
-                    }
-                    color="primary"
-                    variant="outlined"
-                    size="small"
-                    sx={{ height: 24 }}
-                  />
+                  <Box key={sales.id} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.25 }}>
+                    <Chip
+                      label={sales.name}
+                      onDelete={() => handleRemoveSalesFromBrand(sales.id)}
+                      deleteIcon={
+                        <Tooltip title="담당 해제">
+                          <PersonRemoveIcon sx={{ fontSize: 14 }} />
+                        </Tooltip>
+                      }
+                      color="primary"
+                      variant="outlined"
+                      size="small"
+                      sx={{ height: 24 }}
+                    />
+                    <Tooltip title={`${sales.name}의 ${selectedUser?.name} 담당분을 다른 영업사에게 이전`}>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleOpenBrandTransferDialog(sales)}
+                        sx={{ p: 0.25 }}
+                      >
+                        <SwapHorizIcon sx={{ fontSize: 16 }} color="warning" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                 ))}
 
                 {/* 영업사 추가 */}
@@ -1275,6 +1434,240 @@ function AdminControlTower() {
               onClick={handleResetPasswordConfirm}
             >
               초기화
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* 영업사 인수인계 다이얼로그 */}
+      <Dialog
+        open={transferDialogOpen}
+        onClose={(event, reason) => { if (reason !== 'backdropClick' && !transferExecuting) handleCloseTransferDialog(); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ borderBottom: '1px solid #eee' }}>
+          영업사 인수인계
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {transferResult ? (
+            <Alert severity="success" sx={{ mb: 1 }}>
+              <Typography variant="body2" fontWeight="bold" gutterBottom>
+                {transferResult.message}
+              </Typography>
+              {transferResult.data && (
+                <Box sx={{ mt: 1, fontSize: '0.85rem' }}>
+                  <Typography variant="body2">• 연월브랜드: {transferResult.data.monthlyBrandsTransferred}건</Typography>
+                  <Typography variant="body2">• 캠페인: {transferResult.data.campaignsTransferred}건</Typography>
+                  <Typography variant="body2">• 브랜드 담당 매핑: {transferResult.data.brandSalesTransferred}건</Typography>
+                  {transferResult.data.brandSalesDeletedAsDuplicate > 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      (중복으로 삭제된 매핑: {transferResult.data.brandSalesDeletedAsDuplicate}건)
+                    </Typography>
+                  )}
+                  {transferResult.data.assignedSalesUsersTransferred > 0 && (
+                    <Typography variant="body2">• 단일 담당(레거시): {transferResult.data.assignedSalesUsersTransferred}건</Typography>
+                  )}
+                </Box>
+              )}
+            </Alert>
+          ) : (
+            <>
+              <DialogContentText sx={{ mb: 2 }}>
+                <strong>{transferFromUser?.name}</strong> ({transferFromUser?.username}) 영업사의
+                모든 권한(연월브랜드 + 캠페인 + 브랜드 담당)을 다른 영업사에게 이전합니다.
+              </DialogContentText>
+
+              {transferPreviewLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                  <CircularProgress size={24} />
+                </Box>
+              ) : transferPreview ? (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <Typography variant="body2" fontWeight="bold" gutterBottom>
+                    이전 대상 (현재 {transferFromUser?.name}의 데이터)
+                  </Typography>
+                  <Typography variant="body2">• 연월브랜드: {transferPreview.monthlyBrands}건</Typography>
+                  <Typography variant="body2">• 캠페인: {transferPreview.campaigns}건</Typography>
+                  <Typography variant="body2">• 담당 브랜드사: {transferPreview.brandSalesMappings}건</Typography>
+                  {transferPreview.assignedSalesUsers > 0 && (
+                    <Typography variant="body2">• 단일 담당 연결(레거시): {transferPreview.assignedSalesUsers}건</Typography>
+                  )}
+                  {transferPreview.monthlyBrands === 0 && transferPreview.campaigns === 0 && transferPreview.brandSalesMappings === 0 && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      이전할 데이터가 없습니다.
+                    </Typography>
+                  )}
+                </Alert>
+              ) : null}
+
+              <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                <InputLabel id="transfer-to-label">인수받을 영업사</InputLabel>
+                <Select
+                  labelId="transfer-to-label"
+                  value={transferToSalesId}
+                  label="인수받을 영업사"
+                  onChange={(e) => setTransferToSalesId(e.target.value)}
+                  disabled={transferExecuting}
+                >
+                  {allSalesUsers
+                    .filter(s => s.id !== transferFromUser?.id && s.is_active !== false)
+                    .map(s => (
+                      <MenuItem key={s.id} value={s.id}>
+                        {s.name} ({s.username})
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <Typography variant="body2" fontWeight="bold">
+                  이 작업은 되돌릴 수 없습니다.
+                </Typography>
+                <Typography variant="body2" sx={{ mt: 0.5 }}>
+                  확인을 위해 보내는 영업사 이름(<strong>{transferFromUser?.name}</strong>)을 정확히 입력해주세요.
+                </Typography>
+              </Alert>
+
+              <TextField
+                fullWidth
+                size="small"
+                label={`영업사 이름 입력 (${transferFromUser?.name || ''})`}
+                value={transferConfirmName}
+                onChange={(e) => setTransferConfirmName(e.target.value)}
+                disabled={transferExecuting}
+                placeholder={transferFromUser?.name || ''}
+              />
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={handleCloseTransferDialog}
+            disabled={transferExecuting}
+          >
+            {transferResult ? '닫기' : '취소'}
+          </Button>
+          {!transferResult && (
+            <Button
+              variant="contained"
+              color="warning"
+              onClick={handleExecuteTransfer}
+              disabled={
+                transferExecuting ||
+                !transferToSalesId ||
+                transferConfirmName.trim() !== (transferFromUser?.name || '').trim() ||
+                transferPreviewLoading
+              }
+              startIcon={transferExecuting ? <CircularProgress size={14} color="inherit" /> : <SwapHorizIcon />}
+            >
+              {transferExecuting ? '이전 중...' : '인수인계 실행'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* 브랜드사 단위 영업사 이전 다이얼로그 */}
+      <Dialog
+        open={brandTransferDialogOpen}
+        onClose={(event, reason) => { if (reason !== 'backdropClick' && !brandTransferExecuting) handleCloseBrandTransferDialog(); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ borderBottom: '1px solid #eee' }}>
+          브랜드사 단위 영업사 이전
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {brandTransferResult ? (
+            <Alert severity="success" sx={{ mb: 1 }}>
+              <Typography variant="body2" fontWeight="bold" gutterBottom>
+                {brandTransferResult.message}
+              </Typography>
+              {brandTransferResult.data && (
+                <Box sx={{ mt: 1, fontSize: '0.85rem' }}>
+                  <Typography variant="body2">• 연월브랜드: {brandTransferResult.data.monthlyBrandsTransferred}건</Typography>
+                  <Typography variant="body2">• 캠페인: {brandTransferResult.data.campaignsTransferred}건</Typography>
+                  <Typography variant="body2">• 담당 매핑: {brandTransferResult.data.brandSalesTransferred}건</Typography>
+                  {brandTransferResult.data.brandSalesDeletedAsDuplicate > 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      (중복으로 삭제된 매핑: {brandTransferResult.data.brandSalesDeletedAsDuplicate}건)
+                    </Typography>
+                  )}
+                </Box>
+              )}
+            </Alert>
+          ) : (
+            <>
+              <DialogContentText sx={{ mb: 2 }}>
+                브랜드사 <strong>{selectedUser?.name}</strong>에 한정하여
+                <strong> {brandTransferFromSales?.name}</strong>의 담당분을 다른 영업사에게 이전합니다.
+                <br />
+                <Typography variant="caption" color="text.secondary">
+                  ({brandTransferFromSales?.name}이 담당하는 다른 브랜드사는 영향받지 않습니다)
+                </Typography>
+              </DialogContentText>
+
+              {brandTransferPreviewLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                  <CircularProgress size={24} />
+                </Box>
+              ) : brandTransferPreview ? (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <Typography variant="body2" fontWeight="bold" gutterBottom>
+                    이전 대상 ({selectedUser?.name} 브랜드사 × {brandTransferFromSales?.name})
+                  </Typography>
+                  <Typography variant="body2">• 연월브랜드: {brandTransferPreview.monthlyBrands}건</Typography>
+                  <Typography variant="body2">• 캠페인: {brandTransferPreview.campaigns}건</Typography>
+                  <Typography variant="body2">• 담당 매핑: {brandTransferPreview.brandSalesMapping}건</Typography>
+                  {brandTransferPreview.monthlyBrands === 0 && brandTransferPreview.campaigns === 0 && brandTransferPreview.brandSalesMapping === 0 && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      이전할 데이터가 없습니다.
+                    </Typography>
+                  )}
+                </Alert>
+              ) : null}
+
+              <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+                <InputLabel id="brand-transfer-to-label">인수받을 영업사</InputLabel>
+                <Select
+                  labelId="brand-transfer-to-label"
+                  value={brandTransferToSalesId}
+                  label="인수받을 영업사"
+                  onChange={(e) => setBrandTransferToSalesId(e.target.value)}
+                  disabled={brandTransferExecuting}
+                >
+                  {allSalesUsers
+                    .filter(s => s.id !== brandTransferFromSales?.id && s.is_active !== false)
+                    .map(s => (
+                      <MenuItem key={s.id} value={s.id}>
+                        {s.name} ({s.username})
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={handleCloseBrandTransferDialog}
+            disabled={brandTransferExecuting}
+          >
+            {brandTransferResult ? '닫기' : '취소'}
+          </Button>
+          {!brandTransferResult && (
+            <Button
+              variant="contained"
+              color="warning"
+              onClick={handleExecuteBrandTransfer}
+              disabled={
+                brandTransferExecuting ||
+                !brandTransferToSalesId ||
+                brandTransferPreviewLoading
+              }
+              startIcon={brandTransferExecuting ? <CircularProgress size={14} color="inherit" /> : <SwapHorizIcon />}
+            >
+              {brandTransferExecuting ? '이전 중...' : '이전 실행'}
             </Button>
           )}
         </DialogActions>

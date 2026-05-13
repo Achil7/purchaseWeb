@@ -150,6 +150,11 @@ async function triggerCollectionRound({
   forceFresh = false,
   ttlMs = CACHE_TTL_MS
 } = {}) {
+  // 0-A) PROXY OFF면 모든 경로 차단 (자동+수동)
+  if (!isProxyEnabled()) {
+    return { status: 'proxy_disabled' };
+  }
+
   // 0) 사용자 트리거(브랜드/Admin) 한정 추가 제한
   if (triggeredBy === 'brand' || triggeredBy === 'admin') {
     // 0-1) IP 차단 체크
@@ -185,12 +190,17 @@ async function triggerCollectionRound({
     }
   }
 
-  // 1) 진행 중인 작업이 있으면 그 정보 반환
+  // 1) 진행 중인 작업이 있으면 그 정보 반환 (익명화: 트리거 주체 제거)
   if (state.running) {
+    const { triggeredBy: _b, triggeredUserId: _u, ...safeJobMeta } = state.jobMeta || {};
+    const startedAt = safeJobMeta.startedAt ? new Date(safeJobMeta.startedAt) : null;
     return {
       status: 'busy',
       jobId: state.jobId,
-      jobMeta: { ...state.jobMeta }
+      jobMeta: {
+        ...safeJobMeta,
+        elapsedMs: startedAt ? Date.now() - startedAt.getTime() : null
+      }
     };
   }
 
@@ -261,7 +271,6 @@ async function triggerCollectionRound({
           brand_name: it.brand_name,
           goods_no: it.goods_no,
           product_url: it.product_url,
-          image_url: it.image_url,
           price: it.price,
           original_price: it.original_price,
           sale_price: it.sale_price,

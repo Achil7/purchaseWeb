@@ -160,7 +160,7 @@ function App() {
             }
           >
             <Route index element={<BrandDashboard />} />
-            {/* <Route path="rankings" element={<BrandRankingView />} /> */}
+            <Route path="rankings" element={<BrandRankingView />} />
           </Route>
 
           {/* 404 - 로그인으로 리다이렉트 */}

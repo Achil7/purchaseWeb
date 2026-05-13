@@ -119,11 +119,6 @@ function parseRankingHtml(html) {
     const priceText = priceRaw.trim().replace(/\s+/g, ' ') || null;
     const parsedPrice = parsePriceText(priceRaw);
 
-    const imageUrl =
-      linkEl.find('img').attr('src') ||
-      linkEl.find('img').attr('data-original') ||
-      null;
-
     results.push({
       rank,
       product_name: productName,
@@ -133,8 +128,7 @@ function parseRankingHtml(html) {
       price: priceText,
       original_price: parsedPrice.original,
       sale_price: parsedPrice.sale,
-      discount_rate: parsedPrice.discount,
-      image_url: imageUrl
+      discount_rate: parsedPrice.discount
     });
   });
 

@@ -691,7 +691,6 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             >
               {isMobile ? '캠페인' : '캠페인 보기'}
             </Button>
-            {/*
             <Button
               color="inherit"
               onClick={() => {
@@ -711,7 +710,6 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             >
               {isMobile ? '랭킹' : '올리브영 랭킹'}
             </Button>
-            */}
           </Box>
 
           {/* Spacer */}

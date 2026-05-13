@@ -231,3 +231,48 @@ export const removeBrandSales = async (brandId, salesId) => {
   const response = await api.delete(`/users/brands/${brandId}/sales/${salesId}`);
   return response.data;
 };
+
+/**
+ * 영업사 일괄 인수인계 미리보기 (Admin용)
+ * @param fromSalesId - 인수인계 대상(원 영업사) ID
+ */
+export const previewSalesTransfer = async (fromSalesId) => {
+  const response = await api.get(`/users/sales/${fromSalesId}/transfer-preview`);
+  return response.data;
+};
+
+/**
+ * 영업사 A의 모든 권한을 영업사 B에게 일괄 이전 (Admin용)
+ * @param fromSalesId - 원 영업사 ID
+ * @param toSalesId - 인수받을 영업사 ID
+ */
+export const transferAllFromSales = async (fromSalesId, toSalesId) => {
+  const response = await api.post(`/users/sales/${fromSalesId}/transfer-all/${toSalesId}`);
+  return response.data;
+};
+
+/**
+ * 특정 브랜드사에 한정해서 영업사 A → B 이전 미리보기 (Admin용)
+ * @param brandId - 브랜드 사용자 ID
+ * @param fromSalesId - 원 영업사 ID
+ */
+export const previewBrandTransfer = async (brandId, fromSalesId) => {
+  const response = await api.get(`/users/brands/${brandId}/transfer-preview`, {
+    params: { fromSalesId }
+  });
+  return response.data;
+};
+
+/**
+ * 특정 브랜드사에 한정해서 영업사 A → B 이전 실행 (Admin용)
+ * @param brandId - 브랜드 사용자 ID
+ * @param fromSalesId - 원 영업사 ID
+ * @param toSalesId - 인수받을 영업사 ID
+ */
+export const transferBrandSales = async (brandId, fromSalesId, toSalesId) => {
+  const response = await api.post(`/users/brands/${brandId}/transfer`, {
+    fromSalesId,
+    toSalesId
+  });
+  return response.data;
+};

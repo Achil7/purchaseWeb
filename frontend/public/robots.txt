@@ -1,3 +1,4 @@
 # https://www.robotstxt.org/robotstxt.html
+# 본 서비스는 비공개 SaaS로, 검색 엔진 인덱싱을 차단합니다.
 User-agent: *
-Disallow:
+Disallow: /

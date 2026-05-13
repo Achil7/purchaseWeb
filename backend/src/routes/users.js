@@ -596,6 +596,361 @@ router.delete('/brands/:brandId/sales/:salesId', authenticate, authorize(['admin
   }
 });
 
+/**
+ * @route   GET /api/users/sales/:fromSalesId/transfer-preview
+ * @desc    영업사 일괄 인수인계 미리보기 (이전될 건수만 반환, DB 변경 없음)
+ * @access  Private (Admin only)
+ */
+router.get('/sales/:fromSalesId/transfer-preview', authenticate, authorize(['admin']), async (req, res) => {
+  try {
+    const fromSalesId = parseInt(req.params.fromSalesId, 10);
+
+    const fromUser = await User.findOne({ where: { id: fromSalesId, role: 'sales' } });
+    if (!fromUser) {
+      return res.status(404).json({
+        success: false,
+        message: '대상 영업사를 찾을 수 없습니다'
+      });
+    }
+
+    const [monthlyBrandsCount, campaignsCount, brandSalesRecords, assignedSalesCount] = await Promise.all([
+      MonthlyBrand.count({ where: { created_by: fromSalesId } }),
+      Campaign.count({ where: { created_by: fromSalesId } }),
+      BrandSales.findAll({ where: { sales_id: fromSalesId }, attributes: ['brand_id'], raw: true }),
+      User.count({ where: { assigned_sales_id: fromSalesId } })
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        from: { id: fromUser.id, name: fromUser.name, username: fromUser.username },
+        monthlyBrands: monthlyBrandsCount,
+        campaigns: campaignsCount,
+        brandSalesMappings: brandSalesRecords.length,
+        assignedSalesUsers: assignedSalesCount,
+        brandIds: brandSalesRecords.map(r => r.brand_id)
+      }
+    });
+  } catch (error) {
+    console.error('Transfer preview error:', error);
+    res.status(500).json({
+      success: false,
+      message: '인수인계 미리보기 중 오류가 발생했습니다: ' + error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/users/sales/:fromSalesId/transfer-all/:toSalesId
+ * @desc    영업사 A의 모든 권한(연월브랜드/캠페인/브랜드 담당)을 영업사 B로 일괄 이전
+ * @access  Private (Admin only)
+ */
+router.post('/sales/:fromSalesId/transfer-all/:toSalesId', authenticate, authorize(['admin']), async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const fromSalesId = parseInt(req.params.fromSalesId, 10);
+    const toSalesId = parseInt(req.params.toSalesId, 10);
+
+    if (fromSalesId === toSalesId) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: '같은 영업사로는 이전할 수 없습니다'
+      });
+    }
+
+    const [fromUser, toUser] = await Promise.all([
+      User.findOne({ where: { id: fromSalesId, role: 'sales' } }),
+      User.findOne({ where: { id: toSalesId, role: 'sales', is_active: true } })
+    ]);
+
+    if (!fromUser) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: '인수인계 대상(원 영업사)을 찾을 수 없습니다'
+      });
+    }
+    if (!toUser) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: '인수인계 받을 영업사를 찾을 수 없거나 비활성 상태입니다'
+      });
+    }
+
+    // 1. MonthlyBrand created_by 이전
+    const [monthlyBrandsAffected] = await MonthlyBrand.update(
+      { created_by: toSalesId },
+      { where: { created_by: fromSalesId }, transaction }
+    );
+
+    // 2. Campaign created_by 이전
+    const [campaignsAffected] = await Campaign.update(
+      { created_by: toSalesId },
+      { where: { created_by: fromSalesId }, transaction }
+    );
+
+    // 3. BrandSales 매핑 이전 (unique 제약 회피)
+    //    A가 담당하는 brand_id 중 B가 이미 담당하는 것은 A 레코드만 삭제
+    //    나머지는 sales_id를 A -> B로 UPDATE
+    const fromBrandSales = await BrandSales.findAll({
+      where: { sales_id: fromSalesId },
+      attributes: ['brand_id'],
+      raw: true,
+      transaction
+    });
+    const fromBrandIds = fromBrandSales.map(r => r.brand_id);
+
+    let brandSalesUpdated = 0;
+    let brandSalesDeleted = 0;
+    if (fromBrandIds.length > 0) {
+      const toExisting = await BrandSales.findAll({
+        where: { sales_id: toSalesId, brand_id: { [Op.in]: fromBrandIds } },
+        attributes: ['brand_id'],
+        raw: true,
+        transaction
+      });
+      const duplicatedBrandIds = toExisting.map(r => r.brand_id);
+
+      if (duplicatedBrandIds.length > 0) {
+        // B가 이미 담당 중 -> A 레코드 삭제
+        brandSalesDeleted = await BrandSales.destroy({
+          where: { sales_id: fromSalesId, brand_id: { [Op.in]: duplicatedBrandIds } },
+          transaction
+        });
+      }
+
+      // 나머지는 sales_id 변경
+      const [updatedCount] = await BrandSales.update(
+        { sales_id: toSalesId },
+        { where: { sales_id: fromSalesId }, transaction }
+      );
+      brandSalesUpdated = updatedCount;
+    }
+
+    // 4. User.assigned_sales_id (레거시 단일 담당 필드)
+    const [assignedUsersAffected] = await User.update(
+      { assigned_sales_id: toSalesId },
+      { where: { assigned_sales_id: fromSalesId }, transaction }
+    );
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: `${fromUser.name}의 모든 권한이 ${toUser.name}(으)로 이전되었습니다`,
+      data: {
+        from: { id: fromUser.id, name: fromUser.name },
+        to: { id: toUser.id, name: toUser.name },
+        monthlyBrandsTransferred: monthlyBrandsAffected,
+        campaignsTransferred: campaignsAffected,
+        brandSalesTransferred: brandSalesUpdated,
+        brandSalesDeletedAsDuplicate: brandSalesDeleted,
+        assignedSalesUsersTransferred: assignedUsersAffected
+      }
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Transfer all sales error:', error);
+    res.status(500).json({
+      success: false,
+      message: '영업사 인수인계 중 오류가 발생했습니다: ' + error.message
+    });
+  }
+});
+
+/**
+ * @route   GET /api/users/brands/:brandId/transfer-preview
+ * @desc    특정 브랜드사에 한정해서 영업사 A → B 이전 미리보기
+ * @query   fromSalesId - 원 영업사 ID
+ * @access  Private (Admin only)
+ */
+router.get('/brands/:brandId/transfer-preview', authenticate, authorize(['admin']), async (req, res) => {
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    const fromSalesId = parseInt(req.query.fromSalesId, 10);
+
+    if (!fromSalesId) {
+      return res.status(400).json({
+        success: false,
+        message: 'fromSalesId 쿼리 파라미터가 필요합니다'
+      });
+    }
+
+    const [brand, fromUser] = await Promise.all([
+      User.findOne({ where: { id: brandId, role: 'brand' } }),
+      User.findOne({ where: { id: fromSalesId, role: 'sales' } })
+    ]);
+
+    if (!brand) {
+      return res.status(404).json({
+        success: false,
+        message: '브랜드를 찾을 수 없습니다'
+      });
+    }
+    if (!fromUser) {
+      return res.status(404).json({
+        success: false,
+        message: '원 영업사를 찾을 수 없습니다'
+      });
+    }
+
+    // 1. 이 브랜드사에 속한 A의 연월브랜드
+    const monthlyBrandsCount = await MonthlyBrand.count({
+      where: { brand_id: brandId, created_by: fromSalesId }
+    });
+
+    // 2. 이 브랜드사에 속한 A의 캠페인
+    const campaignsCount = await Campaign.count({
+      where: { brand_id: brandId, created_by: fromSalesId }
+    });
+
+    // 3. 이 브랜드사 ↔ A의 BrandSales 매핑
+    const brandSalesCount = await BrandSales.count({
+      where: { brand_id: brandId, sales_id: fromSalesId }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        brand: { id: brand.id, name: brand.name, username: brand.username },
+        from: { id: fromUser.id, name: fromUser.name, username: fromUser.username },
+        monthlyBrands: monthlyBrandsCount,
+        campaigns: campaignsCount,
+        brandSalesMapping: brandSalesCount
+      }
+    });
+  } catch (error) {
+    console.error('Brand transfer preview error:', error);
+    res.status(500).json({
+      success: false,
+      message: '브랜드 이전 미리보기 중 오류가 발생했습니다: ' + error.message
+    });
+  }
+});
+
+/**
+ * @route   POST /api/users/brands/:brandId/transfer
+ * @desc    특정 브랜드사에 한정해서 영업사 A → B 이전
+ *          (해당 브랜드사의 연월브랜드/캠페인 created_by + BrandSales 매핑만 변경)
+ *          A가 담당하는 다른 브랜드사는 영향 없음
+ * @body    { fromSalesId, toSalesId }
+ * @access  Private (Admin only)
+ */
+router.post('/brands/:brandId/transfer', authenticate, authorize(['admin']), async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const brandId = parseInt(req.params.brandId, 10);
+    const fromSalesId = parseInt(req.body.fromSalesId, 10);
+    const toSalesId = parseInt(req.body.toSalesId, 10);
+
+    if (!fromSalesId || !toSalesId) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'fromSalesId와 toSalesId가 모두 필요합니다'
+      });
+    }
+
+    if (fromSalesId === toSalesId) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: '같은 영업사로는 이전할 수 없습니다'
+      });
+    }
+
+    const [brand, fromUser, toUser] = await Promise.all([
+      User.findOne({ where: { id: brandId, role: 'brand' } }),
+      User.findOne({ where: { id: fromSalesId, role: 'sales' } }),
+      User.findOne({ where: { id: toSalesId, role: 'sales', is_active: true } })
+    ]);
+
+    if (!brand) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: '브랜드를 찾을 수 없습니다'
+      });
+    }
+    if (!fromUser) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: '원 영업사를 찾을 수 없습니다'
+      });
+    }
+    if (!toUser) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: '인수받을 영업사를 찾을 수 없거나 비활성 상태입니다'
+      });
+    }
+
+    // 1. 이 브랜드사의 A 연월브랜드 → B
+    const [monthlyBrandsAffected] = await MonthlyBrand.update(
+      { created_by: toSalesId },
+      { where: { brand_id: brandId, created_by: fromSalesId }, transaction }
+    );
+
+    // 2. 이 브랜드사의 A 캠페인 → B
+    const [campaignsAffected] = await Campaign.update(
+      { created_by: toSalesId },
+      { where: { brand_id: brandId, created_by: fromSalesId }, transaction }
+    );
+
+    // 3. BrandSales 매핑 이전 (unique 제약 회피)
+    //    B가 이미 이 브랜드사를 담당 중이면 → A 레코드 삭제
+    //    아니면 → sales_id를 A에서 B로 UPDATE
+    let brandSalesUpdated = 0;
+    let brandSalesDeleted = 0;
+    const aMapping = await BrandSales.findOne({
+      where: { brand_id: brandId, sales_id: fromSalesId },
+      transaction
+    });
+    if (aMapping) {
+      const bExisting = await BrandSales.findOne({
+        where: { brand_id: brandId, sales_id: toSalesId },
+        transaction
+      });
+      if (bExisting) {
+        await aMapping.destroy({ transaction });
+        brandSalesDeleted = 1;
+      } else {
+        await aMapping.update({ sales_id: toSalesId }, { transaction });
+        brandSalesUpdated = 1;
+      }
+    }
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: `${brand.name}의 담당이 ${fromUser.name}에서 ${toUser.name}(으)로 이전되었습니다`,
+      data: {
+        brand: { id: brand.id, name: brand.name },
+        from: { id: fromUser.id, name: fromUser.name },
+        to: { id: toUser.id, name: toUser.name },
+        monthlyBrandsTransferred: monthlyBrandsAffected,
+        campaignsTransferred: campaignsAffected,
+        brandSalesTransferred: brandSalesUpdated,
+        brandSalesDeletedAsDuplicate: brandSalesDeleted
+      }
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Brand transfer error:', error);
+    res.status(500).json({
+      success: false,
+      message: '브랜드 이전 중 오류가 발생했습니다: ' + error.message
+    });
+  }
+});
+
 // ============================================
 // 사용자 CRUD API
 // ============================================
