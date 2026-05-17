@@ -37,7 +37,7 @@ function fmtDate(d) {
   }
 }
 
-function BuyerAnalyticsDashboard() {
+function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
   // 필터 상태
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -53,6 +53,7 @@ function BuyerAnalyticsDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState(0);
+  const [noAssignment, setNoAssignment] = useState(false); // 배정 0건 (operator/view-operator 모드)
 
   // 상세 dialog
   const [detailOpen, setDetailOpen] = useState(false);
@@ -66,6 +67,7 @@ function BuyerAnalyticsDashboard() {
   const handleSearch = useCallback(async () => {
     setLoading(true);
     setError('');
+    setNoAssignment(false);
     try {
       const params = {
         overdueDays,
@@ -75,15 +77,17 @@ function BuyerAnalyticsDashboard() {
       if (endDate) params.endDate = endDate;
       if (courierFilter !== 'all') params.courierFilter = courierFilter;
       if (accountKeyword.trim()) params.accountKeyword = accountKeyword.trim();
+      if (viewAsUserId) params.viewAsUserId = viewAsUserId;
       const res = await buyerAnalyticsService.getAccounts(params);
       setAccounts(res.data || []);
+      if (res?._scope === 'no_assignment') setNoAssignment(true);
     } catch (e) {
       setError(e?.response?.data?.message || e.message || '조회 실패');
       setAccounts([]);
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, overdueDays, minParticipation, courierFilter, accountKeyword]);
+  }, [startDate, endDate, overdueDays, minParticipation, courierFilter, accountKeyword, viewAsUserId]);
 
   const openDetail = useCallback(async (account) => {
     setDetailAccount(account);
@@ -95,6 +99,7 @@ function BuyerAnalyticsDashboard() {
     try {
       const detailParams = { overdueDays };
       if (courierFilter !== 'all') detailParams.courierFilter = courierFilter;
+      if (viewAsUserId) detailParams.viewAsUserId = viewAsUserId;
       const res = await buyerAnalyticsService.getAccountBuyers(account.account_normalized, detailParams);
       setDetailRows(res.data || []);
     } catch (e) {
@@ -102,7 +107,7 @@ function BuyerAnalyticsDashboard() {
     } finally {
       setDetailLoading(false);
     }
-  }, [overdueDays, courierFilter]);
+  }, [overdueDays, courierFilter, viewAsUserId]);
 
   // 탭별 정렬/필터링
   const enrichedAccounts = useMemo(() => {
@@ -402,6 +407,12 @@ function BuyerAnalyticsDashboard() {
       </Paper>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {noAssignment && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          배정된 캠페인이 없어 분석할 데이터가 없습니다.
+        </Alert>
+      )}
 
       {/* 요약 */}
       {!loading && accounts.length > 0 && (

@@ -3,6 +3,34 @@ const { CampaignOperator } = require('../models');
 const { QueryTypes } = Sequelize;
 
 /**
+ * viewAsUserId 권한 헬퍼
+ *  - operator: 본인 ID 강제 (viewAsUserId 무시 — 위조 차단)
+ *  - admin: viewAsUserId 있으면 해당 진행자 기준, 없으면 null(전체)
+ *  - 그 외: null 반환 → 호출부에서 거부 처리
+ *
+ * 반환: { effectiveOperatorId: number|null, denied: boolean }
+ *   - denied=true 면 호출부가 403 응답
+ *   - effectiveOperatorId=null 이면 admin 전체 모드 (필터 안 함)
+ */
+function resolveEffectiveOperatorId(req) {
+  const role = req.user.role;
+  if (role === 'operator') {
+    return { effectiveOperatorId: req.user.id, denied: false };
+  }
+  if (role === 'admin') {
+    if (req.query.viewAsUserId != null && req.query.viewAsUserId !== '') {
+      const v = parseInt(req.query.viewAsUserId, 10);
+      if (!Number.isFinite(v) || v <= 0) {
+        return { effectiveOperatorId: null, denied: true };
+      }
+      return { effectiveOperatorId: v, denied: false };
+    }
+    return { effectiveOperatorId: null, denied: false };
+  }
+  return { effectiveOperatorId: null, denied: true };
+}
+
+/**
  * 구매자 분석 - 계좌 단위 집계
  * GET /api/buyer-analytics/accounts
  *
@@ -23,8 +51,10 @@ const { QueryTypes } = Sequelize;
  */
 exports.getAccounts = async (req, res) => {
   try {
-    const role = req.user.role;
-    const userId = req.user.id;
+    const { effectiveOperatorId, denied } = resolveEffectiveOperatorId(req);
+    if (denied) {
+      return res.status(403).json({ success: false, message: '권한 없음' });
+    }
 
     const startDate = req.query.startDate || null;
     const endDate = req.query.endDate || null;
@@ -35,16 +65,16 @@ exports.getAccounts = async (req, res) => {
     // 계좌(account_info) 부분 일치 검색어
     const accountKeyword = (req.query.accountKeyword || '').trim();
 
-    // operator인 경우 본인 배정 (item_id, day_group) 집합 미리 계산
+    // effectiveOperatorId가 있으면 본인/대상 진행자 배정 (item_id, day_group) 집합 미리 계산
     let operatorScope = null; // null=전체, { itemFull: Set, itemDayGroups: Map(item_id -> Set(day_group)) }
-    if (role === 'operator') {
+    if (effectiveOperatorId) {
       const assignments = await CampaignOperator.findAll({
-        where: { operator_id: userId },
+        where: { operator_id: effectiveOperatorId },
         attributes: ['item_id', 'day_group']
       });
 
       if (assignments.length === 0) {
-        return res.json({ success: true, data: [], count: 0 });
+        return res.json({ success: true, data: [], count: 0, _scope: 'no_assignment' });
       }
 
       const itemFull = new Set();          // day_group=NULL → item 전체
@@ -217,8 +247,10 @@ exports.getAccounts = async (req, res) => {
  */
 exports.getAccountBuyers = async (req, res) => {
   try {
-    const role = req.user.role;
-    const userId = req.user.id;
+    const { effectiveOperatorId, denied } = resolveEffectiveOperatorId(req);
+    if (denied) {
+      return res.status(403).json({ success: false, message: '권한 없음' });
+    }
     const accountNormalized = req.params.accountNormalized;
 
     if (!accountNormalized) {
@@ -235,15 +267,15 @@ exports.getAccountBuyers = async (req, res) => {
       courierClause = "AND UPPER(COALESCE(s.courier_service_yn, i.courier_service_yn)) LIKE '%N%'";
     }
 
-    // operator 권한 필터
+    // operator 권한 필터 (effectiveOperatorId 있으면 본인/대상 진행자 배정으로 제한)
     let operatorClause = '';
-    if (role === 'operator') {
+    if (effectiveOperatorId) {
       const assignments = await CampaignOperator.findAll({
-        where: { operator_id: userId },
+        where: { operator_id: effectiveOperatorId },
         attributes: ['item_id', 'day_group']
       });
       if (assignments.length === 0) {
-        return res.json({ success: true, data: [], count: 0 });
+        return res.json({ success: true, data: [], count: 0, _scope: 'no_assignment' });
       }
       const itemFull = new Set();
       const itemDayGroups = new Map();
@@ -265,7 +297,7 @@ exports.getAccountBuyers = async (req, res) => {
         orParts.push(`(b.item_id = ${itemId} AND COALESCE(s.day_group, 1) IN (${Array.from(dgSet).join(',')}))`);
       }
       if (orParts.length === 0) {
-        return res.json({ success: true, data: [], count: 0 });
+        return res.json({ success: true, data: [], count: 0, _scope: 'no_assignment' });
       }
       operatorClause = `AND (${orParts.join(' OR ')})`;
     }
