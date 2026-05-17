@@ -1,4 +1,4 @@
-const { Item, Image, Campaign, Buyer, ItemSlot, MonthlyBrand } = require('../models');
+const { Item, Image, Campaign, Buyer, ItemSlot, MonthlyBrand, CampaignOperator } = require('../models');
 const { sequelize, Sequelize } = require('../models');
 const { Op } = Sequelize;
 const { uploadToS3, deleteFromS3 } = require('../config/s3');
@@ -1060,13 +1060,36 @@ exports.proxyImage = async (req, res) => {
 };
 
 /**
- * 리뷰샷 검색 (Admin 전용)
- * - 모든 필터(브랜드사/제품명/기간/예금주) 선택, 단 최소 1개 이상 필수
+ * 리뷰샷 검색 (Admin 전체 / Operator 본인 배정만)
+ * - 모든 필터(브랜드사/제품명/기간/예금주/플랫폼) 선택, 단 최소 1개 이상 필수
  * - approved 상태만 (pending/rejected 제외)
  * - 예금주 필터 사용 시 선 업로드(is_temporary=true) 제외
+ *
+ * 권한 필터:
+ *   - operator: 본인 CampaignOperator 배정 (item_id, day_group)으로 강제 제한
+ *   - admin: viewAsUserId 있으면 해당 진행자 기준, 없으면 전체
+ *   - day_group 매칭 경로: image.upload_token ↔ item_slots.upload_link_token
+ *     선업로드(upload_token NULL) 이미지는 EXISTS 절이 자연스럽게 제외
  */
 exports.searchImages = async (req, res) => {
   try {
+    // 권한 헬퍼: operator는 본인 ID 강제 (viewAsUserId 무시), admin은 viewAsUserId 선택
+    const role = req.user.role;
+    let effectiveOperatorId = null;
+    if (role === 'operator') {
+      effectiveOperatorId = req.user.id;
+    } else if (role === 'admin') {
+      if (req.query.viewAsUserId != null && req.query.viewAsUserId !== '') {
+        const v = parseInt(req.query.viewAsUserId, 10);
+        if (!Number.isFinite(v) || v <= 0) {
+          return res.status(400).json({ success: false, message: 'viewAsUserId 형식 오류' });
+        }
+        effectiveOperatorId = v;
+      }
+    } else {
+      return res.status(403).json({ success: false, message: '권한 없음' });
+    }
+
     const { brand_id, product_name, start_date, end_date, account_holder, platform } = req.query;
     let limit = parseInt(req.query.limit, 10);
     let offset = parseInt(req.query.offset, 10);
@@ -1087,6 +1110,60 @@ exports.searchImages = async (req, res) => {
       });
     }
 
+    // operator 권한 필터: 본인/대상 진행자 배정 (item_id, day_group) 집합 계산
+    let operatorItemIds = null; // null=전체, Array<number>=허용 item_ids
+    let operatorDayGroupClause = null; // null=day_group 제약 없음, string=EXISTS SQL
+    if (effectiveOperatorId) {
+      const assignments = await CampaignOperator.findAll({
+        where: { operator_id: effectiveOperatorId },
+        attributes: ['item_id', 'day_group']
+      });
+      if (assignments.length === 0) {
+        return res.json({ success: true, total: 0, limit, offset, data: [], _scope: 'no_assignment' });
+      }
+      const itemFull = new Set();
+      const itemDayGroups = new Map();
+      for (const a of assignments) {
+        if (a.item_id == null) continue;
+        const itemId = parseInt(a.item_id, 10);
+        if (!Number.isFinite(itemId)) continue;
+        if (a.day_group === null || a.day_group === undefined) {
+          itemFull.add(itemId);
+        } else {
+          const dg = parseInt(a.day_group, 10);
+          if (!Number.isFinite(dg)) continue;
+          if (!itemDayGroups.has(itemId)) itemDayGroups.set(itemId, new Set());
+          itemDayGroups.get(itemId).add(dg);
+        }
+      }
+      // 허용 item_ids (itemFull + day_group 부분 배정 item)
+      const allItemIds = new Set([...itemFull, ...itemDayGroups.keys()]);
+      if (allItemIds.size === 0) {
+        return res.json({ success: true, total: 0, limit, offset, data: [], _scope: 'no_assignment' });
+      }
+      operatorItemIds = Array.from(allItemIds);
+
+      // day_group 부분 배정이 있으면 EXISTS 절로 ItemSlot.day_group 매칭 강제
+      // 경로: image.upload_token ↔ item_slots.upload_link_token ↔ s.day_group
+      // (전체 배정인 item_id는 day_group 제약 없이 통과시키도록 OR 조합)
+      if (itemDayGroups.size > 0) {
+        const orParts = [];
+        if (itemFull.size > 0) {
+          orParts.push(`s.item_id IN (${Array.from(itemFull).join(',')})`);
+        }
+        for (const [itemId, dgSet] of itemDayGroups.entries()) {
+          if (itemFull.has(itemId)) continue;
+          const dgList = Array.from(dgSet).join(',');
+          orParts.push(`(s.item_id = ${itemId} AND COALESCE(s.day_group, 1) IN (${dgList}))`);
+        }
+        operatorDayGroupClause =
+          `EXISTS (SELECT 1 FROM item_slots s ` +
+          `WHERE s.upload_link_token = "Image"."upload_token" ` +
+          `AND s.deleted_at IS NULL ` +
+          `AND (${orParts.join(' OR ')}))`;
+      }
+    }
+
     const imageWhere = { status: 'approved' };
     if (start_date || end_date) {
       imageWhere.created_at = {};
@@ -1096,6 +1173,15 @@ exports.searchImages = async (req, res) => {
         end.setHours(23, 59, 59, 999);
         imageWhere.created_at[Op.lte] = end;
       }
+    }
+
+    // operator 권한 필터 주입 (item_id 화이트리스트 + day_group EXISTS)
+    if (operatorItemIds) {
+      imageWhere.item_id = { [Op.in]: operatorItemIds };
+    }
+    if (operatorDayGroupClause) {
+      imageWhere[Op.and] = imageWhere[Op.and] || [];
+      imageWhere[Op.and].push(Sequelize.literal(operatorDayGroupClause));
     }
 
     const itemWhere = {};
