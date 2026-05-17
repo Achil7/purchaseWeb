@@ -13,12 +13,16 @@ import FiberNewIcon from '@mui/icons-material/FiberNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import EventNoteIcon from '@mui/icons-material/EventNote';
+import ImageSearchIcon from '@mui/icons-material/ImageSearch';
+import PersonSearchIcon from '@mui/icons-material/PersonSearch';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import OperatorMemoDialog from './OperatorMemoDialog';
 import OperatorSidebar from './OperatorSidebar';
 import OperatorItemSheet from './OperatorItemSheet';
 import OperatorMonthlyCalendar from './OperatorMonthlyCalendar';
+import OperatorReviewSearch from './OperatorReviewSearch';
+import OperatorBuyerAnalytics from './OperatorBuyerAnalytics';
 import UnifiedItemSheet from '../common/UnifiedItemSheet';
 import DailyWorkSheet from '../common/DailyWorkSheet';
 import { itemService } from '../../services';
@@ -477,6 +481,18 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                   label="월별 조회"
                   sx={{ fontSize: '0.85rem' }}
                 />
+                <Tab
+                  icon={<ImageSearchIcon sx={{ fontSize: 18 }} />}
+                  iconPosition="start"
+                  label="리뷰샷 검색"
+                  sx={{ fontSize: '0.85rem' }}
+                />
+                <Tab
+                  icon={<PersonSearchIcon sx={{ fontSize: 18 }} />}
+                  iconPosition="start"
+                  label="구매자 분석"
+                  sx={{ fontSize: '0.85rem' }}
+                />
               </Tabs>
             </Box>
 
@@ -582,6 +598,20 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
                   viewAsUserId={viewAsUserId}
                   onDateSelect={handleMonthlyCalendarDateSelect}
                 />
+              </Box>
+            )}
+
+            {/* 탭 4: 리뷰샷 검색 (본인 배정 한정) */}
+            {sheetTab === 4 && (
+              <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                <OperatorReviewSearch viewAsUserId={viewAsUserId} />
+              </Box>
+            )}
+
+            {/* 탭 5: 구매자 분석 (본인 배정 한정) */}
+            {sheetTab === 5 && (
+              <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                <OperatorBuyerAnalytics viewAsUserId={viewAsUserId} />
               </Box>
             )}
           </Box>

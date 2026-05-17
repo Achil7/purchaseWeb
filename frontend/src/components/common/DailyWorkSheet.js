@@ -1265,6 +1265,27 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
     }, 0);
   }, [monthFilteredSlots, parseAmount]);
 
+  // 중복 통계 (카운터용): 중복 그룹 수 + 고유 건수
+  // monthFilteredSlots 기준 — 다른 카운터(전체/작성/리뷰샷)와 동일 기준 유지
+  const duplicateStats = useMemo(() => {
+    const counts = {};
+    let emptyCount = 0;
+    monthFilteredSlots.forEach(slot => {
+      const orderNum = slot.buyer?.order_number;
+      if (orderNum && String(orderNum).trim() !== '') {
+        counts[orderNum] = (counts[orderNum] || 0) + 1;
+      } else {
+        emptyCount++;
+      }
+    });
+    const distinctNonEmpty = Object.keys(counts).length;
+    const duplicateGroups = Object.values(counts).filter(c => c >= 2).length;
+    return {
+      duplicateGroups,
+      uniqueCount: emptyCount + distinctNonEmpty,
+    };
+  }, [monthFilteredSlots]);
+
   // 엑셀 다운로드 핸들러
   const handleDownloadExcel = useCallback(() => {
     // changedSlotsRef의 변경사항을 slots에 머지한 복사본 생성 (리렌더링 없이 최신 데이터 반영)
@@ -2261,6 +2282,20 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
               <Typography component="span" sx={{ fontSize: '0.7rem', color: '#90caf9' }}>리뷰샷</Typography>
               <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#90caf9', lineHeight: 1 }}>
                 {reviewShotCount}
+              </Typography>
+            </Box>
+            <Box sx={{ width: '1px', height: 16, bgcolor: 'rgba(255,255,255,0.25)' }} />
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+              <Typography component="span" sx={{ fontSize: '0.7rem', color: '#ef9a9a' }}>중복</Typography>
+              <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#ef9a9a', lineHeight: 1 }}>
+                {duplicateStats.duplicateGroups}
+              </Typography>
+            </Box>
+            <Box sx={{ width: '1px', height: 16, bgcolor: 'rgba(255,255,255,0.25)' }} />
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5 }}>
+              <Typography component="span" sx={{ fontSize: '0.7rem', opacity: 0.7 }}>고유</Typography>
+              <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 'bold', lineHeight: 1 }}>
+                {duplicateStats.uniqueCount}
               </Typography>
             </Box>
           </Box>
