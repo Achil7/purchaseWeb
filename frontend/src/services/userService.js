@@ -18,6 +18,19 @@ export const getBrandUsers = async () => {
 };
 
 /**
+ * 리뷰샷 검색 / 구매자 분석용 브랜드사 옵션 조회
+ *  - operator: 본인 배정 캠페인 소속 브랜드사만
+ *  - admin + viewAsUserId: 해당 진행자 배정 소속 브랜드사
+ *  - admin (no viewAsUserId): 전체 활성 브랜드사
+ * @param {number|null} viewAsUserId
+ */
+export const getBrandsForReviewSearch = async (viewAsUserId = null) => {
+  const params = viewAsUserId ? { viewAsUserId } : {};
+  const response = await api.get('/users/brands-for-review-search', { params });
+  return response.data;
+};
+
+/**
  * 영업사 목록 조회 (브랜드 등록 시 담당 영업사 선택용)
  */
 export const getSalesUsers = async () => {

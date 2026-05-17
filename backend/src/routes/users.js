@@ -1038,6 +1038,68 @@ router.post('/', authenticate, authorize(['admin']), async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/users/brands-for-review-search
+ * @desc    리뷰샷 검색 / 구매자 분석 페이지의 브랜드사 드롭다운용 옵션
+ *          - operator: 본인이 배정받은 캠페인이 속한 브랜드사만
+ *          - admin + viewAsUserId: 해당 진행자가 배정받은 캠페인 소속 브랜드사
+ *          - admin (no viewAsUserId): 활성 브랜드사 전체 (getMyBrands admin 분기와 동일)
+ * @access  Private (Admin, Operator)
+ */
+router.get('/brands-for-review-search', authenticate, authorize(['admin', 'operator']), async (req, res) => {
+  try {
+    const role = req.user.role;
+    let effectiveOperatorId = null;
+    if (role === 'operator') {
+      effectiveOperatorId = req.user.id;
+    } else if (role === 'admin') {
+      if (req.query.viewAsUserId != null && req.query.viewAsUserId !== '') {
+        const v = parseInt(req.query.viewAsUserId, 10);
+        if (!Number.isFinite(v) || v <= 0) {
+          return res.status(400).json({ success: false, message: 'viewAsUserId 형식 오류' });
+        }
+        effectiveOperatorId = v;
+      }
+    }
+
+    // admin 전체 모드: 활성 브랜드사 전체 반환 (기존 getBrandUsers와 동일 형식)
+    if (!effectiveOperatorId) {
+      const brands = await User.findAll({
+        where: { role: 'brand', is_active: true },
+        attributes: ['id', 'username', 'name'],
+        order: [['name', 'ASC']]
+      });
+      return res.json({ success: true, data: brands });
+    }
+
+    // operator(or admin viewAsUserId) 모드: 본인 배정 캠페인 소속 브랜드사만
+    // 경로: campaign_operators.item_id → items.campaign_id → campaigns.brand_id → users
+    const rows = await sequelize.query(
+      `SELECT DISTINCT u.id, u.username, u.name
+       FROM campaign_operators co
+       JOIN items i ON i.id = co.item_id
+       JOIN campaigns c ON c.id = i.campaign_id
+       JOIN users u ON u.id = c.brand_id
+       WHERE co.operator_id = :opId
+         AND u.role = 'brand'
+         AND u.is_active = true
+       ORDER BY u.name ASC`,
+      {
+        replacements: { opId: effectiveOperatorId },
+        type: sequelize.QueryTypes.SELECT
+      }
+    );
+
+    res.json({ success: true, data: rows, _scope: rows.length === 0 ? 'no_assignment' : undefined });
+  } catch (error) {
+    console.error('Get brands-for-review-search error:', error);
+    res.status(500).json({
+      success: false,
+      message: '브랜드사 옵션 조회 중 오류가 발생했습니다'
+    });
+  }
+});
+
 // ============================================
 // /:id 기반 라우트 (더 구체적인 경로가 먼저 정의되어야 함)
 // ============================================

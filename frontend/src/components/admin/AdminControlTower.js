@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, Tabs, Tab, Table, TableHead, TableRow, TableCell, TableBody,
   CircularProgress, Alert, Button, IconButton, Tooltip, TextField, InputAdornment,
@@ -50,6 +50,9 @@ import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import EditIcon from '@mui/icons-material/Edit';
+import SortByAlphaIcon from '@mui/icons-material/SortByAlpha';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 
 function AdminControlTower() {
   const navigate = useNavigate();
@@ -96,6 +99,35 @@ function AdminControlTower() {
   // 진행자 배정 탭 - 페이지네이션 상태
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
+
+  // 진행자 배정 탭 - 미완료/완료 그룹 각각 독립 정렬 토글 (localStorage 영속)
+  const INCOMPLETE_SORT_KEY = 'admin_assignment_incomplete_sort';
+  const COMPLETE_SORT_KEY = 'admin_assignment_complete_sort';
+  const [incompleteSortOrder, setIncompleteSortOrder] = useState(() =>
+    localStorage.getItem(INCOMPLETE_SORT_KEY) || 'asc'
+  );
+  const [completeSortOrder, setCompleteSortOrder] = useState(() =>
+    localStorage.getItem(COMPLETE_SORT_KEY) || 'asc'
+  );
+
+  const cycleSort = (current) => {
+    const order = ['none', 'asc', 'desc'];
+    return order[(order.indexOf(current) + 1) % order.length];
+  };
+
+  const handleIncompleteSortToggle = () => {
+    const next = cycleSort(incompleteSortOrder);
+    setIncompleteSortOrder(next);
+    localStorage.setItem(INCOMPLETE_SORT_KEY, next);
+    setCurrentPage(1);
+  };
+
+  const handleCompleteSortToggle = () => {
+    const next = cycleSort(completeSortOrder);
+    setCompleteSortOrder(next);
+    localStorage.setItem(COMPLETE_SORT_KEY, next);
+    setCurrentPage(1);
+  };
 
   // 연월브랜드 펼치기/접기 토글
   const toggleMonthlyBrand = (monthlyBrandId) => {
@@ -284,81 +316,6 @@ function AdminControlTower() {
 
       const response = await monthlyBrandService.getAllMonthlyBrands();
       const data = response.data || [];
-
-      // 캠페인 이름으로 Natural Sort (숫자를 올바르게 정렬: 1, 2, 3, ... 10, 11, 12)
-      const naturalSort = (a, b) => {
-        const nameA = a.name || '';
-        const nameB = b.name || '';
-
-        // 숫자와 문자를 분리하여 비교
-        const regex = /(\d+)|(\D+)/g;
-        const partsA = nameA.match(regex) || [];
-        const partsB = nameB.match(regex) || [];
-
-        for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-          const partA = partsA[i] || '';
-          const partB = partsB[i] || '';
-
-          const numA = parseInt(partA, 10);
-          const numB = parseInt(partB, 10);
-
-          // 둘 다 숫자면 숫자로 비교
-          if (!isNaN(numA) && !isNaN(numB)) {
-            if (numA !== numB) return numA - numB;
-          } else {
-            // 문자열 비교
-            const cmp = partA.localeCompare(partB, 'ko');
-            if (cmp !== 0) return cmp;
-          }
-        }
-        return 0;
-      };
-
-      // 각 연월브랜드의 캠페인들을 먼저 정렬
-      data.forEach(mb => {
-        if (mb.campaigns) {
-          mb.campaigns.sort((a, b) => {
-            // 미배정(incomplete)을 먼저 표시
-            const aComplete = a.isFullyAssigned || a.assignmentStatus === 'no_items';
-            const bComplete = b.isFullyAssigned || b.assignmentStatus === 'no_items';
-
-            if (aComplete !== bComplete) {
-              return aComplete ? 1 : -1; // 미배정이 먼저
-            }
-
-            // 같은 배정 상태 내에서는 이름순
-            return naturalSort(a, b);
-          });
-        }
-      });
-
-      // 연월브랜드 자체를 정렬: 미완료 연월브랜드가 위로
-      // (is_hidden은 백엔드에서 이미 필터링됨)
-      data.sort((mbA, mbB) => {
-        const campaignsA = mbA.campaigns || [];
-        const campaignsB = mbB.campaigns || [];
-
-        // 연월브랜드의 모든 캠페인이 배정 완료되었는지 확인
-        const isAComplete = campaignsA.length === 0 || campaignsA.every(c =>
-          c.isFullyAssigned || c.assignmentStatus === 'no_items' || (c.items?.length || 0) === 0
-        );
-        const isBComplete = campaignsB.length === 0 || campaignsB.every(c =>
-          c.isFullyAssigned || c.assignmentStatus === 'no_items' || (c.items?.length || 0) === 0
-        );
-
-        // 미완료가 먼저
-        if (isAComplete !== isBComplete) {
-          return isAComplete ? 1 : -1;
-        }
-
-        // 같은 상태 내에서는 영업사 이름 → 연월브랜드 이름순
-        const salesNameA = mbA.creator?.name || '';
-        const salesNameB = mbB.creator?.name || '';
-        const salesCmp = salesNameA.localeCompare(salesNameB, 'ko');
-        if (salesCmp !== 0) return salesCmp;
-
-        return naturalSort(mbA, mbB);
-      });
 
       setMonthlyBrands(data);
       // 모든 연월브랜드는 기본적으로 접힌 상태로 시작
@@ -633,12 +590,50 @@ function AdminControlTower() {
   const userEndIndex = userStartIndex + USERS_PER_PAGE;
   const paginatedUsers = filteredUsers.slice(userStartIndex, userEndIndex);
 
+  // 진행자 배정 탭 - 연월브랜드 정렬 (미완료 그룹 먼저, 두 그룹 각자 독립 정렬)
+  const sortedMonthlyBrands = useMemo(() => {
+    const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+
+    const withSortedCampaigns = monthlyBrands.map(mb => ({
+      ...mb,
+      campaigns: [...(mb.campaigns || [])].sort((a, b) => {
+        const aDone = a.isFullyAssigned || a.assignmentStatus === 'no_items';
+        const bDone = b.isFullyAssigned || b.assignmentStatus === 'no_items';
+        if (aDone === bDone) return 0;
+        return aDone ? 1 : -1;
+      }),
+    }));
+
+    const isMbComplete = (mb) => {
+      const campaigns = mb.campaigns || [];
+      if (campaigns.length === 0) return true;
+      return campaigns.every(c =>
+        c.isFullyAssigned ||
+        c.assignmentStatus === 'no_items' ||
+        (c.items?.length || 0) === 0
+      );
+    };
+
+    const sortBy = (order) => (a, b) => {
+      if (order === 'none') return 0;
+      const r = collator.compare(a.name || '', b.name || '');
+      return order === 'asc' ? r : -r;
+    };
+
+    const incomplete = withSortedCampaigns.filter(mb => !isMbComplete(mb));
+    const complete = withSortedCampaigns.filter(mb => isMbComplete(mb));
+    if (incompleteSortOrder !== 'none') incomplete.sort(sortBy(incompleteSortOrder));
+    if (completeSortOrder !== 'none') complete.sort(sortBy(completeSortOrder));
+
+    return [...incomplete, ...complete];
+  }, [monthlyBrands, incompleteSortOrder, completeSortOrder]);
+
   // 진행자 배정 탭 렌더링 - 연월브랜드 > 캠페인 목록
   const renderAssignmentTab = () => {
     // 영업사 + 연월브랜드 검색 필터 (is_hidden은 백엔드에서 이미 필터링됨)
     const salesSearchLower = salesSearchQuery.trim().toLowerCase();
     const mbSearchLower = mbSearchQuery.trim().toLowerCase();
-    const filteredMonthlyBrands = monthlyBrands.filter(mb => {
+    const filteredMonthlyBrands = sortedMonthlyBrands.filter(mb => {
       if (salesSearchLower) {
         const creatorName = mb.creator?.name || '';
         if (!creatorName.toLowerCase().includes(salesSearchLower)) return false;
@@ -724,7 +719,7 @@ function AdminControlTower() {
           </Box>
         ) : (
           <Paper sx={{ width: '100%', overflow: 'hidden', borderRadius: 2 }}>
-            <TableContainer sx={{ maxHeight: 'calc(100vh - 300px)', overflowY: 'scroll' }}>
+            <TableContainer>
               <Table stickyHeader size="small">
                 <TableHead>
                   <TableRow>
@@ -798,7 +793,48 @@ function AdminControlTower() {
                 </TableHead>
                 <TableBody>
                   {paginatedMonthlyBrands.length > 0 ? (
-                    paginatedMonthlyBrands.map((mb) => {
+                    (() => {
+                      const isMbCompleteRow = (mb) => {
+                        const cs = mb.campaigns || [];
+                        if (cs.length === 0) return true;
+                        return cs.every(c =>
+                          c.isFullyAssigned ||
+                          c.assignmentStatus === 'no_items' ||
+                          (c.items?.length || 0) === 0
+                        );
+                      };
+                      const pageIncomplete = paginatedMonthlyBrands.filter(mb => !isMbCompleteRow(mb));
+                      const pageComplete = paginatedMonthlyBrands.filter(mb => isMbCompleteRow(mb));
+
+                      const renderSectionHeader = (key, label, bgColor, count, order, onToggle, tooltipPrefix) => (
+                        <TableRow key={key} sx={{ bgcolor: bgColor }}>
+                          <TableCell colSpan={8} sx={{ py: 0.75, px: 2, borderBottom: '2px solid rgba(0,0,0,0.12)' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="body2" fontWeight="bold">
+                                {label} ({count})
+                              </Typography>
+                              <Box sx={{ flex: 1 }} />
+                              <Tooltip title={
+                                order === 'none' ? `${tooltipPrefix} 기본 순서 (클릭: 오름차순)`
+                                : order === 'asc' ? `${tooltipPrefix} 이름 오름차순 (클릭: 내림차순)`
+                                : `${tooltipPrefix} 이름 내림차순 (클릭: 기본순)`
+                              }>
+                                <IconButton
+                                  size="small"
+                                  onClick={onToggle}
+                                  sx={{ p: 0.3, color: order === 'none' ? 'action.active' : 'primary.main' }}
+                                >
+                                  {order === 'asc' ? <ArrowUpwardIcon sx={{ fontSize: 18 }} />
+                                   : order === 'desc' ? <ArrowDownwardIcon sx={{ fontSize: 18 }} />
+                                   : <SortByAlphaIcon sx={{ fontSize: 18 }} />}
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      );
+
+                      const renderMbRow = (mb) => {
                       const isExpanded = expandedMonthlyBrands[mb.id] || false;
                       // is_hidden은 백엔드에서 이미 필터링됨
                       const campaigns = mb.campaigns || [];
@@ -1031,7 +1067,33 @@ function AdminControlTower() {
                           })}
                         </React.Fragment>
                       );
-                    })
+                      };
+
+                      return (
+                        <>
+                          {pageIncomplete.length > 0 && renderSectionHeader(
+                            '__section_incomplete__',
+                            '배정 미완료',
+                            '#ffebee',
+                            pageIncomplete.length,
+                            incompleteSortOrder,
+                            handleIncompleteSortToggle,
+                            '미완료'
+                          )}
+                          {pageIncomplete.map(renderMbRow)}
+                          {pageComplete.length > 0 && renderSectionHeader(
+                            '__section_complete__',
+                            '배정 완료',
+                            '#e8f5e9',
+                            pageComplete.length,
+                            completeSortOrder,
+                            handleCompleteSortToggle,
+                            '완료'
+                          )}
+                          {pageComplete.map(renderMbRow)}
+                        </>
+                      );
+                    })()
                   ) : (
                     <TableRow>
                       <TableCell colSpan={8} align="center" sx={{ py: 5, color: '#999' }}>
