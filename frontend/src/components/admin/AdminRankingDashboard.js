@@ -1,13 +1,17 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   Box, Container, Typography, Tabs, Tab, Paper, Table, TableHead, TableRow,
   TableCell, TableBody, Chip, Alert, CircularProgress, Link, Stack,
-  Button, LinearProgress, Tooltip, Snackbar, ToggleButtonGroup, ToggleButton, Grid
+  Button, LinearProgress, Tooltip, Snackbar, ToggleButtonGroup, ToggleButton, Grid,
+  Switch, FormControlLabel, TextField
 } from '@mui/material';
+import HistoryIcon from '@mui/icons-material/History';
 import CloudSyncIcon from '@mui/icons-material/CloudSync';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import { downloadExcel } from '../../utils/excelExport';
 import IconButton from '@mui/material/IconButton';
 import Collapse from '@mui/material/Collapse';
 import { ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -155,6 +159,19 @@ function AdminRankingDashboard() {
   // 시간 창
   const [windowParam, setWindowParam] = useState('24h');
 
+  // 과거 시점 조회 (Admin 전용)
+  // - pastMode: 토글
+  // - pastTimestamp: 'YYYY-MM-DDTHH:00' 형태 (datetime-local input 값, 시 단위)
+  const [pastMode, setPastMode] = useState(false);
+  const initialPastTs = useMemo(() => {
+    const d = new Date();
+    d.setMinutes(0, 0, 0);
+    d.setHours(d.getHours() - 1);            // 한 시간 전 기본값
+    const z = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:00`;
+  }, []);
+  const [pastTimestamp, setPastTimestamp] = useState(initialPastTs);
+
   // 추이 모달
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyProduct, setHistoryProduct] = useState(null);
@@ -175,11 +192,11 @@ function AdminRankingDashboard() {
     }
   }, []);
 
-  const loadRankings = useCallback(async (categoryId, win = windowParam) => {
+  const loadRankings = useCallback(async (categoryId, win = windowParam, baseTs = null) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await rankingService.getChanges(categoryId, win);
+      const res = await rankingService.getChanges(categoryId, win, baseTs);
       if (res.success) {
         setCollectedAt(res.data.currentCollectedAt);
         setPreviousCollectedAt(res.data.previousCollectedAt);
@@ -194,6 +211,33 @@ function AdminRankingDashboard() {
       setLoading(false);
     }
   }, [windowParam]);
+
+  // 엑셀 다운로드
+  // - 화면에 보이는 현재 카테고리 100위만 다운 (순위/제품명/브랜드/가격/상품코드)
+  // - 과거 시점 모드일 때는 그 시점 데이터로 다운 (rankings state가 이미 그 시점 데이터)
+  const handleExportExcel = useCallback(() => {
+    if (!rankings || rankings.length === 0) return;
+
+    const categoryName = categories.find((c) => c.id === activeCategory)?.name || activeCategory;
+    const headers = ['순위', '제품명', '브랜드', '가격', '상품코드'];
+    const rows = rankings.map((r) => [
+      r.rank,
+      r.product_name || '',
+      r.brand_name || '',
+      r.sale_price || r.original_price || r.price || '',
+      r.goods_no || ''
+    ]);
+    const data = [headers, ...rows];
+
+    // 파일명: 카테고리 + (과거 모드면 그 시점 / 현재 모드면 collected_at)
+    const ts = collectedAt ? new Date(collectedAt) : new Date();
+    const z = (n) => String(n).padStart(2, '0');
+    const tsLabel = `${ts.getFullYear()}${z(ts.getMonth() + 1)}${z(ts.getDate())}_${z(ts.getHours())}${z(ts.getMinutes())}`;
+    const modeLabel = pastMode ? '과거시점' : '실시간';
+    const fileName = `올리브영랭킹_${categoryName}_${modeLabel}_${tsLabel}`;
+
+    downloadExcel(data, fileName, categoryName, false);
+  }, [rankings, categories, activeCategory, collectedAt, pastMode]);
 
   // 직전 수집 시각 라벨 (Tooltip / legend 표시용)
   const prevTimeLabel = previousCollectedAt
@@ -249,9 +293,14 @@ function AdminRankingDashboard() {
     loadProgress();
   }, [loadCategories, loadProgress]);
 
+  // 현재 적용된 baseTs (과거 모드 ON 일 때만)
+  const effectiveBaseTs = pastMode && pastTimestamp
+    ? new Date(pastTimestamp).toISOString()
+    : null;
+
   useEffect(() => {
-    if (activeCategory) loadRankings(activeCategory);
-  }, [activeCategory, loadRankings]);
+    if (activeCategory) loadRankings(activeCategory, windowParam, effectiveBaseTs);
+  }, [activeCategory, windowParam, effectiveBaseTs, loadRankings]);
 
   // 진행 상황 폴링 (수집 중이면 2초, 아니면 30초)
   useEffect(() => {
@@ -269,8 +318,8 @@ function AdminRankingDashboard() {
   const seenLastJobIdRef = useRef(null);
   useEffect(() => {
     if (prevRunningRef.current && !progress.job?.running) {
-      // 방금 완료됨 → 현재 카테고리 다시 로드
-      if (activeCategory) loadRankings(activeCategory);
+      // 방금 완료됨 → 현재 카테고리 다시 로드 (과거 모드면 변경 X — 그 시점 데이터는 변하지 않음)
+      if (activeCategory && !effectiveBaseTs) loadRankings(activeCategory, windowParam, null);
       // 익명 토스트 알림 (lastJob 기반)
       const lastJob = progress.lastJob;
       if (lastJob && lastJob.id !== seenLastJobIdRef.current) {
@@ -289,7 +338,7 @@ function AdminRankingDashboard() {
       }
     }
     prevRunningRef.current = !!progress.job?.running;
-  }, [progress.job?.running, progress.lastJob, activeCategory, loadRankings]);
+  }, [progress.job?.running, progress.lastJob, activeCategory, loadRankings, windowParam, effectiveBaseTs]);
 
   // 진행 중일 때만 경과시간 1초마다 갱신 (job.startedAt 기반 클라이언트 계산용)
   useEffect(() => {
@@ -316,20 +365,32 @@ function AdminRankingDashboard() {
         <Box sx={{ flexGrow: 1 }} />
       </Stack>
 
-      <Paper variant="outlined" sx={{ p: 2.5, mb: 2, bgcolor: '#f0f7ff' }}>
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 2.5, mb: 2,
+          bgcolor: pastMode ? '#fff7ed' : '#f0f7ff',
+          borderColor: pastMode ? 'warning.main' : undefined
+        }}
+      >
         <Stack direction={{ xs: 'column', md: 'row' }} alignItems={{ xs: 'flex-start', md: 'center' }} spacing={2}>
-          {/* 좌측: 최근 수집 시각 크게 */}
+          {/* 좌측: 기준 시각 (현재 모드 = 최근 수집, 과거 모드 = 매칭된 라운드) */}
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.3 }}>
-              최근 수집 시각
+              {pastMode ? '과거 시점 기준 (매칭된 수집 라운드)' : '최근 수집 시각'}
             </Typography>
             <Typography
               variant="h5"
               fontWeight="bold"
-              sx={{ color: collectedAt ? 'primary.main' : 'text.disabled', lineHeight: 1.1 }}
+              sx={{ color: collectedAt ? (pastMode ? 'warning.main' : 'primary.main') : 'text.disabled', lineHeight: 1.1 }}
             >
               {collectedAt ? new Date(collectedAt).toLocaleString('ko-KR') : '데이터 없음'}
             </Typography>
+            {pastMode && pastTimestamp && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
+                요청한 시점: {new Date(pastTimestamp).toLocaleString('ko-KR')}
+              </Typography>
+            )}
           </Box>
 
           <Box sx={{ flexGrow: 1 }} />
@@ -387,6 +448,20 @@ function AdminRankingDashboard() {
                   disabled={triggering || job.running || proxyEnabled === false}
                 >
                   강제 새 수집
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title={pastMode ? '과거 시점 기준 100위를 엑셀로 다운로드' : '현재 표시된 100위를 엑셀로 다운로드'}>
+              <span>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="success"
+                  startIcon={<FileDownloadIcon />}
+                  onClick={handleExportExcel}
+                  disabled={!rankings || rankings.length === 0}
+                >
+                  엑셀 다운
                 </Button>
               </span>
             </Tooltip>
@@ -454,19 +529,68 @@ function AdminRankingDashboard() {
           <Tab value="insights" label="인사이트" />
         </Tabs>
         <Box sx={{ flex: 1 }} />
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="caption" color="text.secondary">기간:</Typography>
-          <ToggleButtonGroup
-            size="small"
-            value={windowParam}
-            exclusive
-            onChange={(_, v) => v && setWindowParam(v)}
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="caption" color="text.secondary">기간:</Typography>
+            <ToggleButtonGroup
+              size="small"
+              value={windowParam}
+              exclusive
+              onChange={(_, v) => v && setWindowParam(v)}
+            >
+              <ToggleButton value="6h">6h</ToggleButton>
+              <ToggleButton value="12h">12h</ToggleButton>
+              <ToggleButton value="24h">24h</ToggleButton>
+              <ToggleButton value="48h">48h</ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
+
+          {/* 과거 시점 조회 (시 단위) */}
+          <Stack direction="row" spacing={1} alignItems="center"
+            sx={{
+              px: 1.2, py: 0.6, borderRadius: 1,
+              border: pastMode ? '1px solid #ed6c02' : '1px solid #e0e0e0',
+              bgcolor: pastMode ? '#fff7ed' : 'transparent'
+            }}
           >
-            <ToggleButton value="6h">6h</ToggleButton>
-            <ToggleButton value="12h">12h</ToggleButton>
-            <ToggleButton value="24h">24h</ToggleButton>
-            <ToggleButton value="48h">48h</ToggleButton>
-          </ToggleButtonGroup>
+            <Tooltip title="OFF: 실시간(최신). ON: 입력한 과거 시점 기준으로 랭킹/변동/추이를 표시합니다.">
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={pastMode}
+                    onChange={(_, v) => setPastMode(v)}
+                  />
+                }
+                label={
+                  <Stack direction="row" spacing={0.5} alignItems="center">
+                    <HistoryIcon fontSize="small" sx={{ color: pastMode ? 'warning.main' : 'text.secondary' }} />
+                    <Typography variant="caption" color={pastMode ? 'warning.main' : 'text.secondary'} fontWeight={pastMode ? 'bold' : 'normal'}>
+                      과거 시점
+                    </Typography>
+                  </Stack>
+                }
+                sx={{ mr: 0.5 }}
+              />
+            </Tooltip>
+            <TextField
+              type="datetime-local"
+              size="small"
+              value={pastTimestamp}
+              onChange={(e) => {
+                // 시 단위로만 받기 (분/초 0으로)
+                const v = e.target.value;
+                if (!v) { setPastTimestamp(''); return; }
+                // YYYY-MM-DDTHH:MM 에서 분을 00으로 강제
+                const idx = v.lastIndexOf(':');
+                const normalized = idx > 0 ? v.slice(0, idx) + ':00' : v;
+                setPastTimestamp(normalized);
+              }}
+              disabled={!pastMode}
+              inputProps={{ step: 3600 }}             // 1시간 단위
+              sx={{ width: 200 }}
+            />
+          </Stack>
         </Stack>
       </Paper>
 

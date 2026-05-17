@@ -134,6 +134,21 @@ function parseWindowHours(input) {
 }
 
 /**
+ * baseTimestamp 파싱: ISO 문자열 또는 'YYYY-MM-DDTHH:MM' → Date | null
+ * 유효하지 않거나 미래 시각이면 null (= 현재 모드).
+ */
+function parseBaseTimestamp(input) {
+  if (!input) return null;
+  const trimmed = String(input).trim();
+  if (!trimmed) return null;
+  const d = new Date(trimmed);
+  if (isNaN(d.getTime())) return null;
+  // 미래 시각은 의미 없음 → null (현재 모드 fallback)
+  if (d.getTime() > Date.now() + 60 * 1000) return null;
+  return d;
+}
+
+/**
  * 카테고리별 순위 변동 (현재 + 직전 시점 대비 + N시간 통계)
  *
  * Query: category_id (필수), window (옵션, 6h/12h/24h/48h/72h/168h, 기본 24h)
@@ -146,6 +161,8 @@ async function getChanges(req, res) {
   try {
     const categoryId = req.query.category_id;
     const windowHours = parseWindowHours(req.query.window);
+    const baseTimestamp = parseBaseTimestamp(req.query.base);   // 과거 시점 (옵션)
+    const isPastMode = !!baseTimestamp;
 
     if (!categoryId) {
       return res.status(400).json({ success: false, message: 'category_id가 필요합니다' });
@@ -154,14 +171,20 @@ async function getChanges(req, res) {
       return res.status(400).json({ success: false, message: '유효하지 않은 category_id' });
     }
 
-    // 33차: 캐시 hit
-    const cacheKey = `changes_${categoryId}_${windowHours}`;
+    // 33차: 캐시 hit (과거 모드는 baseTimestamp 포함 key)
+    const cacheKey = isPastMode
+      ? `changes_${categoryId}_${windowHours}_at_${baseTimestamp.toISOString()}`
+      : `changes_${categoryId}_${windowHours}`;
     const cached = await getQueryCache(cacheKey);
     if (cached) return res.json({ success: true, data: cached });
 
-    // 1) 최신 + 직전 collected_at 조회
+    // 1) 최신 + 직전 collected_at 조회 (과거 모드면 base 이전만)
+    const timeWhere = { category_id: categoryId };
+    if (isPastMode) {
+      timeWhere.collected_at = { [Op.lte]: baseTimestamp };
+    }
     const distinctTimes = await PlatformRanking.findAll({
-      where: { category_id: categoryId },
+      where: timeWhere,
       attributes: [[sequelize.fn('DISTINCT', sequelize.col('collected_at')), 'collected_at']],
       order: [['collected_at', 'DESC']],
       limit: 2,
@@ -176,7 +199,9 @@ async function getChanges(req, res) {
           previousCollectedAt: null,
           windowHours,
           current: [],
-          dropouts: []
+          dropouts: [],
+          isPastMode,
+          requestedBaseTimestamp: isPastMode ? baseTimestamp.toISOString() : null
         }
       });
     }
@@ -206,12 +231,21 @@ async function getChanges(req, res) {
     }
 
     // 3) N시간 통계 — 한 번에 조회 후 코드에서 집계
-    const windowStart = new Date(Date.now() - windowHours * 3600 * 1000);
+    //    현재 모드: 지금 시각 기준 N시간 뒤로
+    //    과거 모드: currentCollectedAt 기준 N시간 뒤로 (그 시점의 추이 재현)
+    const windowAnchor = isPastMode
+      ? new Date(currentCollectedAt).getTime()
+      : Date.now();
+    const windowStart = new Date(windowAnchor - windowHours * 3600 * 1000);
+    const windowWhere = {
+      category_id: categoryId,
+      collected_at: { [Op.gte]: windowStart }
+    };
+    if (isPastMode) {
+      windowWhere.collected_at = { [Op.gte]: windowStart, [Op.lte]: new Date(windowAnchor) };
+    }
     const windowRows = await PlatformRanking.findAll({
-      where: {
-        category_id: categoryId,
-        collected_at: { [Op.gte]: windowStart }
-      },
+      where: windowWhere,
       attributes: ['goods_no', 'rank', 'collected_at'],
       raw: true
     });
@@ -302,7 +336,9 @@ async function getChanges(req, res) {
       windowHours,
       collectionIntervalMs,
       current,
-      dropouts
+      dropouts,
+      isPastMode,
+      requestedBaseTimestamp: isPastMode ? baseTimestamp.toISOString() : null
     };
     await setQueryCache(cacheKey, responseData);
     return res.json({ success: true, data: responseData });

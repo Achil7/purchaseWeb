@@ -40,8 +40,8 @@ function BrandRankingView() {
   const [historyProduct, setHistoryProduct] = useState(null);
   const [historyCategoryId, setHistoryCategoryId] = useState(null);
 
-  // viewAsUserId (admin이 브랜드사 대신 볼 때)
-  const viewAsUserId = new URLSearchParams(window.location.search).get('viewAsUserId');
+  // viewAsUserId (admin이 브랜드사 대신 볼 때) — BrandLayout이 ?userId=N 으로 전달
+  const viewAsUserId = new URLSearchParams(window.location.search).get('userId');
 
   const load = useCallback(async () => {
     setLoading(true);

@@ -37,10 +37,10 @@ const rankingService = {
     return response.data;
   },
 
-  getChanges: async (categoryId, windowParam = '24h') => {
-    const response = await apiClient.get('/rankings/changes', {
-      params: { category_id: categoryId, window: windowParam }
-    });
+  getChanges: async (categoryId, windowParam = '24h', baseTimestamp = null) => {
+    const params = { category_id: categoryId, window: windowParam };
+    if (baseTimestamp) params.base = baseTimestamp;
+    const response = await apiClient.get('/rankings/changes', { params });
     return response.data;
   },
 

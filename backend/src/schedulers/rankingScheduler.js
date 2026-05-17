@@ -23,12 +23,12 @@ function fmtTs(d) {
 }
 
 /**
- * 다음 정시 슬롯 (다음 시간의 0~9분 랜덤 + 0~59초 랜덤)
+ * 다음 정시 슬롯 (다음 시간의 10~15분 랜덤 + 0~59초 랜덤)
  */
 function computeNextRunAt(after = new Date()) {
   const next = new Date(after);
   next.setHours(next.getHours() + 1);
-  next.setMinutes(Math.floor(Math.random() * 10));
+  next.setMinutes(10 + Math.floor(Math.random() * 6));   // 10, 11, 12, 13, 14, 15
   next.setSeconds(Math.floor(Math.random() * 60));
   next.setMilliseconds(0);
   if (next <= after) {
