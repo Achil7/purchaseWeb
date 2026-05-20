@@ -232,6 +232,7 @@ async function triggerCollectionRound({
     success: 0,
     fail: 0,
     currentCategory: null,
+    failedCategories: [],     // 실패한 카테고리명 (마지막 시도 기준)
     proxyEnabled: isProxyEnabled(),
     startedAt: job.started_at
   };
@@ -240,16 +241,33 @@ async function triggerCollectionRound({
   (async () => {
     const collectedAt = new Date();
     try {
+      // 카테고리별 최종 상태 추적: success → 제거, fail → 추가
+      // attempt가 진행되면서 재시도 성공한 카테고리는 자연스럽게 제거됨
+      const failedCategoryMap = new Map();    // categoryName → { error, attempts }
+      const succeededCategoryIds = new Set();
+
       const result = await scrapeAllCategories({
-        maxRetries: 2,
-        onProgress: async (idx, total, category, res /* , attempt */) => {
+        maxRetries: 4,    // 최대 5회 시도 (1차 + 재시도 4회)
+        onProgress: async (idx, total, category, res, attempt) => {
           state.jobMeta.completed = idx;
           state.jobMeta.currentCategory = category.name;
+
           if (res.success) {
-            state.jobMeta.success = (state.jobMeta.success || 0) + 1;
+            // 이전에 실패로 기록됐었다면 제거 (재시도 성공)
+            failedCategoryMap.delete(category.name);
+            if (!succeededCategoryIds.has(category.id)) {
+              succeededCategoryIds.add(category.id);
+              state.jobMeta.success = (state.jobMeta.success || 0) + 1;
+            }
           } else {
-            state.jobMeta.fail = (state.jobMeta.fail || 0) + 1;
+            failedCategoryMap.set(category.name, {
+              error: res.error || 'unknown',
+              attempts: (attempt || 0) + 1
+            });
           }
+          state.jobMeta.fail = failedCategoryMap.size;
+          state.jobMeta.failedCategories = Array.from(failedCategoryMap.keys());
+
           try {
             await job.update({
               current_idx: idx,
@@ -262,7 +280,10 @@ async function triggerCollectionRound({
       });
 
       // DB INSERT
-      if (result.items.length > 0) {
+      // 정책: 21/21 모두 성공한 라운드만 INSERT. 부분 성공은 버림 (다음 정시에 새로 시도).
+      // 이유: 일부 카테고리만 새 데이터, 나머지는 옛 데이터로 화면이 섞이는 걸 방지.
+      const isFullSuccess = result.failCount === 0 && result.items.length >= CATEGORIES.length * 100 * 0.95;
+      if (result.items.length > 0 && isFullSuccess) {
         const rows = result.items.map((it) => ({
           category_id: it.category_id,
           category_name: it.category_name,
@@ -282,15 +303,42 @@ async function triggerCollectionRound({
         } catch (err) {
           await job.update({ error_text: `INSERT failed: ${err.message}` });
         }
+      } else if (result.items.length > 0) {
+        // 부분 성공 → 버림, 사유 기록
+        await job.update({
+          error_text: `Partial success discarded: ${result.successCount}/${CATEGORIES.length} categories`
+        });
       }
 
       // 캐시 무효화 (다음 호출에서 새로 조회)
       lastCollectedAtCache = collectedAt;
       lastCollectedAtCheckedAt = Date.now();
 
+      // 컨트롤러의 in-memory query cache 도 강제 비우기 (getLatest/getChanges)
+      try {
+        const ctrl = require('../../controllers/rankingController');
+        if (ctrl.invalidateQueryCache) ctrl.invalidateQueryCache();
+      } catch (e) {
+        // ignore
+      }
+
       const completedAt = new Date();
       const startedAt = job.started_at || job.created_at;
       const durationMs = startedAt ? completedAt.getTime() - new Date(startedAt).getTime() : null;
+
+      // 실패 카테고리 요약 (DB 저장용 — 디버깅에 도움)
+      const failedCategoriesArr = Array.from(failedCategoryMap.keys());
+      const failedSummary = failedCategoriesArr.length > 0
+        ? `Failed: ${failedCategoriesArr.join(', ')}`
+        : null;
+      // 기존 error_text(예: Partial success discarded) 보존하면서 실패 카테고리 합치기
+      await job.reload();
+      const prevErrText = job.error_text || '';
+      let newErrText = prevErrText;
+      if (failedSummary) {
+        newErrText = prevErrText ? `${prevErrText} | ${failedSummary}` : failedSummary;
+      }
+
       await job.update({
         status: result.failCount >= CATEGORIES.length ? 'failed' : 'completed',
         success_count: result.successCount,
@@ -299,6 +347,7 @@ async function triggerCollectionRound({
         retry_attempts: result.retryAttempts || 0,
         total_attempts: result.totalAttempts || 0,
         duration_ms: durationMs,
+        error_text: newErrText || null,
         completed_at: completedAt
       });
     } catch (err) {

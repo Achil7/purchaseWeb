@@ -58,6 +58,30 @@ async function runOnce() {
   }
 }
 
+/**
+ * 좀비 job 정리 (서버 시작 시 1회).
+ * 이전 프로세스에서 비정상 종료된 'running' 상태 job 을 'failed' 로 마감.
+ * - Playwright 크래시, OOM, 강제 재시작 등으로 finally까지 도달 못한 경우 발생
+ */
+async function cleanupZombieJobs() {
+  try {
+    const { RankingCollectionJob } = require('../models');
+    const [updated] = await RankingCollectionJob.update(
+      {
+        status: 'failed',
+        error_text: 'Aborted: server restarted with job still in running state',
+        completed_at: new Date()
+      },
+      { where: { status: 'running' } }
+    );
+    if (updated > 0) {
+      console.log(`[rankingScheduler] cleaned up ${updated} zombie job(s)`);
+    }
+  } catch (err) {
+    console.error('[rankingScheduler] zombie cleanup error:', err.message);
+  }
+}
+
 function start() {
   if (running) {
     console.log('[rankingScheduler] already running');
@@ -71,6 +95,8 @@ function start() {
   if (!isProxyEnabled()) {
     console.warn('[rankingScheduler] WARNING: PROXY_ENABLED is not true. Scheduler will run but olive young will likely block EC2 IP.');
   }
+  // 좀비 정리 (비동기, 실패해도 스케줄러는 시작)
+  cleanupZombieJobs();
   running = true;
   console.log('[rankingScheduler] started');
   scheduleNext();

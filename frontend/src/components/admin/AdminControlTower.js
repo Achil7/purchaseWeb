@@ -201,6 +201,13 @@ function AdminControlTower() {
   const [monthlyBrandDialogOpen, setMonthlyBrandDialogOpen] = useState(false);
   const [selectedMonthlyBrandForEdit, setSelectedMonthlyBrandForEdit] = useState(null);
 
+  // 연월브랜드 브랜드사 변경 다이얼로그 상태 (Admin 전용)
+  const [brandChangeDialogOpen, setBrandChangeDialogOpen] = useState(false);
+  const [selectedMonthlyBrandForBrandChange, setSelectedMonthlyBrandForBrandChange] = useState(null);
+  const [brandUsersForChange, setBrandUsersForChange] = useState([]);
+  const [newBrandIdForChange, setNewBrandIdForChange] = useState('');
+  const [brandChangeSaving, setBrandChangeSaving] = useState(false);
+
   // 영업사 변경 다이얼로그 열기
   const handleOpenSalesChangeDialog = async (campaign) => {
     setSelectedCampaignForSalesChange(campaign);
@@ -267,6 +274,65 @@ function AdminControlTower() {
       alert('영업사 변경에 실패했습니다.');
     } finally {
       setSalesChangeSaving(false);
+    }
+  };
+
+  // 연월브랜드 브랜드사 변경 다이얼로그 열기
+  const handleOpenBrandChangeDialog = async (monthlyBrand, e) => {
+    if (e) e.stopPropagation();
+    setSelectedMonthlyBrandForBrandChange(monthlyBrand);
+    setNewBrandIdForChange('');
+    setBrandChangeDialogOpen(true);
+
+    try {
+      const response = await getUsers('brand');
+      setBrandUsersForChange(response.data || []);
+    } catch (err) {
+      console.error('Failed to load brand users:', err);
+    }
+  };
+
+  // 연월브랜드 브랜드사 변경 다이얼로그 닫기
+  const handleCloseBrandChangeDialog = () => {
+    setBrandChangeDialogOpen(false);
+    setSelectedMonthlyBrandForBrandChange(null);
+    setNewBrandIdForChange('');
+  };
+
+  // 연월브랜드 브랜드사 변경 저장
+  const handleSaveBrandChange = async () => {
+    if (!newBrandIdForChange || !selectedMonthlyBrandForBrandChange) {
+      alert('새 브랜드사를 선택해주세요.');
+      return;
+    }
+
+    const newBrand = brandUsersForChange.find(b => b.id === newBrandIdForChange);
+    const confirmed = window.confirm(
+      `[경고] 브랜드사 변경 확인\n\n` +
+      `연월브랜드: ${selectedMonthlyBrandForBrandChange.name}\n` +
+      `현재 브랜드사: ${selectedMonthlyBrandForBrandChange.brand?.name || '-'}\n` +
+      `새 브랜드사: ${newBrand?.name || '-'}\n\n` +
+      `이 연월브랜드와 소속된 모든 캠페인이 새 브랜드사로 이전됩니다.\n` +
+      `기존 브랜드사는 더 이상 이 데이터를 볼 수 없습니다.\n\n` +
+      `계속하시겠습니까?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setBrandChangeSaving(true);
+      const response = await monthlyBrandService.changeBrand(
+        selectedMonthlyBrandForBrandChange.id,
+        newBrandIdForChange
+      );
+      alert(response?.message || '브랜드사가 변경되었습니다.');
+      handleCloseBrandChangeDialog();
+      await loadAssignmentData();
+    } catch (err) {
+      console.error('Failed to change brand:', err);
+      alert(err?.response?.data?.message || '브랜드사 변경에 실패했습니다.');
+    } finally {
+      setBrandChangeSaving(false);
     }
   };
 
@@ -932,6 +998,16 @@ function AdminControlTower() {
                                     sx={{ p: 0.3 }}
                                   >
                                     <EditIcon sx={{ fontSize: 16 }} />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="브랜드사 변경 (소속 캠페인 전체 이전)">
+                                  <IconButton
+                                    size="small"
+                                    color="warning"
+                                    onClick={(e) => handleOpenBrandChangeDialog(mb, e)}
+                                    sx={{ p: 0.3 }}
+                                  >
+                                    <SwapHorizIcon sx={{ fontSize: 16 }} />
                                   </IconButton>
                                 </Tooltip>
                                 <Tooltip title="연월브랜드 삭제 (모든 캠페인/품목/구매자 포함)">
@@ -2090,6 +2166,83 @@ function AdminControlTower() {
             startIcon={salesChangeSaving ? <CircularProgress size={16} /> : <SaveIcon />}
           >
             {salesChangeSaving ? '변경 중...' : '영업사 변경'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 연월브랜드 브랜드사 변경 다이얼로그 (Admin 전용) */}
+      <Dialog
+        open={brandChangeDialogOpen}
+        onClose={(event, reason) => { if (reason !== 'backdropClick') handleCloseBrandChangeDialog(); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ borderBottom: '1px solid #eee', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SwapHorizIcon color="warning" />
+          <Typography variant="h6">브랜드사 변경</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {selectedMonthlyBrandForBrandChange && (
+            <Box>
+              {/* 연월브랜드 정보 */}
+              <Box sx={{ mb: 3, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                <Typography variant="body2" color="text.secondary">대상 연월브랜드</Typography>
+                <Typography variant="h6" fontWeight="bold">
+                  {selectedMonthlyBrandForBrandChange.name}
+                </Typography>
+                <Box sx={{ mt: 1, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                  <Typography variant="body2">
+                    <strong>현재 브랜드사:</strong> {selectedMonthlyBrandForBrandChange.brand?.name || '-'}
+                  </Typography>
+                  <Typography variant="body2">
+                    <strong>영업사:</strong> {selectedMonthlyBrandForBrandChange.creator?.name || '-'}
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* 새 브랜드사 선택 */}
+              <FormControl fullWidth>
+                <InputLabel id="new-brand-select-label">새 브랜드사 선택</InputLabel>
+                <Select
+                  labelId="new-brand-select-label"
+                  value={newBrandIdForChange}
+                  label="새 브랜드사 선택"
+                  onChange={(e) => setNewBrandIdForChange(e.target.value)}
+                >
+                  {brandUsersForChange
+                    .filter(b => b.id !== selectedMonthlyBrandForBrandChange.brand?.id)
+                    .map((brand) => (
+                      <MenuItem key={brand.id} value={brand.id}>
+                        {brand.name} ({brand.username})
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                <Typography variant="body2" fontWeight="bold" gutterBottom>
+                  경고: 이 연월브랜드와 소속된 모든 캠페인이 새 브랜드사 대시보드로 이전됩니다.
+                </Typography>
+                <Typography variant="body2">
+                  기존 브랜드사는 더 이상 이 데이터를 볼 수 없습니다.
+                  하위 품목/구매자/리뷰 데이터도 자동으로 새 브랜드사 소속으로 인식됩니다.
+                </Typography>
+              </Alert>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ borderTop: '1px solid #eee', p: 2 }}>
+          <Button onClick={handleCloseBrandChangeDialog} variant="outlined" disabled={brandChangeSaving}>
+            취소
+          </Button>
+          <Button
+            onClick={handleSaveBrandChange}
+            variant="contained"
+            color="warning"
+            disabled={!newBrandIdForChange || brandChangeSaving}
+            startIcon={brandChangeSaving ? <CircularProgress size={16} /> : <SwapHorizIcon />}
+          >
+            {brandChangeSaving ? '변경 중...' : '브랜드사 변경'}
           </Button>
         </DialogActions>
       </Dialog>

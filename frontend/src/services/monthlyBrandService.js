@@ -87,6 +87,17 @@ export const getAllMonthlyBrands = async () => {
 };
 
 /**
+ * Admin 전용 - 연월브랜드의 브랜드사 변경
+ * MonthlyBrand.brand_id 및 하위 모든 Campaign.brand_id를 동시 업데이트
+ */
+export const changeBrand = async (monthlyBrandId, newBrandId) => {
+  const response = await api.patch(`/monthly-brands/${monthlyBrandId}/change-brand`, {
+    new_brand_id: newBrandId
+  });
+  return response.data;
+};
+
+/**
  * 연월브랜드 순서 변경 (영업사용)
  * @param orderedIds - 순서대로 정렬된 연월브랜드 ID 배열
  * @param viewAsUserId - Admin이 영업사 대신 변경할 때 사용
@@ -130,6 +141,7 @@ export default {
   hideMonthlyBrand,
   restoreMonthlyBrand,
   getAllMonthlyBrands,
+  changeBrand,
   reorderMonthlyBrands,
   reorderMonthlyBrandsBrand,
   reorderMonthlyBrandsOperator

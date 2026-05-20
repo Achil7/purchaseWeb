@@ -776,6 +776,91 @@ router.post('/', authenticate, authorize(['sales', 'admin']), async (req, res) =
 });
 
 /**
+ * @route   PATCH /api/monthly-brands/:id/change-brand
+ * @desc    연월브랜드의 브랜드사 변경 (Admin 전용)
+ *          MonthlyBrand.brand_id 및 하위 모든 Campaign.brand_id를 트랜잭션으로 동시 업데이트
+ * @access  Private (Admin)
+ */
+router.patch('/:id/change-brand', authenticate, authorize(['admin']), async (req, res) => {
+  const sequelize = require('../models').sequelize;
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { new_brand_id } = req.body;
+
+    if (!new_brand_id) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: '새 브랜드사 ID가 필요합니다'
+      });
+    }
+
+    const monthlyBrand = await MonthlyBrand.findByPk(id, {
+      include: [{ model: User, as: 'brand', attributes: ['id', 'name'] }],
+      transaction
+    });
+
+    if (!monthlyBrand) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: '연월브랜드를 찾을 수 없습니다'
+      });
+    }
+
+    const newBrand = await User.findOne({
+      where: { id: new_brand_id, role: 'brand' },
+      transaction
+    });
+
+    if (!newBrand) {
+      await transaction.rollback();
+      return res.status(404).json({
+        success: false,
+        message: '해당 브랜드사를 찾을 수 없습니다'
+      });
+    }
+
+    const oldBrandName = monthlyBrand.brand?.name || '알 수 없음';
+
+    await monthlyBrand.update({ brand_id: new_brand_id }, { transaction });
+
+    const [affectedCampaigns] = await Campaign.update(
+      { brand_id: new_brand_id },
+      { where: { monthly_brand_id: id }, transaction }
+    );
+
+    await transaction.commit();
+
+    // 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
+    res.json({
+      success: true,
+      message: `브랜드사가 ${oldBrandName}에서 ${newBrand.name}(으)로 변경되었습니다 (캠페인 ${affectedCampaigns}건 동기화)`,
+      data: {
+        monthly_brand_id: monthlyBrand.id,
+        monthly_brand_name: monthlyBrand.name,
+        old_brand_name: oldBrandName,
+        new_brand_id,
+        new_brand_name: newBrand.name,
+        campaigns_synced: affectedCampaigns
+      }
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Change brand error:', error);
+    res.status(500).json({
+      success: false,
+      message: '브랜드사 변경 중 오류가 발생했습니다',
+      error: error.message
+    });
+  }
+});
+
+/**
  * @route   PUT /api/monthly-brands/:id
  * @desc    연월브랜드 수정
  * @access  Private (Sales, Admin)

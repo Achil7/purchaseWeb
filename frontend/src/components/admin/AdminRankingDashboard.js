@@ -328,10 +328,19 @@ function AdminRankingDashboard() {
         const succ = lastJob.success_count || 0;
         const fail = lastJob.fail_count || 0;
         const total = lastJob.total_categories || 21;
+        const failedList = (lastJob.failed_categories && lastJob.failed_categories.length > 0)
+          ? lastJob.failed_categories.join(', ')
+          : null;
         if (lastJob.status === 'failed') {
-          setCompletionToast({ severity: 'error', text: '수집 실패 — 잠시 후 다시 시도해주세요', autoHide: null });
+          const txt = failedList
+            ? `수집 실패 — 실패: ${failedList}`
+            : '수집 실패 — 잠시 후 다시 시도해주세요';
+          setCompletionToast({ severity: 'error', text: txt, autoHide: null });
         } else if (fail > 0) {
-          setCompletionToast({ severity: 'warning', text: `수집 부분 완료 — 성공 ${succ}/${total} · ${dur} 소요`, autoHide: 5000 });
+          const txt = failedList
+            ? `수집 부분 완료 — 성공 ${succ}/${total} (실패: ${failedList}) · ${dur} 소요`
+            : `수집 부분 완료 — 성공 ${succ}/${total} · ${dur} 소요`;
+          setCompletionToast({ severity: 'warning', text: txt, autoHide: 8000 });
         } else {
           setCompletionToast({ severity: 'success', text: `수집 완료 (${succ}개 카테고리) — ${dur} 소요`, autoHide: 5000 });
         }
@@ -514,9 +523,29 @@ function AdminRankingDashboard() {
             <Typography variant="caption" color="text.secondary">
               성공 {job.success || 0} · 실패 {job.fail || 0}
             </Typography>
+            {Array.isArray(job.failedCategories) && job.failedCategories.length > 0 && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'warning.main' }}>
+                ⚠️ 재시도 중: {job.failedCategories.join(', ')}
+              </Typography>
+            )}
           </Paper>
         );
       })()}
+
+      {/* 최근 라운드 실패 카테고리 (수집 중이 아닐 때만) */}
+      {!job.running && progress.lastJob && Array.isArray(progress.lastJob.failed_categories) && progress.lastJob.failed_categories.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <Typography variant="body2" fontWeight="bold" sx={{ mb: 0.3 }}>
+            최근 라운드 실패 카테고리 ({progress.lastJob.failed_categories.length}개)
+          </Typography>
+          <Typography variant="body2">
+            {progress.lastJob.failed_categories.join(', ')}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            다음 자동 수집에서 다시 시도됩니다.
+          </Typography>
+        </Alert>
+      )}
 
       {/* 상위 탭: 현재 순위 / 인사이트 + 시간 창 토글 */}
       <Paper sx={{ mb: 2, p: 1, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>

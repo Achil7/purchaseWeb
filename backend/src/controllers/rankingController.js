@@ -1167,9 +1167,16 @@ async function getProgress(req, res) {
       const recent = await RankingCollectionJob.findOne({
         where: { status: { [Op.in]: ['completed', 'failed'] } },
         order: [['completed_at', 'DESC']],
-        attributes: ['id', 'status', 'completed_at', 'duration_ms', 'success_count', 'fail_count', 'inserted_rows', 'total_categories']
+        attributes: ['id', 'status', 'completed_at', 'duration_ms', 'success_count', 'fail_count', 'inserted_rows', 'total_categories', 'error_text']
       });
       if (recent) {
+        // error_text 에서 "Failed: A, B, C" 부분 파싱
+        let failedCategories = [];
+        const errText = recent.error_text || '';
+        const m = errText.match(/Failed:\s*(.+?)(?:\s*\|\s*|$)/);
+        if (m) {
+          failedCategories = m[1].split(',').map(s => s.trim()).filter(Boolean);
+        }
         lastJob = {
           id: recent.id,
           status: recent.status,
@@ -1178,7 +1185,9 @@ async function getProgress(req, res) {
           success_count: recent.success_count,
           fail_count: recent.fail_count,
           inserted_rows: recent.inserted_rows,
-          total_categories: recent.total_categories
+          total_categories: recent.total_categories,
+          failed_categories: failedCategories,
+          error_text: errText || null
         };
       }
     } catch (e) {

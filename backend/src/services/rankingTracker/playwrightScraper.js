@@ -223,7 +223,9 @@ async function newPageWithContext(browser) {
  * @param {number} options.maxRetries - 실패 시 재시도 횟수 (기본 2 → 총 3회 시도)
  * @returns {Promise<{successCount, failCount, errors, items, proxyEnabled}>}
  */
-async function scrapeAllCategories({ onProgress, signal, maxRetries = 2 } = {}) {
+async function scrapeAllCategories({ onProgress, signal, maxRetries = 4 } = {}) {
+  // 최대 5회 시도 (1차 + 재시도 4회). 끝까지 실패하면 그 라운드는 버림 (부분 INSERT 금지).
+  // 실제로는 거의 모든 카테고리가 2~3회 안에 잡혀서 추가 시도 거의 없음.
   let browser;
   const itemsByCategoryId = new Map();
   const errorByCategoryId = new Map();
@@ -238,6 +240,21 @@ async function scrapeAllCategories({ onProgress, signal, maxRetries = 2 } = {}) 
     // attempt 1, 2 (재시도) → 실패한 카테고리만 다시
     let pendingCategories = CATEGORIES.slice();
 
+    // 페이지/컨텍스트가 죽었을 때 안전하게 재생성하는 헬퍼
+    async function ensureLivePage() {
+      const pageDead = !page || page.isClosed?.();
+      if (pageDead) {
+        try { await context?.close(); } catch (_) { /* ignore */ }
+        const r = await newPageWithContext(browser);
+        context = r.context;
+        page = r.page;
+      }
+    }
+    // setTimeout 기반 안전 sleep (페이지 죽어도 throw 안 됨)
+    function safeSleep(ms) {
+      return new Promise((res) => setTimeout(res, ms));
+    }
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (signal && signal.aborted) break;
       if (pendingCategories.length === 0) break;
@@ -247,16 +264,35 @@ async function scrapeAllCategories({ onProgress, signal, maxRetries = 2 } = {}) 
       // 재시도 시 새로운 브라우저 컨텍스트 사용 (IP 회전 효과)
       if (attempt > 0) {
         try { await context.close(); } catch (_) { /* ignore */ }
-        const r = await newPageWithContext(browser);
-        context = r.context;
-        page = r.page;
-        await page.waitForTimeout(2000 + Math.floor(Math.random() * 3000));
+        try {
+          const r = await newPageWithContext(browser);
+          context = r.context;
+          page = r.page;
+        } catch (err) {
+          // 새 컨텍스트 생성 실패 → 브라우저 자체가 죽었을 수 있음. 재시도 라운드 포기
+          console.error('[scrapeAllCategories] newContext failed on retry:', err.message);
+          break;
+        }
+        await safeSleep(2000 + Math.floor(Math.random() * 3000));
       }
 
       const nextPending = [];
 
       for (let i = 0; i < pendingCategories.length; i++) {
         if (signal && signal.aborted) break;
+
+        // 매 카테고리 시작 전 페이지 살아있는지 확인 + 죽었으면 재생성
+        try {
+          await ensureLivePage();
+        } catch (err) {
+          // 페이지 재생성도 실패 → 이번 라운드 더 이상 진행 불가
+          console.error('[scrapeAllCategories] ensureLivePage failed:', err.message);
+          // 남은 카테고리를 nextPending에 모두 추가하지 않음 (브라우저 자체 사망)
+          for (let j = i; j < pendingCategories.length; j++) {
+            errorByCategoryId.set(pendingCategories[j].id, 'browser_dead: ' + err.message);
+          }
+          break;
+        }
 
         const category = pendingCategories[i];
         totalAttempts++;
@@ -281,7 +317,7 @@ async function scrapeAllCategories({ onProgress, signal, maxRetries = 2 } = {}) 
 
         if (i < pendingCategories.length - 1 && !(signal && signal.aborted)) {
           const delay = 300 + Math.floor(Math.random() * 700);
-          await page.waitForTimeout(delay);
+          await safeSleep(delay);   // ← page.waitForTimeout 대신 안전 sleep
         }
       }
 
