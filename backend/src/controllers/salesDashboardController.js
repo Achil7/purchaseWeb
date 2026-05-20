@@ -1,4 +1,5 @@
 const { sequelize } = require('../models');
+const dashboardCache = require('../utils/dashboardCache');
 
 /**
  * 영업사 대시보드 컨트롤러
@@ -15,6 +16,8 @@ const { sequelize } = require('../models');
 // admin이 viewAsUserId로 영업사 대시보드 조회 시 반복 클릭 캐싱
 const ADMIN_CACHE_TTL_MS = 60_000;
 const adminSalesCache = new Map();
+// 34차: 통합 무효화 헬퍼에 등록
+dashboardCache.registerCache('adminSales', adminSalesCache);
 
 function getAdminSalesCache(key) {
   const entry = adminSalesCache.get(key);

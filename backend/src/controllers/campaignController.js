@@ -2,6 +2,7 @@ const { Campaign, Item, User, CampaignOperator, Buyer, MonthlyBrand, sequelize }
 const { Op } = require('sequelize');
 const { notifyAllAdmins } = require('./notificationController');
 const { formatDateToYYYYMMDD_KST } = require('../utils/dateUtils');
+const dashboardCache = require('../utils/dashboardCache');
 
 /**
  * 캠페인 목록 조회 (역할별 필터링)
@@ -288,6 +289,9 @@ exports.createCampaign = async (req, res) => {
       // 알림 실패해도 캠페인 생성은 성공으로 처리
     }
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.status(201).json({
       success: true,
       message: '캠페인이 생성되었습니다',
@@ -333,6 +337,9 @@ exports.updateCampaign = async (req, res) => {
       registered_at: registered_at || campaign.registered_at
     });
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '캠페인이 수정되었습니다',
@@ -367,6 +374,9 @@ exports.deleteCampaign = async (req, res) => {
     // TODO: 권한 체크
 
     await campaign.destroy();
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -492,6 +502,9 @@ exports.deleteCampaignCascade = async (req, res) => {
 
     await transaction.commit();
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '캠페인이 휴지통으로 이동되었습니다 (30일 후 영구 삭제)',
@@ -566,6 +579,9 @@ exports.assignOperator = async (req, res) => {
       assigned_by
     });
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.status(201).json({
       success: true,
       message: '진행자가 배정되었습니다',
@@ -602,6 +618,9 @@ exports.unassignOperator = async (req, res) => {
       });
     }
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '진행자 배정이 해제되었습니다'
@@ -633,6 +652,9 @@ exports.hideCampaign = async (req, res) => {
     }
 
     await campaign.update({ is_hidden: true });
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -668,6 +690,9 @@ exports.restoreCampaign = async (req, res) => {
 
     // is_hidden과 deleted_at 모두 초기화하여 완전히 복원
     await campaign.update({ is_hidden: false, deleted_at: null });
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -773,6 +798,9 @@ exports.changeSales = async (req, res) => {
 
     // 캠페인 영업사만 변경 (연월브랜드는 유지)
     await campaign.update({ created_by: new_sales_id });
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,

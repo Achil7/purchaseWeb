@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const { Op } = require('sequelize');
 const { User, UserActivity, Campaign, Item, Buyer, CampaignOperator, BrandSales, MonthlyBrand, ItemSlot, Image, sequelize } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
+const dashboardCache = require('../utils/dashboardCache');
 
 /**
  * @route   GET /api/users
@@ -276,6 +277,9 @@ router.post('/brand', authenticate, authorize(['sales', 'admin']), async (req, r
 
     await transaction.commit();
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.status(201).json({
       success: true,
       message: '브랜드가 생성되었습니다',
@@ -444,6 +448,9 @@ router.post('/brands/:brandId/assign-me', authenticate, authorize(['sales', 'adm
       created_by: req.user.id
     });
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.status(201).json({
       success: true,
       message: '브랜드가 할당되었습니다',
@@ -549,6 +556,9 @@ router.post('/brands/:brandId/sales', authenticate, authorize(['admin']), async 
       created_by: req.user.id
     });
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.status(201).json({
       success: true,
       message: '영업사가 브랜드에 할당되었습니다',
@@ -582,6 +592,9 @@ router.delete('/brands/:brandId/sales/:salesId', authenticate, authorize(['admin
         message: '할당 관계를 찾을 수 없습니다'
       });
     }
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -717,6 +730,9 @@ router.post('/sales/:fromSalesId/transfer-all/:toSalesId', authenticate, authori
     );
 
     await transaction.commit();
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -908,6 +924,9 @@ router.post('/brands/:brandId/transfer', authenticate, authorize(['admin']), asy
 
     await transaction.commit();
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: `${brand.name}의 담당이 ${fromUser.name}에서 ${toUser.name}(으)로 이전되었습니다`,
@@ -1006,6 +1025,9 @@ router.post('/', authenticate, authorize(['admin']), async (req, res) => {
       is_active: is_active !== undefined ? is_active : true,
       assigned_sales_id: role === 'brand' ? (assigned_sales_id || null) : null
     });
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.status(201).json({
       success: true,
@@ -1164,6 +1186,9 @@ router.put('/:id', authenticate, authorize(['admin']), async (req, res) => {
 
     await user.save();
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '사용자 정보가 수정되었습니다',
@@ -1205,6 +1230,9 @@ router.patch('/:id/deactivate', authenticate, authorize(['admin']), async (req, 
       { where: { user_id: user.id } }
     );
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '사용자가 비활성화되었습니다. 더 이상 로그인할 수 없습니다.'
@@ -1237,6 +1265,9 @@ router.patch('/:id/activate', authenticate, authorize(['admin']), async (req, re
     // 활성화
     user.is_active = true;
     await user.save();
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -1486,6 +1517,9 @@ router.delete('/:id', authenticate, authorize(['admin']), async (req, res) => {
     await user.destroy({ transaction });
 
     await transaction.commit();
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,

@@ -1,8 +1,11 @@
 const { sequelize } = require('../models');
+const dashboardCache = require('../utils/dashboardCache');
 
 // 32차: Admin viewAsUserId 캐시 (60초 TTL)
 const ADMIN_SETTLEMENT_CACHE_TTL_MS = 60_000;
 const adminSettlementCache = new Map();
+// 34차: 통합 무효화 헬퍼에 등록
+dashboardCache.registerCache('adminSettlement', adminSettlementCache);
 
 function getAdminSettlementCache(key) {
   const entry = adminSettlementCache.get(key);

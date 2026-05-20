@@ -3,6 +3,7 @@ const router = express.Router();
 const { MonthlyBrand, Campaign, Item, User, Buyer, Image, ItemSlot, CampaignOperator } = require('../models');
 const { authenticate, authorize } = require('../middleware/auth');
 const { Op } = require('sequelize');
+const dashboardCache = require('../utils/dashboardCache');
 
 // 31차: Admin embedded 모드 전용 in-memory 캐시 (60초 TTL)
 // admin이 viewAsUserId로 사용자 대시보드 조회 시 반복 클릭 캐싱
@@ -10,6 +11,10 @@ const ADMIN_CACHE_TTL_MS = 60_000;
 
 const adminMyBrandCache = new Map();
 const adminSalesMonthlyBrandsCache = new Map();
+
+// 34차: 통합 무효화 헬퍼에 등록
+dashboardCache.registerCache('adminMyBrand', adminMyBrandCache);
+dashboardCache.registerCache('adminSalesMonthlyBrands', adminSalesMonthlyBrandsCache);
 
 function getAdminCache(cache, key) {
   const entry = cache.get(key);
@@ -753,6 +758,9 @@ router.post('/', authenticate, authorize(['sales', 'admin']), async (req, res) =
       ]
     });
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.status(201).json({
       success: true,
       message: '연월브랜드가 생성되었습니다',
@@ -826,6 +834,9 @@ router.put('/:id', authenticate, authorize(['sales', 'admin']), async (req, res)
       ]
     });
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '연월브랜드가 수정되었습니다',
@@ -859,6 +870,9 @@ router.patch('/:id/hide', authenticate, authorize(['sales', 'admin', 'operator',
     }
 
     await monthlyBrand.update({ is_hidden: true });
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -895,6 +909,9 @@ router.patch('/:id/restore', authenticate, authorize(['sales', 'admin', 'operato
 
     // is_hidden과 deleted_at 모두 초기화하여 완전히 복원
     await monthlyBrand.update({ is_hidden: false, deleted_at: null });
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -947,6 +964,9 @@ router.delete('/:id', authenticate, authorize(['sales', 'admin']), async (req, r
     }
 
     await monthlyBrand.destroy();
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -1099,6 +1119,9 @@ router.delete('/:id/cascade', authenticate, authorize(['admin', 'sales', 'operat
 
     await transaction.commit();
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '연월브랜드가 휴지통으로 이동되었습니다 (30일 후 영구 삭제)',
@@ -1174,6 +1197,9 @@ router.patch('/reorder', authenticate, authorize(['sales', 'admin']), async (req
     }
 
     await transaction.commit();
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -1258,6 +1284,9 @@ router.patch('/reorder-operator', authenticate, authorize(['operator', 'admin'])
 
     await transaction.commit();
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '연월브랜드 순서가 변경되었습니다'
@@ -1328,6 +1357,9 @@ router.patch('/reorder-brand', authenticate, authorize(['brand', 'admin']), asyn
     }
 
     await transaction.commit();
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,

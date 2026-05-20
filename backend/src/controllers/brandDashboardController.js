@@ -1,4 +1,5 @@
 const { User, sequelize } = require('../models');
+const dashboardCache = require('../utils/dashboardCache');
 
 /**
  * 공통: req 에서 대상 brandId 추출
@@ -76,6 +77,8 @@ function buildBuyerLevelView({ withImageCount }) {
  */
 const trendCache = new Map();
 const TREND_TTL_MS = 60_000;
+// 34차: 통합 무효화 헬퍼에 등록
+dashboardCache.registerCache('brandTrend', trendCache);
 
 function getCachedTrend(brandId, platform) {
   const key = `${brandId}_${platform || 'ALL'}`;

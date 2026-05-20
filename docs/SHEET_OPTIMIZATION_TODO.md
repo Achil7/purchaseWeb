@@ -2306,6 +2306,82 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ---
 
+### 34차 최적화 (2026-05-06) - 캐시 무효화 누락 버그 수정
+
+**문제:**
+"영업사가 브랜드/연월브랜드 추가하면 대시보드에 바로 안 뜨고 새로고침 N번 후 나타남"
+
+**원인:**
+31~33차에서 다수 in-memory 캐시 도입 (admin viewAsUserId용, 60초 TTL).
+하지만 **데이터 변경 핸들러(POST/PUT/DELETE/PATCH)에서 캐시 무효화 호출이 누락**됨.
+
+특히 Admin이 viewAsUserId로 영업사를 대신 조회 중일 때:
+- DB에 새 연월브랜드 저장됨 ✓
+- 캐시는 옛 데이터 보유 → 60초 TTL 만료까지 표시 안 됨
+- 사용자가 새로고침 여러 번 한 끝에 자연 만료로 보임
+
+**적용 내용:**
+
+#### Part 1: 공통 캐시 무효화 모듈 신규
+`backend/src/utils/dashboardCache.js` (신규)
+- `registerCache(name, cacheMap)` — 컨트롤러가 자기 캐시 등록
+- `invalidateAll()` — 등록된 모든 캐시 비우기
+- `invalidateByName(name)` — 특정 캐시만
+
+#### Part 2: 각 컨트롤러의 캐시 등록
+- `monthlyBrands.js`: `adminMyBrandCache`, `adminSalesMonthlyBrandsCache`
+- `itemController.js`: `adminOperatorMonthlyBrandsCache`
+- `salesDashboardController.js`: `adminSalesCache`
+- `brandDashboardController.js`: `trendCache`
+- `brandSettlementController.js`: `adminSettlementCache`
+
+#### Part 3: 데이터 변경 핸들러에 무효화 호출 추가
+
+| 파일 | 추가된 핸들러 |
+|------|------|
+| `monthlyBrands.js` | POST/PUT/PATCH hide/restore/DELETE/cascade/reorder/reorder-operator/reorder-brand (9개) |
+| `itemController.js` | assignOperator/reassignOperator/unassignOperator/createItem/createItemsBulk/updateItem/deleteItem/updateDepositName (8개) |
+| `campaignController.js` | createCampaign/updateCampaign/deleteCampaign/deleteCampaignCascade/assignOperator/unassignOperator/hideCampaign/restoreCampaign/changeSales (9개) |
+| `users.js` | POST /brand/assign-me/sales추가/sales해제/transfer-all/brand-transfer/사용자생성/수정/deactivate/activate/delete (11개) |
+
+총 **37개 변경 핸들러**에 `dashboardCache.invalidateAll()` 1줄 추가.
+
+**수정 파일:**
+- `backend/src/utils/dashboardCache.js` (신규)
+- `backend/src/routes/monthlyBrands.js`
+- `backend/src/controllers/itemController.js`
+- `backend/src/controllers/campaignController.js`
+- `backend/src/controllers/salesDashboardController.js` (등록만)
+- `backend/src/controllers/brandDashboardController.js` (등록만)
+- `backend/src/controllers/brandSettlementController.js` (등록만)
+- `backend/src/routes/users.js`
+
+**프론트엔드 수정 없음. 마이그레이션 없음.**
+
+**기능/응답 100% 동일:**
+- 캐시 적용 조건 변경 없음 (admin viewAsUserId만 캐싱)
+- 응답 JSON 구조 동일
+- 차이: 60초 자연 만료 → 즉시 무효화
+
+**빌드:** ✅ 백엔드 8개 파일 문법 검증 통과
+
+**예상 효과:**
+- Admin embedded 모드에서 데이터 추가/수정/삭제 후 즉시 반영
+- 영업사 본인은 원래도 캐시 미적용이라 변화 없음
+- 일반 조회 (변경 없음 시) 캐시 hit 그대로 유지
+
+**기능 검증 항목:**
+- [ ] 영업사 본인 → 연월브랜드 추가 → 즉시 사이드바/대시보드 표시
+- [ ] Admin embedded → viewAsUserId로 연월브랜드 추가 → 즉시 표시
+- [ ] Admin → 캠페인 추가/수정/삭제 → 즉시 표시
+- [ ] Admin → 영업사 일괄 이전 → from/to 양쪽 즉시 반영
+- [ ] 진행자 배정 변경 → 진행자 대시보드 즉시 반영
+- [ ] 일반 조회 (변경 없음) → 캐시 hit으로 빠른 응답 유지
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
 
 **목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선

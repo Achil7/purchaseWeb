@@ -3,10 +3,13 @@ const { Op } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
 const { notifyAllAdmins, createNotification } = require('./notificationController');
 const { deleteFromS3 } = require('../config/s3');
+const dashboardCache = require('../utils/dashboardCache');
 
 // 31차: Admin embedded 모드 진행자 대시보드 캐시 (60초 TTL)
 const ADMIN_OPERATOR_CACHE_TTL_MS = 60_000;
 const adminOperatorMonthlyBrandsCache = new Map();
+// 34차: 통합 무효화 헬퍼에 등록
+dashboardCache.registerCache('adminOperatorMonthlyBrands', adminOperatorMonthlyBrandsCache);
 
 function getAdminOperatorCache(operatorId) {
   const entry = adminOperatorMonthlyBrandsCache.get(operatorId);
@@ -436,6 +439,9 @@ exports.assignOperatorToItem = async (req, res) => {
     } catch (notifyError) {
       console.error('Notification error:', notifyError);
     }
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -883,6 +889,9 @@ exports.reassignOperatorToItem = async (req, res) => {
       day_group: day_group !== undefined ? day_group : null
     });
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '진행자가 재배정되었습니다'
@@ -929,6 +938,9 @@ exports.unassignOperatorFromItem = async (req, res) => {
     }
 
     await assignment.destroy();
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -1278,6 +1290,9 @@ exports.createItem = async (req, res) => {
       // 알림 실패해도 품목 생성은 성공으로 처리
     }
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.status(201).json({
       success: true,
       message: '품목이 생성되었습니다',
@@ -1422,6 +1437,9 @@ exports.createItemsBulk = async (req, res) => {
       console.error('Notification error:', notifyError);
     }
 
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.status(201).json({
       success: true,
       message: `${createdItems.length}개 품목이 생성되었습니다`,
@@ -1466,6 +1484,9 @@ exports.updateItem = async (req, res) => {
         { where: { item_id: id } }
       );
     }
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
@@ -1536,6 +1557,10 @@ exports.deleteItem = async (req, res) => {
     await item.destroy({ transaction, force: true });
 
     await transaction.commit();
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
+
     res.json({
       success: true,
       message: '품목이 삭제되었습니다'
@@ -1568,6 +1593,9 @@ exports.updateDepositName = async (req, res) => {
     }
 
     await item.update({ deposit_name });
+
+    // 34차: 데이터 변경 → 대시보드 캐시 무효화
+    dashboardCache.invalidateAll();
 
     res.json({
       success: true,
