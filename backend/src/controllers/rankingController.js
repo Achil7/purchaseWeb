@@ -767,8 +767,8 @@ async function getMyChanges(req, res) {
 
     const windowHours = parseWindowHours(req.query.window);
 
-    // 33차: 캐시 hit
-    const cacheKey = `myChanges_${brandId}_${windowHours}`;
+    // 33차: 캐시 hit (v2: 윈도우 누적 기준으로 의미 변경 — 이전 캐시 키와 분리)
+    const cacheKey = `myChanges_v3_${brandId}_${windowHours}`;
     const cached = await getQueryCache(cacheKey);
     if (cached) return res.json({ success: true, data: cached });
 
@@ -900,55 +900,78 @@ async function getMyChanges(req, res) {
       });
     }
 
-    for (const [key, row] of currentByKey.entries()) {
-      const goodsNo = row.goods_no;
+    // 윈도우 내 한 번이라도 잡힌 (goods_no, category_id) 전체를 ranking 으로 포함
+    // - rank: 가장 최근 시점의 순위 (현재 노출 중이면 currentByKey, 아니면 윈도우 내 마지막 샘플)
+    // - currentlyExposed: 지금 라운드(currentByKey)에 있는지 여부
+    // - lastSeenAt: 윈도우 내 마지막 노출 시각
+    for (const [key, stats] of tsByCat.entries()) {
+      const [categoryId, goodsNo] = key.split('|');
       const product = productMap.get(goodsNo);
       if (!product) continue;
-      if (!product.product_name) product.product_name = row.product_name;
-      if (!product.product_url) product.product_url = row.product_url;
+
+      const cur = currentByKey.get(key);
+      const lastPoint = stats.points[stats.points.length - 1];
+      const refRow = cur || (function () {
+        // 윈도우 내 마지막 행 정보를 찾기 위해 allRows를 역방향 검색
+        for (let i = allRows.length - 1; i >= 0; i--) {
+          const r = allRows[i];
+          if (r.category_id === categoryId && r.goods_no === goodsNo) return r;
+        }
+        return null;
+      })();
+      if (!refRow) continue;
+
+      if (!product.product_name) product.product_name = refRow.product_name;
+      if (!product.product_url) product.product_url = refRow.product_url;
 
       const prev = prevByKey.get(key);
       const prevRank = prev ? prev.rank : null;
-      const delta = prevRank !== null ? prevRank - row.rank : null;
+      const currentRank = cur ? cur.rank : lastPoint.r;
+      const delta = (cur && prevRank !== null) ? prevRank - cur.rank : null;
 
-      const stats = tsByCat.get(key);
-      let best24h = null, worst24h = null, avg24h = null, samples24h = 0;
-      if (stats && stats.ranks.length > 0) {
-        best24h = Math.min(...stats.ranks);
-        worst24h = Math.max(...stats.ranks);
-        avg24h = stats.ranks.reduce((a, b) => a + b, 0) / stats.ranks.length;
-        samples24h = stats.ranks.length;
-      }
+      const best24h = Math.min(...stats.ranks);
+      const worst24h = Math.max(...stats.ranks);
+      const avg24h = stats.ranks.reduce((a, b) => a + b, 0) / stats.ranks.length;
+      const samples24h = stats.ranks.length;
 
-      const isNew = !prevRank && stats && new Date(stats.firstSeenAt) > trendWindowStart;
+      const isNew = !prevRank && new Date(stats.firstSeenAt) > trendWindowStart;
 
       product.rankings.push({
-        category_id: row.category_id,
-        category_name: row.category_name,
-        rank: row.rank,
+        category_id: refRow.category_id,
+        category_name: refRow.category_name,
+        rank: currentRank,
         prevRank,
         delta,
         isNew: !!isNew,
+        currentlyExposed: !!cur,
+        lastSeenAt: lastPoint.t,
         best24h,
         worst24h,
-        avg24h: avg24h !== null ? Math.round(avg24h * 10) / 10 : null,
+        avg24h: Math.round(avg24h * 10) / 10,
         samples24h,
-        trend: stats ? stats.points : []
+        trend: stats.points
       });
     }
 
-    // 정렬: 각 product의 rankings를 rank 오름차순
+    // 정렬: 각 product의 rankings를 (현재 노출 우선) → rank 오름차순
     for (const p of productMap.values()) {
-      p.rankings.sort((a, b) => a.rank - b.rank);
+      p.rankings.sort((a, b) => {
+        if (a.currentlyExposed !== b.currentlyExposed) return a.currentlyExposed ? -1 : 1;
+        return a.rank - b.rank;
+      });
     }
 
-    // products 정렬: 노출 우선 > 최고순위 낮은 순
+    // products 정렬: 윈도우 내 노출 우선 > (현재 노출 우선) > 최고순위(best24h) 낮은 순
     const products = Array.from(productMap.values()).sort((a, b) => {
       const aHas = a.rankings.length > 0;
       const bHas = b.rankings.length > 0;
       if (aHas !== bHas) return aHas ? -1 : 1;
-      const aMin = a.rankings.length ? a.rankings[0].rank : 9999;
-      const bMin = b.rankings.length ? b.rankings[0].rank : 9999;
+      if (!aHas) return 0;
+      const aNow = a.rankings.some(r => r.currentlyExposed);
+      const bNow = b.rankings.some(r => r.currentlyExposed);
+      if (aNow !== bNow) return aNow ? -1 : 1;
+      const aMin = Math.min(...a.rankings.map(r => r.best24h));
+      const bMin = Math.min(...b.rankings.map(r => r.best24h));
       return aMin - bMin;
     });
 
@@ -967,13 +990,20 @@ async function getMyChanges(req, res) {
     }
     dropouts.sort((a, b) => a.prevRank - b.prevRank);
 
-    // summary
+    // summary: 윈도우(window) 내 누적 기준
+    // - exposedNow: 윈도우 내 한 번이라도 100위 안에 들어간 자사 제품 수
+    // - exposedRankings: 윈도우 내 노출된 (제품 × 카테고리) 인스턴스 수
+    // - top10Count: 윈도우 내 TOP10 안에 한 번이라도 들어간 (제품 × 카테고리) 인스턴스 수
+    // - currentlyExposedNow: 가장 최근 라운드에 실제로 노출 중인 자사 제품 수 (참고용)
     const exposedNow = products.filter(p => p.rankings.length > 0).length;
     const exposedRankings = products.reduce((sum, p) => sum + p.rankings.length, 0);
     const top10Count = products.reduce(
-      (sum, p) => sum + p.rankings.filter(r => r.rank <= 10).length,
+      (sum, p) => sum + p.rankings.filter(r => r.best24h <= 10).length,
       0
     );
+    const currentlyExposedNow = products.filter(
+      p => p.rankings.some(r => r.currentlyExposed)
+    ).length;
 
     // insights (자사 한정): 윈도우 시작 시점 vs 현재 시점의 변동
     // 한 (goods_no, category) 키 단위로 firstRank, latestRank 계산
@@ -998,11 +1028,17 @@ async function getMyChanges(req, res) {
         category_name: (cur && cur.category_name) || null
       };
 
+      // latestRank: 현재 라운드에 있으면 그 순위, 없으면 윈도우 내 마지막 시점 순위
+      // (이탈한 제품도 인사이트에서 보여줘야 함 — 노출 테이블/카드와 일관성)
+      const latestRank = cur ? cur.rank : lastPoint.r;
+
       insightItems.push({
         ...productInfo,
         firstRank: firstPoint.r,
-        latestRank: cur ? cur.rank : null,
+        latestRank,
+        currentlyExposed: !!cur,
         firstAt: s.firstSeenAt,
+        lastAt: lastPoint.t,
         rangeMaxMin: ranksMax - ranksMin,
         avgRank: ranksAvg,
         samples: s.ranks.length
@@ -1012,7 +1048,7 @@ async function getMyChanges(req, res) {
     const newEntryThreshold = new Date(trendWindowStart.getTime() + 30 * 60 * 1000);
 
     const withDelta = insightItems
-      .filter(it => it.latestRank !== null && it.firstRank !== it.latestRank)
+      .filter(it => it.firstRank !== it.latestRank)
       .map(it => ({ ...it, deltaFromStart: it.firstRank - it.latestRank }));
 
     const biggestGainers = withDelta
@@ -1027,7 +1063,8 @@ async function getMyChanges(req, res) {
         category_name: it.category_name,
         rankNow: it.latestRank,
         rankBefore: it.firstRank,
-        deltaFromStart: it.deltaFromStart
+        deltaFromStart: it.deltaFromStart,
+        currentlyExposed: it.currentlyExposed
       }));
 
     const biggestLosers = withDelta
@@ -1042,11 +1079,12 @@ async function getMyChanges(req, res) {
         category_name: it.category_name,
         rankNow: it.latestRank,
         rankBefore: it.firstRank,
-        deltaFromStart: it.deltaFromStart
+        deltaFromStart: it.deltaFromStart,
+        currentlyExposed: it.currentlyExposed
       }));
 
     const newEntries = insightItems
-      .filter(it => it.latestRank !== null && new Date(it.firstAt) > newEntryThreshold)
+      .filter(it => new Date(it.firstAt) > newEntryThreshold)
       .sort((a, b) => new Date(b.firstAt) - new Date(a.firstAt))
       .slice(0, 5)
       .map(it => ({
@@ -1056,11 +1094,12 @@ async function getMyChanges(req, res) {
         category_id: it.category_id,
         category_name: it.category_name,
         rankNow: it.latestRank,
-        firstSeenAt: it.firstAt
+        firstSeenAt: it.firstAt,
+        currentlyExposed: it.currentlyExposed
       }));
 
     const consistent = insightItems
-      .filter(it => it.latestRank !== null && it.samples >= 3 && it.rangeMaxMin < 5)
+      .filter(it => it.samples >= 3 && it.rangeMaxMin < 5)
       .sort((a, b) => a.avgRank - b.avgRank)
       .slice(0, 5)
       .map(it => ({
@@ -1071,7 +1110,8 @@ async function getMyChanges(req, res) {
         category_name: it.category_name,
         avgRank: Math.round(it.avgRank * 10) / 10,
         range: it.rangeMaxMin,
-        samples: it.samples
+        samples: it.samples,
+        currentlyExposed: it.currentlyExposed
       }));
 
     const responseData = {
@@ -1084,7 +1124,8 @@ async function getMyChanges(req, res) {
         totalRegistered,
         exposedNow,
         exposedRankings,
-        top10Count
+        top10Count,
+        currentlyExposedNow
       },
       insights: {
         biggestGainers,

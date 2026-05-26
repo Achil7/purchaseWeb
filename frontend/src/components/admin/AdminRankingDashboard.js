@@ -240,9 +240,19 @@ function AdminRankingDashboard() {
   }, [rankings, categories, activeCategory, collectedAt, pastMode]);
 
   // 직전 수집 시각 라벨 (Tooltip / legend 표시용)
-  const prevTimeLabel = previousCollectedAt
-    ? new Date(previousCollectedAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-    : null;
+  // - 정상이면 "15:01" 형태 (시:분)
+  // - 비정상(예: 3시간 차이)이면 "06:14 (3시간 전)" 형태로 명시
+  const prevTimeLabel = (() => {
+    if (!previousCollectedAt) return null;
+    const prev = new Date(previousCollectedAt);
+    const cur = collectedAt ? new Date(collectedAt) : new Date();
+    const diffMs = cur.getTime() - prev.getTime();
+    const diffH = Math.round(diffMs / (3600 * 1000));
+    const timeStr = prev.toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    // 1시간 차이면 그냥 시각만, 2시간 이상이면 "(N시간 전)" 명시
+    if (diffH >= 2) return `${timeStr} (${diffH}시간 전)`;
+    return timeStr;
+  })();
 
   const loadProgress = useCallback(async () => {
     try {
@@ -366,6 +376,17 @@ function AdminRankingDashboard() {
   const job = progress.job || { running: false };
   const schedulerNextAt = progress.scheduler?.nextRunAt;
   const proxyEnabled = progress.scheduler?.proxyEnabled;
+
+  // 최근 라운드 실패 카테고리 (탭 ⚠️ 표시용)
+  const lastFailedCategoryNames = useMemo(() => {
+    return new Set(progress.lastJob?.failed_categories || []);
+  }, [progress.lastJob?.failed_categories]);
+  const lastJobCompletedLabel = progress.lastJob?.completed_at
+    ? new Date(progress.lastJob.completed_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : null;
+  // 현재 선택된 카테고리가 최근 라운드에서 실패했는지
+  const activeCategoryName = categories.find(c => c.id === activeCategory)?.name;
+  const activeCategoryFailedLast = activeCategoryName && lastFailedCategoryNames.has(activeCategoryName);
 
   return (
     <Container maxWidth="xl" sx={{ pt: 12, pb: 4 }}>
@@ -632,9 +653,25 @@ function AdminRankingDashboard() {
             variant="scrollable"
             scrollButtons="auto"
           >
-            {categories.map((c) => (
-              <Tab key={c.id} value={c.id} label={c.name} />
-            ))}
+            {categories.map((c) => {
+              const isFailedLast = lastFailedCategoryNames.has(c.name);
+              return (
+                <Tab
+                  key={c.id}
+                  value={c.id}
+                  label={
+                    isFailedLast ? (
+                      <Tooltip title={`최근 수집(${lastJobCompletedLabel || ''})에서 이 카테고리는 실패했습니다. 표시 데이터는 그 이전 라운드 기준입니다.`}>
+                        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.3 }}>
+                          <span style={{ color: '#ed6c02', fontWeight: 700 }}>⚠️</span>
+                          <span>{c.name}</span>
+                        </Box>
+                      </Tooltip>
+                    ) : c.name
+                  }
+                />
+              );
+            })}
           </Tabs>
         </Box>
         {/* 우측 inline 변동 기준 안내 (현재 순위 탭에서만) */}
@@ -678,6 +715,20 @@ function AdminRankingDashboard() {
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
+      )}
+
+      {/* 현재 선택한 카테고리가 최근 라운드에서 실패한 경우 명시 알림 */}
+      {activeCategoryFailedLast && (
+        <Alert severity="warning" sx={{ mb: 2 }} icon={<span style={{ fontSize: '1.1rem' }}>⚠️</span>}>
+          <Typography variant="body2" fontWeight="bold" sx={{ mb: 0.3 }}>
+            "{activeCategoryName}" 카테고리는 최근 라운드 수집에 실패했습니다
+          </Typography>
+          <Typography variant="body2">
+            현재 표시되는 데이터는 이 카테고리가 마지막으로 성공한 라운드의 데이터입니다 ({collectedAt ? new Date(collectedAt).toLocaleString('ko-KR') : '-'} 기준).
+            <br />
+            다음 자동 수집에서 다시 시도됩니다.
+          </Typography>
+        </Alert>
       )}
 
       {mainView === 'current' ? (

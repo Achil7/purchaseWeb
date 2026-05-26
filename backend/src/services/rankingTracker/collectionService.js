@@ -247,7 +247,7 @@ async function triggerCollectionRound({
       const succeededCategoryIds = new Set();
 
       const result = await scrapeAllCategories({
-        maxRetries: 4,    // 최대 5회 시도 (1차 + 재시도 4회)
+        maxRetries: 2,    // 최대 3회 시도 (1차 + 재시도 2회) - 봇 차단 강해진 5/26부터 5회→3회로 단축
         onProgress: async (idx, total, category, res, attempt) => {
           state.jobMeta.completed = idx;
           state.jobMeta.currentCategory = category.name;
@@ -280,10 +280,12 @@ async function triggerCollectionRound({
       });
 
       // DB INSERT
-      // 정책: 21/21 모두 성공한 라운드만 INSERT. 부분 성공은 버림 (다음 정시에 새로 시도).
-      // 이유: 일부 카테고리만 새 데이터, 나머지는 옛 데이터로 화면이 섞이는 걸 방지.
-      const isFullSuccess = result.failCount === 0 && result.items.length >= CATEGORIES.length * 100 * 0.95;
-      if (result.items.length > 0 && isFullSuccess) {
+      // 정책 (5/26 완화): 15/21 (약 70%) 이상 성공하면 INSERT.
+      // 이유: 봇 차단 강화로 100% 성공이 어려워짐. 너무 엄격하면 시계열 데이터 비어버림.
+      //       성공한 카테고리만 INSERT되고, 실패한 카테고리는 다음 라운드에서 채워짐.
+      const minSuccessRatio = 0.70;
+      const isAcceptable = result.successCount >= CATEGORIES.length * minSuccessRatio;
+      if (result.items.length > 0 && isAcceptable) {
         const rows = result.items.map((it) => ({
           category_id: it.category_id,
           category_name: it.category_name,
@@ -304,9 +306,11 @@ async function triggerCollectionRound({
           await job.update({ error_text: `INSERT failed: ${err.message}` });
         }
       } else if (result.items.length > 0) {
-        // 부분 성공 → 버림, 사유 기록
+        // 부분 성공 → 버림, 사유 + 실패 카테고리 이름 함께 기록 (디버깅용)
+        const failedNow = Array.from(failedCategoryMap.keys());
+        const failedDesc = failedNow.length > 0 ? ` | Failed: ${failedNow.join(', ')}` : '';
         await job.update({
-          error_text: `Partial success discarded: ${result.successCount}/${CATEGORIES.length} categories`
+          error_text: `Partial success discarded: ${result.successCount}/${CATEGORIES.length} categories${failedDesc}`
         });
       }
 
@@ -327,10 +331,20 @@ async function triggerCollectionRound({
       const durationMs = startedAt ? completedAt.getTime() - new Date(startedAt).getTime() : null;
 
       // 실패 카테고리 요약 (DB 저장용 — 디버깅에 도움)
+      // 이름만 나열 + 카테고리별 에러 메시지/시도 횟수 함께 기록 (추적용)
       const failedCategoriesArr = Array.from(failedCategoryMap.keys());
-      const failedSummary = failedCategoriesArr.length > 0
-        ? `Failed: ${failedCategoriesArr.join(', ')}`
-        : null;
+      let failedSummary = null;
+      if (failedCategoriesArr.length > 0) {
+        const namesOnly = `Failed: ${failedCategoriesArr.join(', ')}`;
+        // 카테고리별 에러 디테일
+        const details = Array.from(failedCategoryMap.entries())
+          .map(([name, info]) => {
+            const errShort = (info.error || 'unknown').slice(0, 100).replace(/\n/g, ' ');
+            return `${name} [tries:${info.attempts}] ${errShort}`;
+          })
+          .join(' || ');
+        failedSummary = `${namesOnly} | Details: ${details}`;
+      }
       // 기존 error_text(예: Partial success discarded) 보존하면서 실패 카테고리 합치기
       await job.reload();
       const prevErrText = job.error_text || '';

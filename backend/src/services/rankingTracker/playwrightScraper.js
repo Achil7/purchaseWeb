@@ -238,7 +238,13 @@ async function scrapeAllCategories({ onProgress, signal, maxRetries = 4 } = {}) 
 
     // attempt 0 (1차) → 21개 모두 시도
     // attempt 1, 2 (재시도) → 실패한 카테고리만 다시
+    // 순서를 매 라운드 Fisher-Yates 셔플 — '전체'/'스킨케어'가 항상 배열 첫 두 번째라
+    // 봇 탐지에 우선 노출되어 만성적으로 실패하던 문제 회피
     let pendingCategories = CATEGORIES.slice();
+    for (let i = pendingCategories.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pendingCategories[i], pendingCategories[j]] = [pendingCategories[j], pendingCategories[i]];
+    }
 
     // 페이지/컨텍스트가 죽었을 때 안전하게 재생성하는 헬퍼
     async function ensureLivePage() {
@@ -316,7 +322,8 @@ async function scrapeAllCategories({ onProgress, signal, maxRetries = 4 } = {}) 
         }
 
         if (i < pendingCategories.length - 1 && !(signal && signal.aborted)) {
-          const delay = 300 + Math.floor(Math.random() * 700);
+          // 봇 패턴 약화: 카테고리 간 2~5초 랜덤 딜레이 (5/26 봇 차단 강화 대응)
+          const delay = 2000 + Math.floor(Math.random() * 3000);
           await safeSleep(delay);   // ← page.waitForTimeout 대신 안전 sleep
         }
       }

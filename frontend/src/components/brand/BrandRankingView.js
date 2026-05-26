@@ -140,7 +140,8 @@ function BrandRankingView() {
   const products = data?.products || [];
   const dropouts = data?.dropouts || [];
   const insights = data?.insights || { biggestGainers: [], biggestLosers: [], newEntries: [], consistent: [] };
-  const summary = data?.summary || { totalRegistered: 0, exposedNow: 0, exposedRankings: 0, top10Count: 0 };
+  const summary = data?.summary || { totalRegistered: 0, exposedNow: 0, exposedRankings: 0, top10Count: 0, currentlyExposedNow: 0 };
+  const windowHoursLabel = data?.windowHours ? `${data.windowHours}h` : '24h';
 
   const prevTimeLabel = previousCollectedAt
     ? new Date(previousCollectedAt).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })
@@ -267,28 +268,33 @@ function BrandRankingView() {
         </Grid>
         <Grid item xs={6} md={3}>
           <SummaryCard
-            label="BEST 노출"
+            label={`BEST 노출 (${windowHoursLabel})`}
             value={summary.exposedNow}
             unit="개"
             color="#2e7d32"
-            hint={summary.totalRegistered > 0 ? `${Math.round(summary.exposedNow / summary.totalRegistered * 100)}%` : null}
+            hint={
+              summary.totalRegistered > 0
+                ? `${Math.round(summary.exposedNow / summary.totalRegistered * 100)}% · 현재 ${summary.currentlyExposedNow || 0}개`
+                : null
+            }
           />
         </Grid>
         <Grid item xs={6} md={3}>
           <SummaryCard
-            label="노출 인스턴스"
+            label={`노출 인스턴스 (${windowHoursLabel})`}
             value={summary.exposedRankings}
             unit="회"
             color="#0288d1"
-            hint="(제품 × 카테고리)"
+            hint="(제품 × 카테고리, 누적)"
           />
         </Grid>
         <Grid item xs={6} md={3}>
           <SummaryCard
-            label="TOP 10 노출"
+            label={`TOP 10 노출 (${windowHoursLabel})`}
             value={summary.top10Count}
             unit="건"
             color="#c62828"
+            hint="기간 내 한 번이라도 TOP10"
           />
         </Grid>
       </Grid>
@@ -452,7 +458,7 @@ function BrandRankingView() {
             <Typography>
               {summary.totalRegistered === 0
                 ? '등록된 자사 제품이 없습니다. 캠페인의 제품 URL에 올리브영 goodsNo가 있는지 확인해주세요.'
-                : '현재 BEST 100에 노출된 제품이 없습니다.'}
+                : `최근 ${windowHoursLabel} 동안 BEST 100에 노출된 제품이 없습니다.`}
             </Typography>
           </Box>
         ) : (
@@ -468,16 +474,18 @@ function BrandRankingView() {
             </TableHead>
             <TableBody>
               {exposed.map((p) => {
-                const bestRanking = p.rankings[0]; // 이미 rank ASC 정렬됨
+                const bestRanking = p.rankings[0]; // currentlyExposed 우선 정렬됨
+                // 윈도우 기간 내 진짜 최고순위 (best24h 중 최솟값)
+                const windowBestRank = Math.min(...p.rankings.map(r => r.best24h));
                 return (
                   <TableRow key={p.goods_no} hover>
                     <TableCell>
                       <Typography
                         variant="h6"
-                        color={bestRanking.rank <= 3 ? 'error.main' : 'text.primary'}
+                        color={windowBestRank <= 3 ? 'error.main' : 'text.primary'}
                         sx={{ lineHeight: 1 }}
                       >
-                        {bestRanking.rank}
+                        {windowBestRank}
                       </Typography>
                     </TableCell>
                     <TableCell sx={{ py: 1 }}>
@@ -517,46 +525,69 @@ function BrandRankingView() {
                     </TableCell>
                     <TableCell>
                       <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap>
-                        {p.rankings.map((r) => (
-                          <Box
-                            key={`${r.category_id}_${r.rank}`}
-                            onClick={() => openHistory(p, r.category_id)}
-                            sx={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 0.4,
-                              px: 0.8,
-                              py: 0.3,
-                              borderRadius: 1,
-                              bgcolor: r.rank <= 10 ? '#ffebee' : r.rank <= 30 ? '#fff3e0' : '#f5f5f5',
-                              border: '1px solid',
-                              borderColor: r.rank <= 10 ? '#ffcdd2' : r.rank <= 30 ? '#ffe0b2' : '#e0e0e0',
-                              cursor: 'pointer',
-                              '&:hover': { boxShadow: 1, bgcolor: 'white' }
-                            }}
-                          >
-                            <Typography variant="caption" fontWeight={600}>
-                              {r.category_name}
-                            </Typography>
-                            <Typography
-                              variant="caption"
-                              fontWeight="bold"
-                              sx={{ color: r.rank <= 10 ? 'error.main' : r.rank <= 30 ? 'warning.main' : 'text.primary' }}
+                        {p.rankings.map((r) => {
+                          const exposed = r.currentlyExposed;
+                          const lastSeenLabel = !exposed && r.lastSeenAt
+                            ? new Date(r.lastSeenAt).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                            : null;
+                          return (
+                            <Box
+                              key={`${r.category_id}_${r.rank}`}
+                              onClick={() => openHistory(p, r.category_id)}
+                              title={!exposed ? `현재 라운드에는 100위 밖 · 마지막 노출 ${lastSeenLabel}` : undefined}
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 0.4,
+                                px: 0.8,
+                                py: 0.3,
+                                borderRadius: 1,
+                                bgcolor: !exposed
+                                  ? '#fafafa'
+                                  : r.rank <= 10 ? '#ffebee' : r.rank <= 30 ? '#fff3e0' : '#f5f5f5',
+                                border: '1px solid',
+                                borderColor: !exposed
+                                  ? '#e0e0e0'
+                                  : r.rank <= 10 ? '#ffcdd2' : r.rank <= 30 ? '#ffe0b2' : '#e0e0e0',
+                                borderStyle: !exposed ? 'dashed' : 'solid',
+                                opacity: !exposed ? 0.7 : 1,
+                                cursor: 'pointer',
+                                '&:hover': { boxShadow: 1, bgcolor: 'white' }
+                              }}
                             >
-                              {r.rank}위
-                            </Typography>
-                            <Box sx={{ ml: 0.3 }}>
-                              <RankChangeBadge
-                                delta={r.delta}
-                                prevRank={r.prevRank}
-                                isNew={r.isNew}
-                                currentRank={r.rank}
-                                prevTimeLabel={prevTimeLabel}
-                                windowHours={parseInt(windowParam, 10)}
-                              />
+                              <Typography variant="caption" fontWeight={600}>
+                                {r.category_name}
+                              </Typography>
+                              <Typography
+                                variant="caption"
+                                fontWeight="bold"
+                                sx={{
+                                  color: !exposed
+                                    ? 'text.disabled'
+                                    : r.rank <= 10 ? 'error.main' : r.rank <= 30 ? 'warning.main' : 'text.primary',
+                                  textDecoration: !exposed ? 'line-through' : 'none'
+                                }}
+                              >
+                                {r.rank}위
+                              </Typography>
+                              {!exposed && (
+                                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem', ml: 0.2 }}>
+                                  이탈
+                                </Typography>
+                              )}
+                              <Box sx={{ ml: 0.3 }}>
+                                <RankChangeBadge
+                                  delta={r.delta}
+                                  prevRank={r.prevRank}
+                                  isNew={r.isNew}
+                                  currentRank={r.rank}
+                                  prevTimeLabel={prevTimeLabel}
+                                  windowHours={parseInt(windowParam, 10)}
+                                />
+                              </Box>
                             </Box>
-                          </Box>
-                        ))}
+                          );
+                        })}
                       </Stack>
                     </TableCell>
                     <TableCell>
@@ -714,7 +745,7 @@ function BrandRankingView() {
             }}
           >
             <Typography variant="subtitle2" color="text.secondary">
-              미노출 자사 제품 ({notExposed.length}개)
+              미노출 자사 제품 ({notExposed.length}개) — 최근 {windowHoursLabel} 동안 한 번도 BEST 100 안에 들지 않음
             </Typography>
             <Box sx={{ flex: 1 }} />
             <Typography variant="caption" color="text.secondary">
