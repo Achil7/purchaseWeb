@@ -353,6 +353,8 @@ async function scrapeAllCategoriesUnblocker({ onProgress, signal, maxRetries = 2
     [pendingCategories[i], pendingCategories[j]] = [pendingCategories[j], pendingCategories[i]];
   }
 
+  let progressIdx = 0;
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (signal && signal.aborted) break;
     if (pendingCategories.length === 0) break;
@@ -366,9 +368,9 @@ async function scrapeAllCategoriesUnblocker({ onProgress, signal, maxRetries = 2
       if (signal && signal.aborted) break;
       const category = pendingCategories[i];
       totalAttempts++;
+      progressIdx++;
 
       const result = await scrapeCategoryWithUnblockerSimple(category, unblockerConfig);
-      const globalIdx = CATEGORIES.findIndex((c) => c.id === category.id) + 1;
 
       if (result.success) {
         itemsByCategoryId.set(category.id, result.items);
@@ -379,7 +381,7 @@ async function scrapeAllCategoriesUnblocker({ onProgress, signal, maxRetries = 2
       }
 
       if (typeof onProgress === 'function') {
-        try { await onProgress(globalIdx, CATEGORIES.length, category, result, attempt); } catch (_) {}
+        try { await onProgress(progressIdx, CATEGORIES.length, category, result, attempt); } catch (_) {}
       }
 
       if (i < pendingCategories.length - 1 && !(signal && signal.aborted)) {
