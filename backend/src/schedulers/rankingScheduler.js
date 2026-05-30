@@ -10,7 +10,7 @@
  */
 
 const { triggerCollectionRound } = require('../services/rankingTracker/collectionService');
-const { isProxyEnabled } = require('../services/rankingTracker/proxyConfig');
+const { isAnyProxyEnabled } = require('../services/rankingTracker/proxyConfig');
 
 let timer = null;
 let running = false;
@@ -92,8 +92,8 @@ function start() {
     console.log('[rankingScheduler] disabled (set RANKING_AUTO_ENABLED=true to enable)');
     return;
   }
-  if (!isProxyEnabled()) {
-    console.warn('[rankingScheduler] WARNING: PROXY_ENABLED is not true. Scheduler will run but olive young will likely block EC2 IP.');
+  if (!isAnyProxyEnabled()) {
+    console.warn('[rankingScheduler] WARNING: no proxy/unblocker configured. Scheduler will run but olive young will likely block EC2 IP.');
   }
   // 좀비 정리 (비동기, 실패해도 스케줄러는 시작)
   cleanupZombieJobs();
@@ -116,7 +116,7 @@ function getStatus() {
   return {
     running,
     nextRunAt,
-    proxyEnabled: isProxyEnabled()
+    proxyEnabled: isAnyProxyEnabled()
   };
 }
 

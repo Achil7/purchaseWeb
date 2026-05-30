@@ -20,8 +20,10 @@ try {
 }
 
 const cheerio = require('cheerio');
+const https = require('https');
+const http = require('http');
 const { CATEGORIES, buildBestListUrl } = require('./categories');
-const { getProxyForPlaywright, isProxyEnabled } = require('./proxyConfig');
+const { getProxyForPlaywright, isAnyProxyEnabled, getProxyMode, getSiteUnblockerConfig } = require('./proxyConfig');
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36';
 const VIEWPORT = { width: 1920, height: 1080 };
@@ -155,10 +157,21 @@ async function scrapeCategoryWithPage(page, category) {
     }
     return { success: true, items, error: null };
   } catch (err) {
+    // 실패 시 페이지 내용 일부를 함께 반환 (디버깅용)
+    // - 봇 챌린지 페이지: <title>잠시만 기다리십시오</title> 같은 문구 보임
+    // - 차단/빈 페이지: 짧거나 에러 페이지
+    // - 단순 느림: 정상 HTML 일부 보임
+    let pageSnippet = '';
+    let pageTitle = '';
+    try {
+      pageTitle = await page.title();
+      const html = await page.content();
+      pageSnippet = html.slice(0, 400).replace(/\s+/g, ' ');
+    } catch (_) { /* ignore */ }
     return {
       success: false,
       items: [],
-      error: err.message
+      error: `${err.message} | title:"${pageTitle}" | html:"${pageSnippet}"`
     };
   }
 }
@@ -216,6 +229,187 @@ async function newPageWithContext(browser) {
 }
 
 /**
+ * Site Unblocker를 통한 단일 카테고리 수집 (HTTP 요청, Playwright 불필요)
+ */
+async function scrapeCategoryWithUnblocker(category, unblockerConfig) {
+  const url = buildBestListUrl(category);
+  const { host, user, pass } = unblockerConfig;
+  const [proxyHost, proxyPort] = host.split(':');
+  const auth = Buffer.from(`${user}:${pass}`).toString('base64');
+
+  return new Promise((resolve) => {
+    const req = http.request({
+      method: 'CONNECT',
+      host: proxyHost,
+      port: parseInt(proxyPort, 10) || 60000,
+      path: new URL(url).host + ':443',
+      headers: {
+        'Proxy-Authorization': `Basic ${auth}`
+      },
+      timeout: 60000
+    });
+
+    req.on('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        return resolve({ success: false, items: [], error: `CONNECT ${res.statusCode}` });
+      }
+      const tlsSocket = require('tls').connect({
+        host: new URL(url).hostname,
+        socket,
+        rejectUnauthorized: false
+      }, () => {
+        const getReq = https.request({
+          hostname: new URL(url).hostname,
+          path: new URL(url).pathname + new URL(url).search,
+          method: 'GET',
+          socket: tlsSocket,
+          createConnection: () => tlsSocket,
+          headers: {
+            'User-Agent': USER_AGENT,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9',
+            'Accept-Encoding': 'identity'
+          },
+          timeout: 60000
+        }, (response) => {
+          let body = '';
+          response.on('data', (chunk) => { body += chunk; });
+          response.on('end', () => {
+            try {
+              if (response.statusCode !== 200) {
+                return resolve({ success: false, items: [], error: `HTTP ${response.statusCode} | body:"${body.slice(0, 200)}"` });
+              }
+              const items = parseRankingHtml(body);
+              if (items.length === 0) {
+                return resolve({ success: false, items: [], error: `No items parsed | body:"${body.slice(0, 300)}"` });
+              }
+              resolve({ success: true, items, error: null });
+            } catch (e) {
+              resolve({ success: false, items: [], error: `parse error: ${e.message}` });
+            }
+          });
+        });
+        getReq.on('error', (e) => resolve({ success: false, items: [], error: `request error: ${e.message}` }));
+        getReq.on('timeout', () => { getReq.destroy(); resolve({ success: false, items: [], error: 'request timeout 60s' }); });
+        getReq.end();
+      });
+      tlsSocket.on('error', (e) => resolve({ success: false, items: [], error: `tls error: ${e.message}` }));
+    });
+
+    req.on('error', (e) => resolve({ success: false, items: [], error: `connect error: ${e.message}` }));
+    req.on('timeout', () => { req.destroy(); resolve({ success: false, items: [], error: 'connect timeout 60s' }); });
+    req.end();
+  });
+}
+
+/**
+ * Site Unblocker 모드: curl-style 단순 HTTP 프록시 (CONNECT 터널 대신)
+ */
+async function scrapeCategoryWithUnblockerSimple(category, unblockerConfig) {
+  const url = buildBestListUrl(category);
+  const { host, user, pass } = unblockerConfig;
+
+  return new Promise((resolve) => {
+    const proxyUrl = `https://${user}:${pass}@${host}`;
+    const { execSync } = require('child_process');
+    try {
+      const stdout = execSync(
+        `curl -k -x "${proxyUrl}" "${url}" -s --max-time 60 -H "User-Agent: ${USER_AGENT}" -H "Accept-Language: ko-KR,ko;q=0.9"`,
+        { maxBuffer: 1024 * 1024 * 5, timeout: 65000 }
+      );
+      const html = stdout.toString('utf8');
+      if (!html || html.length < 100) {
+        return resolve({ success: false, items: [], error: `Empty response (${html.length} bytes)` });
+      }
+      const items = parseRankingHtml(html);
+      if (items.length === 0) {
+        return resolve({ success: false, items: [], error: `No items parsed | html:"${html.slice(0, 300)}"` });
+      }
+      resolve({ success: true, items, error: null });
+    } catch (e) {
+      resolve({ success: false, items: [], error: `curl error: ${e.message?.slice(0, 200)}` });
+    }
+  });
+}
+
+/**
+ * Site Unblocker 모드: 21개 카테고리 전체 수집 (HTTP 기반, Playwright 불필요)
+ */
+async function scrapeAllCategoriesUnblocker({ onProgress, signal, maxRetries = 2 } = {}) {
+  const unblockerConfig = getSiteUnblockerConfig();
+  if (!unblockerConfig) {
+    return { successCount: 0, failCount: CATEGORIES.length, errors: [{ category: 'all', error: 'Site Unblocker not configured' }], items: [], proxyEnabled: true, retryAttempts: 0, totalAttempts: 0 };
+  }
+
+  const itemsByCategoryId = new Map();
+  const errorByCategoryId = new Map();
+  let retryAttempts = 0;
+  let totalAttempts = 0;
+
+  let pendingCategories = CATEGORIES.slice();
+  for (let i = pendingCategories.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pendingCategories[i], pendingCategories[j]] = [pendingCategories[j], pendingCategories[i]];
+  }
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (signal && signal.aborted) break;
+    if (pendingCategories.length === 0) break;
+    if (attempt > 0) {
+      retryAttempts = attempt;
+      await new Promise(r => setTimeout(r, 2000 + Math.floor(Math.random() * 3000)));
+    }
+
+    const nextPending = [];
+    for (let i = 0; i < pendingCategories.length; i++) {
+      if (signal && signal.aborted) break;
+      const category = pendingCategories[i];
+      totalAttempts++;
+
+      const result = await scrapeCategoryWithUnblockerSimple(category, unblockerConfig);
+      const globalIdx = CATEGORIES.findIndex((c) => c.id === category.id) + 1;
+
+      if (result.success) {
+        itemsByCategoryId.set(category.id, result.items);
+        errorByCategoryId.delete(category.id);
+      } else {
+        errorByCategoryId.set(category.id, result.error);
+        nextPending.push(category);
+      }
+
+      if (typeof onProgress === 'function') {
+        try { await onProgress(globalIdx, CATEGORIES.length, category, result, attempt); } catch (_) {}
+      }
+
+      if (i < pendingCategories.length - 1 && !(signal && signal.aborted)) {
+        await new Promise(r => setTimeout(r, 500 + Math.floor(Math.random() * 1000)));
+      }
+    }
+    pendingCategories = nextPending;
+  }
+
+  const allItems = [];
+  let successCount = 0;
+  let failCount = 0;
+  const errors = [];
+  for (const category of CATEGORIES) {
+    const items = itemsByCategoryId.get(category.id);
+    if (items) {
+      successCount++;
+      for (const item of items) {
+        allItems.push({ ...item, category_id: category.id, category_name: category.name });
+      }
+    } else {
+      failCount++;
+      errors.push({ category: category.name, error: errorByCategoryId.get(category.id) || 'unknown' });
+    }
+  }
+
+  return { successCount, failCount, errors, items: allItems, proxyEnabled: true, retryAttempts, totalAttempts };
+}
+
+/**
  * 21개 카테고리 전체 수집 (1개 브라우저 인스턴스 재사용 + 실패 카테고리 재시도)
  * @param {object} options
  * @param {function} options.onProgress - (idx, total, category, result, attempt) => void
@@ -224,6 +418,9 @@ async function newPageWithContext(browser) {
  * @returns {Promise<{successCount, failCount, errors, items, proxyEnabled}>}
  */
 async function scrapeAllCategories({ onProgress, signal, maxRetries = 4 } = {}) {
+  if (getProxyMode() === 'site_unblocker') {
+    return scrapeAllCategoriesUnblocker({ onProgress, signal, maxRetries: Math.min(maxRetries, 2) });
+  }
   // 최대 5회 시도 (1차 + 재시도 4회). 끝까지 실패하면 그 라운드는 버림 (부분 INSERT 금지).
   // 실제로는 거의 모든 카테고리가 2~3회 안에 잡혀서 추가 시도 거의 없음.
   let browser;
@@ -359,7 +556,7 @@ async function scrapeAllCategories({ onProgress, signal, maxRetries = 4 } = {}) 
     failCount,
     errors,
     items: allItems,
-    proxyEnabled: isProxyEnabled(),
+    proxyEnabled: isAnyProxyEnabled(),
     retryAttempts,
     totalAttempts
   };

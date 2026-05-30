@@ -13,7 +13,7 @@ const { Op } = require('sequelize');
 const { PlatformRanking, RankingCollectionJob } = require('../../models');
 const { scrapeAllCategories } = require('./playwrightScraper');
 const { CATEGORIES } = require('./categories');
-const { isProxyEnabled } = require('./proxyConfig');
+const { isAnyProxyEnabled } = require('./proxyConfig');
 
 const CACHE_TTL_MS = 30 * 60 * 1000;          // 30분 - 마지막 수집 기준 캐시 (전체 공통)
 const HOURLY_LIMIT_PER_USER = 20;             // 사용자 본인 기준 시간당 최대 20회
@@ -151,7 +151,7 @@ async function triggerCollectionRound({
   ttlMs = CACHE_TTL_MS
 } = {}) {
   // 0-A) PROXY OFF면 모든 경로 차단 (자동+수동)
-  if (!isProxyEnabled()) {
+  if (!isAnyProxyEnabled()) {
     return { status: 'proxy_disabled' };
   }
 
@@ -233,7 +233,7 @@ async function triggerCollectionRound({
     fail: 0,
     currentCategory: null,
     failedCategories: [],     // 실패한 카테고리명 (마지막 시도 기준)
-    proxyEnabled: isProxyEnabled(),
+    proxyEnabled: isAnyProxyEnabled(),
     startedAt: job.started_at
   };
 
@@ -339,7 +339,8 @@ async function triggerCollectionRound({
         // 카테고리별 에러 디테일
         const details = Array.from(failedCategoryMap.entries())
           .map(([name, info]) => {
-            const errShort = (info.error || 'unknown').slice(0, 100).replace(/\n/g, ' ');
+            // 600자까지 보존: title/html 디버깅 정보 포함되도록 (이전 100자는 너무 짧아서 잘림)
+            const errShort = (info.error || 'unknown').slice(0, 600).replace(/\n/g, ' ');
             return `${name} [tries:${info.attempts}] ${errShort}`;
           })
           .join(' || ');
