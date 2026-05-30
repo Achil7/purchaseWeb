@@ -1,0 +1,198 @@
+/* frontend/src/theme/handsontable-kwad.css
+ *
+ * Handsontable visual polish — KEEPS ALL FUNCTIONALITY INTACT.
+ * - No changes to instance config, props, hooks, callbacks
+ * - Only paints the chrome (borders, headers, font, separator color)
+ *
+ * Brand sheet cell renderers in BrandItemSheet.js set inline styles
+ * (td.style.backgroundColor). Inline styles WITHOUT !important LOSE to CSS
+ * rules WITH !important — so the overrides below DO take effect.
+ *
+ * Suspended rows (red, set via setProperty(..., 'important')) keep their
+ * intentional red color — this is correct, that's an error state.
+ *
+ * Import LAST in App.js, after kwad-tokens.css and kwad-overrides.css.
+ */
+
+/* ────────────────────────────────────────────────────────────────────────
+ * Font + base text
+ * ──────────────────────────────────────────────────────────────────────── */
+.handsontable,
+.handsontable td,
+.handsontable th,
+.handsontable input,
+.handsontable textarea {
+  font-family: var(--kwad-font-family) !important;
+  font-variant-numeric: tabular-nums;
+  color: var(--kwad-text);
+}
+
+.handsontable td {
+  font-size: 12px;
+  letter-spacing: -0.005em;
+  padding: 4px 8px;
+}
+
+.handsontable th {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--kwad-text-secondary) !important;
+  background-color: var(--kwad-surface-muted) !important;
+  border-color: var(--kwad-border) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * Borders / dividers
+ * ──────────────────────────────────────────────────────────────────────── */
+.handsontable td {
+  border-color: var(--kwad-divider) !important;
+}
+.handsontable .htCore {
+  border-color: var(--kwad-border) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * Custom row class colors (set by cell renderers in BrandItemSheet)
+ *
+ * Renderer assigns these classNames:
+ *   .item-separator-row     — blue bar between product blocks
+ *   .product-header-row     — product table column labels (gray)
+ *   .product-data-row       — single product info row (cream/yellow)
+ *   .buyer-header-row       — buyer table column labels
+ *   .has-review / .no-review — buyer cells
+ *   .suspended-row          — suspended day_group (red) — DO NOT OVERRIDE
+ *
+ * We re-color these classes; renderer's inline backgroundColor is BEATEN
+ * because our rules have !important.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/* Separator (was #1565c0 → kwad primary) */
+.handsontable td.item-separator-row {
+  background-color: var(--kwad-primary) !important;
+  height: 6px !important;
+  padding: 0 !important;
+  border-color: var(--kwad-primary) !important;
+}
+
+/* Product header row (was #e0e0e0 → soft muted surface) */
+.handsontable td.product-header-row {
+  background-color: var(--kwad-surface-muted) !important;
+  color: var(--kwad-text-secondary) !important;
+  font-weight: 600;
+  font-size: 11px !important;
+  border-color: var(--kwad-border) !important;
+}
+
+/* Buyer header row (was #f5f5f5 → softer muted) */
+.handsontable td.buyer-header-row {
+  background-color: var(--kwad-surface-muted) !important;
+  color: var(--kwad-text-secondary) !important;
+  font-weight: 600;
+  font-size: 11px !important;
+  border-color: var(--kwad-border) !important;
+}
+
+/* Product data row (cream/yellow) — keep cream, soften */
+.handsontable td.product-data-row {
+  background-color: #fdf7e3 !important;
+  font-size: 11.5px !important;
+  border-color: var(--kwad-border) !important;
+}
+
+/* Reviewed buyer cells get a faint success tint (subtle stripe) */
+.handsontable td.has-review {
+  background-color: #f3f9f4 !important;
+}
+.handsontable td.no-review {
+  background-color: var(--kwad-surface) !important;
+}
+
+/* Suspended rows — keep red but soften slightly */
+.handsontable td.suspended-row {
+  /* No override here — renderer sets `important` inline; let it win */
+}
+
+/* Spare (placeholder) row at end of sheet — neutral */
+.handsontable td.spare-row-cell {
+  background-color: var(--kwad-surface-subtle) !important;
+  color: var(--kwad-text-tertiary) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * Selection + current cell highlight
+ * ──────────────────────────────────────────────────────────────────────── */
+.handsontable .current,
+.handsontable .area,
+.handsontable .htCore tbody td.area {
+  background-color: var(--kwad-primary-soft) !important;
+}
+
+.handsontable .htBorders .border {
+  border-color: var(--kwad-primary) !important;
+}
+
+/* Selected row/col header */
+.handsontable th.ht__highlight {
+  background-color: var(--kwad-primary-soft-str) !important;
+  color: var(--kwad-primary) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * Hover (when hover mode is on)
+ * ──────────────────────────────────────────────────────────────────────── */
+.handsontable tr:hover td:not(.suspended-row):not(.item-separator-row) {
+  background-color: var(--kwad-surface-muted) !important;
+}
+
+/* Reviewed cells keep their tint on hover */
+.handsontable tr:hover td.has-review {
+  background-color: #eaf3eb !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * Filter dropdowns / context menus
+ * ──────────────────────────────────────────────────────────────────────── */
+.htDropdownMenu,
+.htContextMenu,
+.htFiltersConditionsMenu {
+  font-family: var(--kwad-font-family) !important;
+  font-size: 12px !important;
+  border: 1px solid var(--kwad-border) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+.htDropdownMenu td,
+.htContextMenu td {
+  padding: 6px 10px !important;
+  color: var(--kwad-text) !important;
+}
+.htDropdownMenu td.current,
+.htContextMenu td.current {
+  background-color: var(--kwad-primary-soft) !important;
+  color: var(--kwad-primary) !important;
+}
+
+/* Filter funnel icon column — consistent muted */
+.htFiltersIndicator,
+.handsontable .htFiltersIndicator {
+  color: var(--kwad-text-tertiary) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * Comment indicator (red corner triangle on cells with comments)
+ * ──────────────────────────────────────────────────────────────────────── */
+.handsontable .htCommentCell::after {
+  border-color: var(--kwad-warning) transparent transparent transparent !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * Scroll bars within the sheet — match global look
+ * ──────────────────────────────────────────────────────────────────────── */
+.handsontable .wtHolder::-webkit-scrollbar-thumb {
+  background: var(--kwad-border-strong);
+  border-radius: 999px;
+}
+.handsontable .wtHolder::-webkit-scrollbar-thumb:hover {
+  background: var(--kwad-text-tertiary);
+}

@@ -1,0 +1,261 @@
+/* frontend/src/theme/kwad-overrides.css
+ * Kwad — overrides for hardcoded colors in existing components.
+ *
+ * STRATEGY: Existing components use sx={{bgcolor:'#2c387e'}} etc. which produce
+ * emotion-generated classes whose colors win normal CSS. We use !important
+ * to override globally. ThemeProvider handles MUI's default palette;
+ * this file handles the hardcoded literals scattered through brand pages.
+ *
+ * Import LAST in App.js so it overrides everything else.
+ *
+ * Hex map (old → new):
+ *   #2c387e (header purple)   → var(--kwad-header-bg)
+ *   #1565c0 (sheet accent)    → var(--kwad-primary)
+ *   #1976d2 (link blue)       → var(--kwad-info)
+ *   #f5f5f5 / #f5f6fa         → var(--kwad-bg)
+ *   #e8eaf6 (sidebar tint)    → var(--kwad-primary-soft)
+ *   #c5cae9 (selected row)    → var(--kwad-primary-soft-str)
+ *   #bbdefb (drag)            → var(--kwad-primary-soft-str)
+ *   #e0e0e0 (product header)  → var(--kwad-surface-muted)
+ *   #999, #9e9e9e, #bbb       → var(--kwad-text-tertiary)
+ */
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 1. AppBar — was #2c387e everywhere
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiAppBar-root.MuiAppBar-colorPrimary,
+.MuiAppBar-root.MuiAppBar-colorDefault[style*="2c387e"] {
+  background-color: var(--kwad-header-bg) !important;
+  color: var(--kwad-text-inverse) !important;
+}
+
+/* AppBar drop shadow → soft, calm */
+.MuiAppBar-root {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 0 rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 2. Avatar — header user avatar was bgcolor #2c387e
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiAppBar-root .MuiAvatar-root,
+.MuiAvatar-circular[style*="2c387e"] {
+  background-color: var(--kwad-accent) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 3. Login page (Login.js) — left banner #2c387e, button bg #2c387e
+ * ──────────────────────────────────────────────────────────────────────── */
+/* Submit button (single primary button on login form) */
+.MuiButton-contained.MuiButton-containedPrimary,
+.MuiButton-root.MuiButton-contained[style*="2c387e"] {
+  background-color: var(--kwad-primary) !important;
+}
+.MuiButton-contained.MuiButton-containedPrimary:hover,
+.MuiButton-root.MuiButton-contained[style*="2c387e"]:hover {
+  background-color: var(--kwad-primary-hover) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 4. Sidebar — brand campaign tree
+ * ──────────────────────────────────────────────────────────────────────── */
+/* Header strip bg (#e8eaf6) */
+.MuiPaper-root [style*="e8eaf6"],
+.MuiBox-root[style*="e8eaf6"] {
+  background-color: var(--kwad-primary-soft) !important;
+}
+
+/* Selected campaign row (#c5cae9) */
+.MuiListItemButton-root[style*="c5cae9"] {
+  background-color: var(--kwad-primary-soft-str) !important;
+  border-left-color: var(--kwad-primary) !important;
+}
+
+/* Hover on selected sidebar items */
+.MuiListItemButton-root:hover {
+  background-color: var(--kwad-surface-muted);
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 5. Chip — soften / re-tone
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiChip-colorPrimary {
+  background-color: var(--kwad-primary-soft) !important;
+  color: var(--kwad-primary) !important;
+}
+.MuiChip-colorSuccess {
+  background-color: var(--kwad-success-soft) !important;
+  color: var(--kwad-success) !important;
+}
+.MuiChip-colorWarning {
+  background-color: var(--kwad-warning-soft) !important;
+  color: var(--kwad-warning) !important;
+}
+.MuiChip-colorError {
+  background-color: var(--kwad-danger-soft) !important;
+  color: var(--kwad-danger) !important;
+}
+.MuiChip-colorInfo {
+  background-color: var(--kwad-info-soft) !important;
+  color: var(--kwad-info) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 6. Selection / focus rings — calm down MUI's blue defaults
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: var(--kwad-primary) !important;
+  border-width: 1px !important;
+}
+.MuiOutlinedInput-root:hover:not(.Mui-focused) .MuiOutlinedInput-notchedOutline {
+  border-color: var(--kwad-border-strong) !important;
+}
+.MuiOutlinedInput-notchedOutline {
+  border-color: var(--kwad-border-strong) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 7. Tab indicator (현황 대시보드 / 캠페인 보기 / 올리브영 랭킹)
+ *    Existing pattern: borderBottom: '2px solid #fff' on selected button
+ *    We make the indicator brighter / wash on hover.
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiAppBar-root .MuiButton-root {
+  color: rgba(255, 255, 255, 0.75) !important;
+  letter-spacing: -0.005em;
+}
+.MuiAppBar-root .MuiButton-root:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 8. Paper outlined — calmer border
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiPaper-outlined {
+  border-color: var(--kwad-border) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 9. Table headers (Ranking view, etc.)
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiTableHead-root .MuiTableRow-root {
+  background-color: var(--kwad-surface-muted) !important;
+}
+.MuiTableHead-root .MuiTableCell-root {
+  color: var(--kwad-text-secondary) !important;
+  font-weight: 600 !important;
+  font-size: 11.5px !important;
+  border-bottom-color: var(--kwad-border) !important;
+}
+.MuiTableBody-root .MuiTableCell-root {
+  border-bottom-color: var(--kwad-divider) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 10. Alert colors — softer
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiAlert-standardInfo    { background-color: var(--kwad-info-soft) !important;    color: var(--kwad-info) !important; }
+.MuiAlert-standardSuccess { background-color: var(--kwad-success-soft) !important; color: var(--kwad-success) !important; }
+.MuiAlert-standardWarning { background-color: var(--kwad-warning-soft) !important; color: var(--kwad-warning) !important; }
+.MuiAlert-standardError   { background-color: var(--kwad-danger-soft) !important;  color: var(--kwad-danger) !important; }
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 11. Dialog polish — backdrop blur + rounded corners + neutral header
+ *
+ * IMPORTANT: Existing code does sx={{ bgcolor: '#1976d2', color:'white' }}
+ * on DialogTitle. That compiles to emotion CSS classes (NOT inline style),
+ * so attribute selectors like [style*="1976d2"] CANNOT catch it.
+ *
+ * Fix: universally override ALL .MuiDialogTitle-root to be neutral
+ * (white bg + primary text), which suppresses any inherited colored header.
+ * Same approach for fullscreen / black-backdrop image viewers.
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiBackdrop-root {
+  background-color: rgba(10, 15, 30, 0.55) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.MuiDialog-paper {
+  border-radius: 12px !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.18), 0 6px 16px rgba(0,0,0,0.08) !important;
+}
+
+/* ╓─── DialogTitle universal neutralization ───╗
+   Forces ALL dialog headers to be white-bg + dark-text,
+   regardless of any inline sx bgcolor. Includes deep selector
+   for emotion-generated child styles. */
+.MuiDialog-root .MuiDialogTitle-root,
+.MuiDialog-root .MuiDialogTitle-root.MuiTypography-root,
+.MuiDialog-paper .MuiDialogTitle-root,
+.MuiDialog-paper > .MuiDialogTitle-root {
+  background-color: var(--kwad-surface) !important;
+  background: var(--kwad-surface) !important;
+  color: var(--kwad-text) !important;
+  border-bottom: 1px solid var(--kwad-divider) !important;
+  padding: 18px 22px !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em !important;
+}
+
+/* Icons / close buttons inside dialog header — dark instead of white */
+.MuiDialog-paper .MuiDialogTitle-root .MuiSvgIcon-root,
+.MuiDialog-paper .MuiDialogTitle-root .MuiIconButton-root {
+  color: var(--kwad-text-secondary) !important;
+}
+.MuiDialog-paper .MuiDialogTitle-root .MuiIconButton-root:hover {
+  background-color: var(--kwad-surface-muted) !important;
+}
+
+/* DialogContent: better padding, font */
+.MuiDialogContent-root {
+  padding: 18px 22px !important;
+  font-size: 14px !important;
+  color: var(--kwad-text) !important;
+}
+
+/* DialogActions footer */
+.MuiDialogActions-root {
+  padding: 14px 22px !important;
+  border-top: 1px solid var(--kwad-divider);
+  background: var(--kwad-surface-subtle);
+}
+
+/* ╓─── Image swipe viewer (review images) ───╗
+   ImageSwipeViewer.js uses a Dialog with very-dark sx bgcolor on Paper.
+   Force the Paper to be light + neutral. */
+.MuiDialog-paperFullScreen {
+  background-color: var(--kwad-surface) !important;
+  color: var(--kwad-text) !important;
+}
+
+/* Catch the case where review-viewer Paper has dark bg via sx —
+   target Dialog Paper that has any descendant <img> (image-centric dialogs) */
+.MuiDialog-paper:has(img):not(.MuiDialog-paperFullScreen) {
+  /* Modern browsers: catch image-viewing dialogs and tone down */
+  background-color: var(--kwad-surface) !important;
+}
+
+/* Slider / swiper navigation in image viewer */
+.swiper-button-next,
+.swiper-button-prev {
+  color: var(--kwad-primary) !important;
+}
+.swiper-pagination-bullet-active {
+  background: var(--kwad-primary) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+ * 12. Force white text on colored-bg buttons / containers
+ *    (Catch-all safety net — if any sx={{ bgcolor: '#xxx' }} produces a strong
+ *    color, force inherit-white to avoid invisible dark text)
+ * ──────────────────────────────────────────────────────────────────────── */
+.MuiButton-root[style*="background"] {
+  /* If a strong background is forced via style, ensure text stays light */
+}
+
+/* Specifically: 지금 확인 button and similar — uses colored bg */
+.MuiButton-containedSuccess { color: #fff !important; }
+.MuiButton-containedError   { color: #fff !important; }
+.MuiButton-containedWarning { color: #fff !important; }
+.MuiButton-containedInfo    { color: #fff !important; }
+.MuiButton-containedPrimary { color: #fff !important; }
