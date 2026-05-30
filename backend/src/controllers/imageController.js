@@ -682,7 +682,22 @@ exports.getPendingImages = async (req, res) => {
       order: [['resubmission_group_id', 'ASC'], ['resubmitted_at', 'DESC']]
     });
 
-    // 그룹별로 묶기 + 해당 구매자의 기존 이미지들도 함께 조회
+    // 35차: 기존 승인 이미지를 일괄 조회 (N+1 제거)
+    const uniqueBuyerIds = [...new Set(images.map(img => img.buyer_id).filter(Boolean))];
+    const allExisting = uniqueBuyerIds.length > 0
+      ? await Image.findAll({
+          where: { buyer_id: { [Op.in]: uniqueBuyerIds }, status: 'approved' },
+          attributes: ['id', 's3_url', 'file_name', 'created_at', 'buyer_id'],
+          order: [['created_at', 'ASC']]
+        })
+      : [];
+    const existingByBuyer = new Map();
+    for (const img of allExisting) {
+      if (!existingByBuyer.has(img.buyer_id)) existingByBuyer.set(img.buyer_id, []);
+      existingByBuyer.get(img.buyer_id).push(img);
+    }
+
+    // 그룹별로 묶기
     const groupedData = [];
     const processedGroups = new Set();
     const processedBuyers = new Set();
@@ -691,17 +706,14 @@ exports.getPendingImages = async (req, res) => {
       const groupId = image.resubmission_group_id;
       const buyerId = image.buyer_id;
 
-      // 그룹 ID가 있고 이미 처리한 그룹이면 스킵
       if (groupId && processedGroups.has(groupId)) {
         continue;
       }
 
-      // 그룹 ID가 없고 이미 처리한 구매자면 스킵
       if (!groupId && processedBuyers.has(buyerId)) {
         continue;
       }
 
-      // 같은 그룹의 모든 새 이미지들
       let newImages = [image];
       if (groupId) {
         newImages = images.filter(img => img.resubmission_group_id === groupId);
@@ -710,15 +722,7 @@ exports.getPendingImages = async (req, res) => {
         processedBuyers.add(buyerId);
       }
 
-      // 해당 구매자의 기존 승인된 이미지들 조회
-      const existingImages = await Image.findAll({
-        where: {
-          buyer_id: buyerId,
-          status: 'approved'
-        },
-        attributes: ['id', 's3_url', 'file_name', 'created_at'],
-        order: [['created_at', 'ASC']]
-      });
+      const existingImages = existingByBuyer.get(buyerId) || [];
 
       groupedData.push({
         groupId: groupId || `single_${image.id}`,

@@ -135,14 +135,15 @@ exports.getAccounts = async (req, res) => {
     if (operatorScope) {
       const orParts = [];
       if (operatorScope.itemFull.size > 0) {
-        const ids = Array.from(operatorScope.itemFull).join(',');
-        orParts.push(`b.item_id IN (${ids})`);
+        const safeIds = Array.from(operatorScope.itemFull).map(id => parseInt(id, 10)).filter(Number.isFinite);
+        if (safeIds.length > 0) orParts.push(`b.item_id IN (${safeIds.join(',')})`);
       }
       for (const [itemId, dgSet] of operatorScope.itemDayGroups.entries()) {
-        if (operatorScope.itemFull.has(itemId)) continue; // 이미 전체 커버
-        const dgs = Array.from(dgSet).join(',');
-        // ItemSlot의 day_group 으로 좁힘
-        orParts.push(`(b.item_id = ${itemId} AND COALESCE(s.day_group, 1) IN (${dgs}))`);
+        if (operatorScope.itemFull.has(itemId)) continue;
+        const safeItemId = parseInt(itemId, 10);
+        const safeDgs = Array.from(dgSet).map(d => parseInt(d, 10)).filter(Number.isFinite);
+        if (!Number.isFinite(safeItemId) || safeDgs.length === 0) continue;
+        orParts.push(`(b.item_id = ${safeItemId} AND COALESCE(s.day_group, 1) IN (${safeDgs.join(',')}))`);
       }
       if (orParts.length === 0) {
         return res.json({ success: true, data: [], count: 0 });
@@ -168,17 +169,18 @@ exports.getAccounts = async (req, res) => {
           b.buyer_name,
           b.info_entered_at,
           COALESCE(s.shipping_type, i.shipping_type) AS shipping_type,
-          EXISTS(
-            SELECT 1 FROM images im
-            WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-          ) AS has_review,
-          (
-            SELECT MIN(im.created_at) FROM images im
-            WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-          ) AS first_review_at
+          COALESCE(img.has_review, false) AS has_review,
+          img.first_review_at
         FROM buyers b
         LEFT JOIN item_slots s ON s.buyer_id = b.id AND s.deleted_at IS NULL
         LEFT JOIN items i ON i.id = b.item_id
+        LEFT JOIN LATERAL (
+          SELECT
+            COUNT(*) > 0 AS has_review,
+            MIN(im.created_at) AS first_review_at
+          FROM images im
+          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
+        ) img ON true
         WHERE ${whereSQL}
       )
       SELECT
@@ -290,11 +292,15 @@ exports.getAccountBuyers = async (req, res) => {
       }
       const orParts = [];
       if (itemFull.size > 0) {
-        orParts.push(`b.item_id IN (${Array.from(itemFull).join(',')})`);
+        const safeIds = Array.from(itemFull).map(id => parseInt(id, 10)).filter(Number.isFinite);
+        if (safeIds.length > 0) orParts.push(`b.item_id IN (${safeIds.join(',')})`);
       }
       for (const [itemId, dgSet] of itemDayGroups.entries()) {
         if (itemFull.has(itemId)) continue;
-        orParts.push(`(b.item_id = ${itemId} AND COALESCE(s.day_group, 1) IN (${Array.from(dgSet).join(',')}))`);
+        const safeItemId = parseInt(itemId, 10);
+        const safeDgs = Array.from(dgSet).map(d => parseInt(d, 10)).filter(Number.isFinite);
+        if (!Number.isFinite(safeItemId) || safeDgs.length === 0) continue;
+        orParts.push(`(b.item_id = ${safeItemId} AND COALESCE(s.day_group, 1) IN (${safeDgs.join(',')}))`);
       }
       if (orParts.length === 0) {
         return res.json({ success: true, data: [], count: 0, _scope: 'no_assignment' });
@@ -327,19 +333,12 @@ exports.getAccountBuyers = async (req, res) => {
         s.day_group,
         COALESCE(s.shipping_type, i.shipping_type) AS shipping_type,
         COALESCE(s.courier_service_yn, i.courier_service_yn) AS courier_service_yn,
-        EXISTS(
-          SELECT 1 FROM images im
-          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-        ) AS has_review,
-        (
-          SELECT MIN(im.created_at) FROM images im
-          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
-        ) AS first_review_at,
+        COALESCE(img.has_review, false) AS has_review,
+        img.first_review_at,
         CASE
           WHEN b.info_entered_at IS NULL THEN 'unknown'
-          WHEN EXISTS(SELECT 1 FROM images im WHERE im.buyer_id = b.id AND im.status='approved' AND im.deleted_at IS NULL) THEN
-            CASE WHEN (SELECT MIN(im.created_at) FROM images im WHERE im.buyer_id = b.id AND im.status='approved' AND im.deleted_at IS NULL)
-                 <= b.info_entered_at + (:overdueDays || ' days')::interval
+          WHEN COALESCE(img.has_review, false) THEN
+            CASE WHEN img.first_review_at <= b.info_entered_at + (:overdueDays || ' days')::interval
                  THEN 'in_time' ELSE 'overdue_late' END
           WHEN b.info_entered_at < NOW() - (:overdueDays || ' days')::interval THEN 'overdue_pending'
           ELSE 'in_progress'
@@ -349,6 +348,13 @@ exports.getAccountBuyers = async (req, res) => {
       LEFT JOIN items i ON i.id = b.item_id
       LEFT JOIN campaigns c ON c.id = i.campaign_id
       LEFT JOIN monthly_brands mb ON mb.id = c.monthly_brand_id
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) > 0 AS has_review,
+          MIN(im.created_at) AS first_review_at
+        FROM images im
+        WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
+      ) img ON true
       WHERE b.is_temporary = false
         AND b.deleted_at IS NULL
         AND b.account_normalized = :accountNormalized

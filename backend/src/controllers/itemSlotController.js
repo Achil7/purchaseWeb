@@ -2095,34 +2095,25 @@ exports.getOverdueSlots = async (req, res) => {
       }
     }
 
-    // 기준 시점: 오늘 - days (KST 기준 자정으로 정규화)
+    // 기준 시점: 오늘 - days
     const now = new Date();
     const cutoffDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-    // 1단계: 14일 이상 경과 + 리뷰샷 0개인 buyer_id 목록 조회
-    // 기준: info_entered_at (주문번호가 처음 입력된 시점)
-    // info_entered_at < cutoffDate 조건만으로 NULL은 자연 제외됨 (NULL 비교는 false)
-    const eligibleBuyers = await Buyer.findAll({
-      where: {
-        is_temporary: false,
-        info_entered_at: { [Op.lt]: cutoffDate }
-      },
-      attributes: ['id'],
-      include: [
-        {
-          model: Image,
-          as: 'images',
-          where: { status: 'approved' },
-          required: false,
-          attributes: ['id']
-        }
-      ]
+    // 35차: 1단계를 raw SQL로 변경 — NOT EXISTS로 리뷰 없는 buyer만 직접 추출 (메모리 절감)
+    const overdueBuyerRows = await sequelize.query(`
+      SELECT b.id FROM buyers b
+      WHERE b.is_temporary = false AND b.deleted_at IS NULL
+        AND b.info_entered_at IS NOT NULL
+        AND b.info_entered_at < :cutoffDate
+        AND NOT EXISTS (
+          SELECT 1 FROM images im
+          WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
+        )
+    `, {
+      replacements: { cutoffDate },
+      type: sequelize.QueryTypes.SELECT
     });
-
-    // 리뷰샷(approved 이미지)이 0개인 buyer만 필터링
-    const overdueBuyerIds = eligibleBuyers
-      .filter(b => !b.images || b.images.length === 0)
-      .map(b => b.id);
+    const overdueBuyerIds = overdueBuyerRows.map(r => r.id);
 
     if (overdueBuyerIds.length === 0) {
       return res.json({ success: true, data: [], count: 0 });
@@ -2318,35 +2309,16 @@ exports.getMonthlyCounts = async (req, res) => {
       }
     }
 
-    // 해당 월의 모든 일자 (yyyy-mm-dd, yy-mm-dd) prefix 매칭
+    // 35차: raw SQL 단일 쿼리로 DB 집계 (ORM + separate Image → 단일 SQL)
     const yyyy = String(yearInt);
     const mm = String(monthInt).padStart(2, '0');
     const yy = yyyy.slice(2);
+    const yyyyPattern = `${yyyy}-${mm}-%`;
+    const yyPattern = `${yy}-${mm}-%`;
 
-    // ItemSlot.date는 TEXT라 LIKE 패턴으로 검색
-    const datePatterns = [
-      { date: { [Op.like]: `${yyyy}-${mm}-%` } },
-      { date: { [Op.like]: `${yy}-${mm}-%` } }
-    ];
-
-    const buyerInclude = {
-      model: Buyer,
-      as: 'buyer',
-      required: false,
-      attributes: ['id', 'account_info'],
-      include: [
-        {
-          model: Image,
-          as: 'images',
-          where: { status: 'approved' },
-          required: false,
-          attributes: ['id'],
-          separate: true
-        }
-      ]
-    };
-
-    let slots = [];
+    // operator 배정 필터 SQL 구성
+    let operatorClause = '';
+    const replacements = { yyyyPattern, yyPattern };
 
     if (targetRole === 'operator') {
       const assignments = await CampaignOperator.findAll({
@@ -2358,80 +2330,63 @@ exports.getMonthlyCounts = async (req, res) => {
         return res.json({ success: true, data: [] });
       }
 
-      const itemDayGroupMap = {};
+      const itemFull = new Set();
+      const itemDayGroups = new Map();
       for (const a of assignments) {
-        if (a.item_id) {
-          if (!itemDayGroupMap[a.item_id]) itemDayGroupMap[a.item_id] = [];
-          if (a.day_group === null) {
-            itemDayGroupMap[a.item_id] = null;
-          } else if (itemDayGroupMap[a.item_id] !== null) {
-            itemDayGroupMap[a.item_id].push(a.day_group);
-          }
+        if (a.item_id == null) continue;
+        if (a.day_group === null || a.day_group === undefined) {
+          itemFull.add(a.item_id);
+        } else {
+          if (!itemDayGroups.has(a.item_id)) itemDayGroups.set(a.item_id, new Set());
+          itemDayGroups.get(a.item_id).add(a.day_group);
         }
       }
 
-      const assignedItemIds = Object.keys(itemDayGroupMap).map(id => parseInt(id, 10));
-      const slotConditions = [];
-      for (const itemId of assignedItemIds) {
-        const dayGroups = itemDayGroupMap[itemId];
-        if (dayGroups === null) {
-          slotConditions.push({ item_id: itemId });
-        } else if (dayGroups && dayGroups.length > 0) {
-          slotConditions.push({ item_id: itemId, day_group: { [Op.in]: dayGroups } });
-        }
+      const orParts = [];
+      if (itemFull.size > 0) {
+        const safeIds = Array.from(itemFull).map(id => parseInt(id, 10)).filter(Number.isFinite);
+        if (safeIds.length > 0) orParts.push(`s.item_id IN (${safeIds.join(',')})`);
+      }
+      for (const [itemId, dgSet] of itemDayGroups.entries()) {
+        if (itemFull.has(itemId)) continue;
+        const safeItemId = parseInt(itemId, 10);
+        const safeDgs = Array.from(dgSet).map(d => parseInt(d, 10)).filter(Number.isFinite);
+        if (!Number.isFinite(safeItemId) || safeDgs.length === 0) continue;
+        orParts.push(`(s.item_id = ${safeItemId} AND s.day_group IN (${safeDgs.join(',')}))`);
       }
 
-      if (slotConditions.length === 0) {
+      if (orParts.length === 0) {
         return res.json({ success: true, data: [] });
       }
-
-      slots = await ItemSlot.findAll({
-        where: {
-          [Op.and]: [
-            { [Op.or]: slotConditions },
-            { [Op.or]: datePatterns }
-          ]
-        },
-        attributes: ['id', 'date', 'buyer_id'],
-        include: [buyerInclude]
-      });
-    } else {
-      // Admin
-      slots = await ItemSlot.findAll({
-        where: { [Op.or]: datePatterns },
-        attributes: ['id', 'date', 'buyer_id'],
-        include: [buyerInclude]
-      });
+      operatorClause = `AND (${orParts.join(' OR ')})`;
     }
 
-    // 일자별 집계
-    const countsMap = {};
-    for (const slot of slots) {
-      let dateStr = slot.date;
-      if (!dateStr) continue;
-      // yy-mm-dd → yyyy-mm-dd 정규화
-      if (dateStr.length === 8) {
-        dateStr = '20' + dateStr;
-      }
+    const rows = await sequelize.query(`
+      SELECT
+        CASE WHEN LENGTH(s.date) = 8 THEN '20' || s.date ELSE s.date END AS date_str,
+        COUNT(*)::int AS total,
+        SUM(CASE WHEN TRIM(COALESCE(b.account_info, '')) <> '' THEN 1 ELSE 0 END)::int AS written,
+        SUM(CASE WHEN TRIM(COALESCE(b.account_info, '')) <> ''
+          AND EXISTS(SELECT 1 FROM images im WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL)
+        THEN 1 ELSE 0 END)::int AS reviewed
+      FROM item_slots s
+      LEFT JOIN buyers b ON s.buyer_id = b.id AND b.deleted_at IS NULL
+      WHERE s.deleted_at IS NULL
+        AND (s.date LIKE :yyyyPattern OR s.date LIKE :yyPattern)
+        ${operatorClause}
+      GROUP BY date_str
+      ORDER BY date_str
+    `, {
+      replacements,
+      type: sequelize.QueryTypes.SELECT
+    });
 
-      if (!countsMap[dateStr]) {
-        countsMap[dateStr] = { date: dateStr, total: 0, written: 0, reviewed: 0 };
-      }
-
-      countsMap[dateStr].total += 1;
-
-      const buyer = slot.buyer;
-      const hasAccount = buyer && buyer.account_info && String(buyer.account_info).trim() !== '';
-      if (hasAccount) {
-        countsMap[dateStr].written += 1;
-        const imageCount = buyer.images?.length || 0;
-        if (imageCount > 0) {
-          countsMap[dateStr].reviewed += 1;
-        }
-      }
-    }
-
-    const data = Object.values(countsMap).sort((a, b) => a.date.localeCompare(b.date));
+    const data = rows.map(r => ({
+      date: r.date_str,
+      total: r.total,
+      written: r.written,
+      reviewed: r.reviewed
+    }));
 
     res.json({
       success: true,

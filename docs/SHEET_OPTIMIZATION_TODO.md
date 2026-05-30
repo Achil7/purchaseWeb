@@ -2382,6 +2382,62 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ---
 
+### 35차 최적화 (2026-05-30) - 전사 성능 점검 (34차 이후 신규 기능 포함)
+
+**배경:**
+34차 이후 대규모 기능 추가 (구매자 분석, 리뷰샷 검색, 영업사 대시보드, 랭킹 시스템, 진행자 월별 캘린더/미제출건 등). 새 코드에서 N+1 패턴, 서브쿼리 중복, CTE 반복 실행 등 DB 비효율 다수 발견.
+
+**적용 내용:**
+
+#### A-1. imageController.js — getPendingImages N+1 제거
+- **변경 전:** 루프 내 buyer별 `Image.findAll({ status: 'approved' })` — N회 쿼리
+- **변경 후:** 루프 진입 전 unique buyer_id 일괄 조회 → Map 매핑 → 1회 쿼리
+
+#### A-2. itemSlotController.js — getOverdueSlots 1단계 raw SQL 전환
+- **변경 전:** `Buyer.findAll` + include Image (approved) → 전체 eligible 로드 → JS 필터 `images.length === 0`
+- **변경 후:** `NOT EXISTS` 서브쿼리로 리뷰 없는 buyer만 직접 추출 (메모리 절감)
+
+#### A-3. itemSlotController.js — getMonthlyCounts raw SQL 단일 집계
+- **변경 전:** ItemSlot.findAll + include Buyer + include Image (separate:true) → JS에서 일자별 집계
+- **변경 후:** raw SQL 단일 쿼리로 DB에서 GROUP BY 집계 (operator 배정 필터 포함)
+
+#### B-1. buyerAnalyticsController.js — getAccounts EXISTS+MIN 통합
+- **변경 전:** scoped_buyers CTE에서 buyer별 images 2회 스캔 (EXISTS + MIN)
+- **변경 후:** LEFT JOIN LATERAL 1회로 통합
+
+#### B-2. buyerAnalyticsController.js — getAccountBuyers EXISTS/MIN 4회 → LATERAL 1회
+- **변경 전:** review_status CASE에서 EXISTS 2회 + MIN 2회 = 4회 서브쿼리
+- **변경 후:** LEFT JOIN LATERAL 1회 + img.has_review/img.first_review_at 참조
+
+#### C-1. salesDashboardController.js — getProductList CTE 중복 제거
+- **변경 전:** productAggSql + campaignSubSql 각각 `WITH buyer_view AS (...)` → 같은 CTE 2회 실행
+- **변경 후:** campaignSubSql은 buyer_view 없이 직접 테이블 조인
+
+#### D-1. buyerAnalyticsController.js — SQL IN절 정수 검증 강화
+- parseInt + Number.isFinite 검증 추가 (getAccounts, getAccountBuyers 양쪽)
+
+**수정 파일:**
+- `backend/src/controllers/imageController.js`
+- `backend/src/controllers/itemSlotController.js`
+- `backend/src/controllers/buyerAnalyticsController.js`
+- `backend/src/controllers/salesDashboardController.js`
+
+**프론트엔드 수정 없음. 마이그레이션 없음.**
+
+**빌드:** ✅ 4개 파일 문법 검증 통과
+
+**기능 검증 항목:**
+- [ ] Admin → 재제출 이미지 목록 (getPendingImages) 정상 표시
+- [ ] Operator → 미제출건 탭 (getOverdueSlots) 정상 표시
+- [ ] Operator → 월별 캘린더 (getMonthlyCounts) 수치 일치
+- [ ] Admin/Operator → 구매자 분석 (getAccounts) 정상
+- [ ] Sales → 대시보드 제품 리스트 (getProductList) 정상 + 서브 캠페인 정보 일치
+- [ ] `[SLOW]` 로그 개선 확인
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
 
 **목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선
@@ -2549,4 +2605,4 @@ measureFPS();
 
 ---
 
-## 최종 업데이트: 2026-02-12
+## 최종 업데이트: 2026-05-30

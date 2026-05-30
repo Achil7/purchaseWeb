@@ -678,8 +678,23 @@ exports.getProductList = async (req, res) => {
       return res.json({ success: true, data: { rows: [], totalCount: 0, page, pageSize } });
     }
 
-    // 캠페인 서브 정보 (현재 페이지의 제품들에 한해)
+    // 35차: 캠페인 서브 정보 — buyer_view CTE 재실행 대신 직접 테이블 조인
     const productNames = aggRows.map(r => r.product_name);
+    const monthCondDirect = month
+      ? `AND SUBSTRING(
+           COALESCE(NULLIF(TRIM(b.date), ''), NULLIF(TRIM(s.date), ''), NULLIF(TRIM(i.date), '')),
+           '\\d{2}-\\d{2}'
+         ) = :month`
+      : '';
+    const brandJoinDirect = allBrands
+      ? `INNER JOIN monthly_brands mb ON c.monthly_brand_id = mb.id
+                                         AND mb.is_hidden = false
+                                         AND mb.deleted_at IS NULL`
+      : `INNER JOIN monthly_brands mb ON c.monthly_brand_id = mb.id
+                                         AND mb.brand_id = :brandId
+                                         AND mb.is_hidden = false
+                                         AND mb.deleted_at IS NULL`;
+    const platformCondDirect = isAll ? '' : `AND COALESCE(NULLIF(TRIM(s.platform), ''), NULLIF(TRIM(i.platform), ''), '미지정') = :platform`;
     const campaignSubReplacements = {
       salesId,
       ...(allBrands ? {} : { brandId }),
@@ -688,18 +703,42 @@ exports.getProductList = async (req, res) => {
       productNames
     };
     const campaignSubSql = `
-      WITH buyer_view AS (${VIEW})
       SELECT
-        product_name,
-        campaign_id,
-        campaign_name,
-        COUNT(*)              AS buyer_count,
-        SUM(CASE WHEN image_count > 0 THEN 1 ELSE 0 END) AS review_completed_count,
-        SUM(amount_num)       AS total_amount
-      FROM buyer_view
-      WHERE product_name IN (:productNames)
-        ${platformCond}
-      GROUP BY product_name, campaign_id, campaign_name
+        COALESCE(NULLIF(TRIM(s.product_name), ''), NULLIF(TRIM(i.product_name), '')) AS product_name,
+        c.id AS campaign_id,
+        c.name AS campaign_name,
+        COUNT(*) AS buyer_count,
+        SUM(CASE WHEN EXISTS(SELECT 1 FROM images im WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL) THEN 1 ELSE 0 END) AS review_completed_count,
+        SUM(
+          CASE WHEN REPLACE(COALESCE(b.amount, '0'), ',', '') ~ '^[0-9]+(\\.[0-9]+)?$'
+          THEN REPLACE(b.amount, ',', '')::NUMERIC ELSE 0 END
+        ) AS total_amount
+      FROM buyers b
+      INNER JOIN items i ON b.item_id = i.id AND i.deleted_at IS NULL
+      INNER JOIN campaigns c ON i.campaign_id = c.id
+                                 AND c.is_hidden = false
+                                 AND c.deleted_at IS NULL
+                                 AND c.created_by = :salesId
+      ${brandJoinDirect}
+      LEFT JOIN item_slots s ON s.buyer_id = b.id
+                                 AND s.deleted_at IS NULL
+                                 AND s.is_suspended = false
+      WHERE b.is_temporary = false
+        AND b.deleted_at IS NULL
+        AND (
+          NULLIF(TRIM(b.order_number), '') IS NOT NULL
+          OR NULLIF(TRIM(b.buyer_name), '') IS NOT NULL
+          OR NULLIF(TRIM(b.recipient_name), '') IS NOT NULL
+          OR NULLIF(TRIM(b.user_id), '') IS NOT NULL
+          OR NULLIF(TRIM(b.contact), '') IS NOT NULL
+          OR NULLIF(TRIM(b.address), '') IS NOT NULL
+          OR NULLIF(TRIM(b.account_info), '') IS NOT NULL
+          OR NULLIF(TRIM(b.amount), '') IS NOT NULL
+        )
+        ${monthCondDirect}
+        ${platformCondDirect}
+        AND COALESCE(NULLIF(TRIM(s.product_name), ''), NULLIF(TRIM(i.product_name), '')) IN (:productNames)
+      GROUP BY product_name, c.id, c.name
       ORDER BY product_name ASC, total_amount DESC NULLS LAST
     `;
     const campaignSubRows = await sequelize.query(campaignSubSql, {
