@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box, Paper, Typography, Button, TextField, MenuItem, Tabs, Tab,
   Table, TableHead, TableBody, TableRow, TableCell, TableContainer,
@@ -8,8 +9,10 @@ import {
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import CloseIcon from '@mui/icons-material/Close';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import { useAuth } from '../../context/AuthContext';
 import { buyerAnalyticsService } from '../../services';
 import { downloadExcel } from '../../utils/excelExport';
 
@@ -37,7 +40,11 @@ function fmtDate(d) {
   }
 }
 
-function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
+function BuyerAnalyticsDashboard({ viewAsUserId = null, onNavigateToCampaign = null }) {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   // 필터 상태
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -47,6 +54,7 @@ function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
   const [topN, setTopN] = useState(10);
   const [courierFilter, setCourierFilter] = useState('all'); // 'all' | 'Y' | 'N'
   const [accountKeyword, setAccountKeyword] = useState(''); // 계좌(원본) 부분 일치 검색
+  const [orderNumber, setOrderNumber] = useState(''); // 주문번호 부분 일치 검색
 
   // 데이터
   const [accounts, setAccounts] = useState([]);
@@ -77,6 +85,7 @@ function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
       if (endDate) params.endDate = endDate;
       if (courierFilter !== 'all') params.courierFilter = courierFilter;
       if (accountKeyword.trim()) params.accountKeyword = accountKeyword.trim();
+      if (orderNumber.trim()) params.orderNumber = orderNumber.trim();
       if (viewAsUserId) params.viewAsUserId = viewAsUserId;
       const res = await buyerAnalyticsService.getAccounts(params);
       setAccounts(res.data || []);
@@ -87,7 +96,7 @@ function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, overdueDays, minParticipation, courierFilter, accountKeyword, viewAsUserId]);
+  }, [startDate, endDate, overdueDays, minParticipation, courierFilter, accountKeyword, orderNumber, viewAsUserId]);
 
   const openDetail = useCallback(async (account) => {
     setDetailAccount(account);
@@ -108,6 +117,19 @@ function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
       setDetailLoading(false);
     }
   }, [overdueDays, courierFilter, viewAsUserId]);
+
+  const handleGoToOperatorSheet = useCallback((row) => {
+    const ops = row.operators;
+    if (!ops || ops.length === 0) return;
+    const operatorId = ops[0].operator_id;
+    const campaignId = row.campaign_id;
+    if (isAdmin) {
+      navigate(`/admin/view-operator?userId=${operatorId}&campaignId=${campaignId}`);
+    } else if (onNavigateToCampaign) {
+      setDetailOpen(false);
+      onNavigateToCampaign(campaignId);
+    }
+  }, [isAdmin, navigate, onNavigateToCampaign]);
 
   // 탭별 정렬/필터링
   const enrichedAccounts = useMemo(() => {
@@ -217,7 +239,7 @@ function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
     if (!detailAccount) return;
     const header = [
       '연월브랜드', '캠페인', '품목', '일차', '주문번호', '구매자명', '수취인명',
-      '출고유형', '주문입력일', '첫 리뷰', '상태'
+      '출고유형', '주문입력일', '첫 리뷰', '상태', '담당 진행자'
     ];
     const body = filteredDetailRows.map(r => {
       const status = REVIEW_STATUS_LABEL[r.review_status] || REVIEW_STATUS_LABEL.unknown;
@@ -232,7 +254,8 @@ function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
         r.shipping_type || '',
         r.info_entered_at ? new Date(r.info_entered_at).toLocaleString('ko-KR', { hour12: false }) : '',
         r.first_review_at ? new Date(r.first_review_at).toLocaleString('ko-KR', { hour12: false }) : '',
-        status.label
+        status.label,
+        (r.operators || []).map(o => o.operator_name).join(', ') || '-'
       ];
     });
     const accountSafe = (detailAccount.account_info || detailAccount.account_normalized || '계좌').replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
@@ -395,6 +418,15 @@ function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
             size="small"
             sx={{ width: 220 }}
           />
+          <TextField
+            label="주문번호 검색"
+            placeholder="주문번호 일부 입력"
+            value={orderNumber}
+            onChange={(e) => setOrderNumber(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+            size="small"
+            sx={{ width: 200 }}
+          />
           <Button
             variant="contained"
             startIcon={<SearchIcon />}
@@ -544,15 +576,18 @@ function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
                     <TableCell>주문입력일</TableCell>
                     <TableCell>첫 리뷰</TableCell>
                     <TableCell align="center">상태</TableCell>
+                    <TableCell>진행자</TableCell>
+                    <TableCell align="center">이동</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {filteredDetailRows.length === 0 ? (
-                    <TableRow><TableCell colSpan={11} align="center" sx={{ color: 'text.secondary' }}>데이터 없음</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={13} align="center" sx={{ color: 'text.secondary' }}>데이터 없음</TableCell></TableRow>
                   ) : filteredDetailRows
                       .slice(detailPage * detailRowsPerPage, detailPage * detailRowsPerPage + detailRowsPerPage)
                       .map(r => {
                     const status = REVIEW_STATUS_LABEL[r.review_status] || REVIEW_STATUS_LABEL.unknown;
+                    const ops = r.operators || [];
                     return (
                       <TableRow key={r.id}>
                         <TableCell>{r.monthly_brand_name || '-'}</TableCell>
@@ -567,6 +602,20 @@ function BuyerAnalyticsDashboard({ viewAsUserId = null }) {
                         <TableCell>{fmtDate(r.first_review_at)}</TableCell>
                         <TableCell align="center">
                           <Chip size="small" label={status.label} color={status.color} variant={status.color === 'default' ? 'outlined' : 'filled'} />
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.8rem' }}>
+                          {ops.length > 0 ? ops.map(o => o.operator_name).join(', ') : '-'}
+                        </TableCell>
+                        <TableCell align="center">
+                          {ops.length > 0 ? (
+                            <Tooltip title={`${ops[0].operator_name} 시트로 이동`}>
+                              <IconButton size="small" onClick={() => handleGoToOperatorSheet(r)}>
+                                <OpenInNewIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">-</Typography>
+                          )}
                         </TableCell>
                       </TableRow>
                     );

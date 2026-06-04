@@ -30,7 +30,7 @@ import { itemService } from '../../services';
 // 통합 시트 사용 여부 (true: UnifiedItemSheet 사용, false: 기존 OperatorItemSheet 사용)
 const USE_UNIFIED_SHEET = false;
 
-function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = false }) {
+function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = false, initialCampaignId = null }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout, user } = useAuth();
@@ -44,6 +44,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
   // 선택된 캠페인 (오른쪽에 시트 표시) - localStorage에서 ID 복원
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const pendingCampaignIdRef = React.useRef((() => {
+    if (initialCampaignId) return initialCampaignId;
     try {
       const saved = localStorage.getItem('operator_selected_campaign_id');
       return saved ? parseInt(saved, 10) : null;
@@ -289,6 +290,30 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
       navigate(localBasePath);
     }
   }, [newlyAddedCampaignIds, isEmbedded, location.pathname, isAdminMode, viewAsUserId, navigate]);
+
+  useEffect(() => {
+    if (initialCampaignId && monthlyBrands.length > 0) {
+      for (const mb of monthlyBrands) {
+        const campaign = mb.campaigns?.find(c => c.id === initialCampaignId);
+        if (campaign) {
+          setSheetTab(0);
+          setSelectedCampaign(campaign);
+          break;
+        }
+      }
+    }
+  }, [initialCampaignId, monthlyBrands]);
+
+  const handleNavigateToCampaign = useCallback((campaignId) => {
+    for (const mb of monthlyBrands) {
+      const campaign = mb.campaigns?.find(c => c.id === campaignId);
+      if (campaign) {
+        setSheetTab(0);
+        handleCampaignClick(campaign);
+        return;
+      }
+    }
+  }, [monthlyBrands, handleCampaignClick]);
 
   const handleLogout = useCallback(async () => {
     if (isAdminMode) {
@@ -611,7 +636,7 @@ function OperatorLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded =
             {/* 탭 5: 구매자 분석 (본인 배정 한정) */}
             {sheetTab === 5 && (
               <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-                <OperatorBuyerAnalytics viewAsUserId={viewAsUserId} />
+                <OperatorBuyerAnalytics viewAsUserId={viewAsUserId} onNavigateToCampaign={handleNavigateToCampaign} />
               </Box>
             )}
           </Box>

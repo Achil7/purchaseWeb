@@ -46,7 +46,14 @@ function AdminViewSales() {
 function AdminViewOperator() {
   const [searchParams] = useSearchParams();
   const viewAsUserId = searchParams.get('userId');
-  return <OperatorLayout isAdminMode={true} viewAsUserId={viewAsUserId ? parseInt(viewAsUserId, 10) : null} />;
+  const initialCampaignId = searchParams.get('campaignId');
+  return (
+    <OperatorLayout
+      isAdminMode={true}
+      viewAsUserId={viewAsUserId ? parseInt(viewAsUserId, 10) : null}
+      initialCampaignId={initialCampaignId ? parseInt(initialCampaignId, 10) : null}
+    />
+  );
 }
 
 function AdminViewBrand() {

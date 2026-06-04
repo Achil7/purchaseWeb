@@ -64,6 +64,8 @@ exports.getAccounts = async (req, res) => {
     const courierFilter = req.query.courierFilter || 'all';
     // 계좌(account_info) 부분 일치 검색어
     const accountKeyword = (req.query.accountKeyword || '').trim();
+    // 주문번호 부분 일치 검색어
+    const orderNumber = (req.query.orderNumber || '').trim();
 
     // effectiveOperatorId가 있으면 본인/대상 진행자 배정 (item_id, day_group) 집합 미리 계산
     let operatorScope = null; // null=전체, { itemFull: Set, itemDayGroups: Map(item_id -> Set(day_group)) }
@@ -121,6 +123,12 @@ exports.getAccounts = async (req, res) => {
     if (accountKeyword) {
       conditions.push("b.account_info ILIKE :accountKeyword");
       replacements.accountKeyword = `%${accountKeyword}%`;
+    }
+
+    // 주문번호 부분 일치 검색
+    if (orderNumber) {
+      conditions.push("b.order_number ILIKE :orderNumber");
+      replacements.orderNumber = `%${orderNumber}%`;
     }
 
     // 택배대행 필터: Item / ItemSlot.courier_service_yn (TEXT, 파이프 가능)
@@ -342,7 +350,8 @@ exports.getAccountBuyers = async (req, res) => {
                  THEN 'in_time' ELSE 'overdue_late' END
           WHEN b.info_entered_at < NOW() - (:overdueDays || ' days')::interval THEN 'overdue_pending'
           ELSE 'in_progress'
-        END AS review_status
+        END AS review_status,
+        COALESCE(ops.operators, '[]'::json) AS operators
       FROM buyers b
       LEFT JOIN item_slots s ON s.buyer_id = b.id AND s.deleted_at IS NULL
       LEFT JOIN items i ON i.id = b.item_id
@@ -355,6 +364,17 @@ exports.getAccountBuyers = async (req, res) => {
         FROM images im
         WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
       ) img ON true
+      LEFT JOIN LATERAL (
+        SELECT json_agg(json_build_object(
+          'operator_id', co.operator_id,
+          'operator_name', u.name
+        )) AS operators
+        FROM campaign_operators co
+        JOIN users u ON u.id = co.operator_id
+        WHERE co.campaign_id = c.id
+          AND co.item_id = i.id
+          AND (co.day_group IS NULL OR co.day_group = COALESCE(s.day_group, 1))
+      ) ops ON true
       WHERE b.is_temporary = false
         AND b.deleted_at IS NULL
         AND b.account_normalized = :accountNormalized
