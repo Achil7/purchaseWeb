@@ -163,6 +163,21 @@ exports.updateSlotsBulk = async (req, res) => {
       buyerMap = new Map(existingBuyers.map(b => [b.id, b]));
     }
 
+    // slot_number 변경이 포함된 슬롯들을 2-pass로 처리 (unique 제약 우회)
+    const slotNumberUpdates = slots.filter(s => s.id && s.slot_number !== undefined && slotMap.has(s.id));
+    if (slotNumberUpdates.length > 0) {
+      // 1-pass: 임시 음수값으로 변경 (충돌 방지)
+      for (const s of slotNumberUpdates) {
+        const slot = slotMap.get(s.id);
+        if (slot) await slot.update({ slot_number: -s.id });
+      }
+      // 2-pass: 최종 값으로 변경
+      for (const s of slotNumberUpdates) {
+        const slot = slotMap.get(s.id);
+        if (slot) await slot.update({ slot_number: s.slot_number });
+      }
+    }
+
     const results = [];
     for (const slotData of slots) {
       if (!slotData.id) continue;
@@ -170,9 +185,10 @@ exports.updateSlotsBulk = async (req, res) => {
       const slot = slotMap.get(slotData.id);
       if (!slot) continue;
 
-      // 슬롯 데이터 필터링
+      // 슬롯 데이터 필터링 (slot_number는 이미 위에서 처리됨)
       const slotUpdateData = {};
       for (const field of slotFields) {
+        if (field === 'slot_number') continue;
         if (slotData[field] !== undefined) {
           slotUpdateData[field] = slotData[field];
         }
