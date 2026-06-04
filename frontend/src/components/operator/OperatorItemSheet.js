@@ -8,6 +8,7 @@ import InfoIcon from '@mui/icons-material/Info';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import SortIcon from '@mui/icons-material/Sort';
 import ImageSwipeViewer from '../common/ImageSwipeViewer';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -17,6 +18,7 @@ import itemSlotService from '../../services/itemSlotService';
 import itemService from '../../services/itemService';
 import imageService from '../../services/imageService';
 import { downloadExcel, convertSlotsToExcelData } from '../../utils/excelExport';
+import { sortEmptyCells } from '../../utils/emptyCellSort';
 
 // Handsontable 모든 모듈 등록
 registerAllModules();
@@ -488,6 +490,9 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   // hiddenRows 통합 트리거 (필터/리뷰샷 필터 변경 시 useEffect 실행용)
   const [hiddenRowsTrigger, setHiddenRowsTrigger] = useState(0);
 
+  // 빈 셀 정렬 토글 상태
+  const [isEmptyCellSorted, setIsEmptyCellSorted] = useState(false);
+
   // 접힌 품목 ID Set (localStorage에서 초기화)
   const [collapsedItems, setCollapsedItems] = useState(() => {
     try {
@@ -900,6 +905,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     if (campaignId) {
       // 캠페인 변경 시 이전 slots 데이터를 즉시 초기화하여 잘못된 데이터로 useEffect 실행 방지
       setSlots([]);
+      setIsEmptyCellSorted(false);
       loadSlots(campaignId, viewAsUserId);
       // loadMemos(); // 메모 기능 비활성화
     }
@@ -1207,10 +1213,26 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
   }, [slots]); // changedItemsRef, changedSlotsRef는 ref이므로 의존성에서 제거
 
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
-  // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
-  const tableData = baseTableData;
-  const slotIndexMap = baseSlotIndexMap;
-  const rowMetaMap = baseRowMetaMap;
+  // 빈 셀 정렬 활성 시 그룹 내 BUYER_DATA 행을 주문번호 유무 기준으로 재정렬
+  const { tableData, slotIndexMap, rowMetaMap } = useMemo(() => {
+    if (!isEmptyCellSorted) {
+      return { tableData: baseTableData, slotIndexMap: baseSlotIndexMap, rowMetaMap: baseRowMetaMap };
+    }
+    const { sortedData, slotNumberChanges, newIndexMap, newMetaMap } = sortEmptyCells(
+      baseTableData, 'col7', { seqCol: 'col2', indexMap: baseSlotIndexMap, metaMap: baseRowMetaMap }
+    );
+    // slot_number 변경을 changedSlotsRef에 기록 (저장 시 DB 반영)
+    for (const { slotId, slot_number } of slotNumberChanges) {
+      if (!changedSlotsRef.current[slotId]) {
+        changedSlotsRef.current[slotId] = { id: slotId };
+      }
+      changedSlotsRef.current[slotId].slot_number = slot_number;
+    }
+    if (slotNumberChanges.length > 0) {
+      hasUnsavedChangesRef.current = true;
+    }
+    return { tableData: sortedData, slotIndexMap: newIndexMap, rowMetaMap: newMetaMap };
+  }, [baseTableData, baseSlotIndexMap, baseRowMetaMap, isEmptyCellSorted]);
 
   // hiddenRows 플러그인용 숨길 행 인덱스 계산
   const hiddenRowIndices = useMemo(() => {
@@ -1219,7 +1241,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     const hidden = [];
     let currentCollapsedKey = null;
 
-    baseTableData.forEach((row, index) => {
+    tableData.forEach((row, index) => {
       const collapseKey = `${row._itemId}_${row._dayGroup}`;
 
       // 제품 데이터 행에서 접힘 상태 확인
@@ -1238,7 +1260,7 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     });
 
     return hidden;
-  }, [baseTableData, collapsedItems]);
+  }, [tableData, collapsedItems]);
 
   // hiddenRowIndices를 ref로 유지 (afterLoadData에서 사용)
   const hiddenRowIndicesRef = useRef(hiddenRowIndices);
@@ -1485,6 +1507,11 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
     if (saveCollapsedTimeoutRef.current) clearTimeout(saveCollapsedTimeoutRef.current);
     saveCollapsedItems(allKeys);
   }, [slots, saveCollapsedItems]);
+
+  // 빈 셀 정렬 토글
+  const handleEmptyCellSort = useCallback(() => {
+    setIsEmptyCellSorted(prev => !prev);
+  }, []);
 
   // 기본 컬럼 너비 - 20개 컬럼
   // col0: 접기(20), col1: 날짜(60), col2: 플랫폼/순번(70), col3: 제품명(120), col4: 옵션(80), col5: 비고(80), col6: 예상구매자(80),
@@ -2892,6 +2919,19 @@ const OperatorItemSheetInner = forwardRef(function OperatorItemSheetInner({
             <Tooltip title="모두 접기" arrow>
               <IconButton size="small" onClick={collapseAll} sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' } }}>
                 <UnfoldLessIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="빈 셀 정렬" arrow>
+              <IconButton
+                size="small"
+                onClick={handleEmptyCellSort}
+                sx={{
+                  color: 'white',
+                  bgcolor: isEmptyCellSorted ? 'rgba(255,255,255,0.3)' : 'transparent',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' }
+                }}
+              >
+                <SortIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           </Box>

@@ -5,6 +5,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import CloseIcon from '@mui/icons-material/Close';
 import DownloadIcon from '@mui/icons-material/Download';
 import InfoIcon from '@mui/icons-material/Info';
+import SortIcon from '@mui/icons-material/Sort';
 import ImageSwipeViewer from '../common/ImageSwipeViewer';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -13,6 +14,7 @@ import { debounce } from 'lodash';
 import itemSlotService from '../../services/itemSlotService';
 import itemService from '../../services/itemService';
 import { downloadExcel, convertSlotsToExcelData } from '../../utils/excelExport';
+import { sortEmptyCells } from '../../utils/emptyCellSort';
 
 // Handsontable 모든 모듈 등록
 registerAllModules();
@@ -487,6 +489,9 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   // 필터 조건 저장 (데이터 리로드 시 복원용)
   const filterConditionsRef = useRef(null);
 
+  // 빈 셀 정렬 토글 상태
+  const [isEmptyCellSorted, setIsEmptyCellSorted] = useState(false);
+
   // 접힌 품목 ID Set (localStorage에서 초기화)
   const [collapsedItems, setCollapsedItems] = useState(() => {
     try {
@@ -778,6 +783,7 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     if (campaignId) {
       // 캠페인 변경 시 이전 slots 데이터를 즉시 초기화
       setSlots([]);
+      setIsEmptyCellSorted(false);
       loadSlots(campaignId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1163,18 +1169,31 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
   }, [slots, items]); // changedItemsRef, changedSlotsRef는 ref이므로 의존성에서 제거
 
   // 성능 최적화: 배열 필터링 대신 hiddenRows 플러그인 사용
-  // baseTableData를 그대로 사용하고, 접기 상태에 따라 숨길 행만 계산
-  const tableData = baseTableData;
+  // 빈 셀 정렬 활성 시 그룹 내 BUYER_DATA 행을 주문번호 유무 기준으로 재정렬
+  const tableData = useMemo(() => {
+    if (!isEmptyCellSorted) return baseTableData;
+    const { sortedData, slotNumberChanges } = sortEmptyCells(baseTableData, 'col7', { seqCol: 'col2' });
+    // slot_number 변경을 changedSlotsRef에 기록 (저장 시 DB 반영)
+    for (const { slotId, slot_number } of slotNumberChanges) {
+      if (!changedSlotsRef.current[slotId]) {
+        changedSlotsRef.current[slotId] = { id: slotId };
+      }
+      changedSlotsRef.current[slotId].slot_number = slot_number;
+    }
+    if (slotNumberChanges.length > 0) {
+      hasUnsavedChangesRef.current = true;
+    }
+    return sortedData;
+  }, [baseTableData, isEmptyCellSorted]);
 
   // hiddenRows 플러그인용 숨길 행 인덱스 계산
   const hiddenRowIndices = useMemo(() => {
-    console.log('[DEBUG] hiddenRowIndices calc - collapsedItems.size:', collapsedItems.size, 'items:', [...collapsedItems]);
     if (collapsedItems.size === 0) return [];
 
     const hidden = [];
     let currentCollapsedKey = null;
 
-    baseTableData.forEach((row, index) => {
+    tableData.forEach((row, index) => {
       const itemId = row._itemId;
       const dayGroup = row._dayGroup;
       const collapseKey = `${itemId}_${dayGroup}`;
@@ -1194,9 +1213,8 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
       }
     });
 
-    console.log('[DEBUG] hiddenRowIndices result:', hidden.length, 'rows hidden');
     return hidden;
-  }, [baseTableData, collapsedItems]);
+  }, [tableData, collapsedItems]);
 
   // hiddenRowIndices를 ref로 유지 (afterLoadData에서 사용)
   const hiddenRowIndicesRef = useRef(hiddenRowIndices);
@@ -1389,6 +1407,11 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
     if (saveCollapsedTimeoutRef.current) clearTimeout(saveCollapsedTimeoutRef.current);
     saveCollapsedItems(allKeys);
   }, [slots, saveCollapsedItems]);
+
+  // 빈 셀 정렬 토글
+  const handleEmptyCellSort = useCallback(() => {
+    setIsEmptyCellSorted(prev => !prev);
+  }, []);
 
   // 11차 최적화: debouncedRestoreHiddenRows 완전 제거
   // - 일반 셀 편집 시에는 hiddenRows 복원이 불필요함
@@ -2606,6 +2629,23 @@ const SalesItemSheetInner = forwardRef(function SalesItemSheetInner({
               }}
             >
               모두 접기
+            </Button>
+            <Button
+              size="small"
+              onClick={handleEmptyCellSort}
+              startIcon={<SortIcon sx={{ fontSize: '0.85rem !important' }} />}
+              sx={{
+                color: 'white',
+                bgcolor: isEmptyCellSorted ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
+                fontSize: '0.7rem',
+                minWidth: 'auto',
+                px: 1,
+                py: 0.3,
+                fontWeight: isEmptyCellSorted ? 'bold' : 'normal',
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }
+              }}
+            >
+              빈 셀 정렬
             </Button>
           </Box>
           <Box sx={{ fontSize: '0.75rem', opacity: 0.8 }}>

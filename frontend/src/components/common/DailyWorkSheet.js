@@ -9,6 +9,7 @@ import InfoIcon from '@mui/icons-material/Info';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import SortIcon from '@mui/icons-material/Sort';
 import ImageSwipeViewer from './ImageSwipeViewer';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -21,6 +22,7 @@ import 'handsontable/dist/handsontable.full.min.css';
 import itemSlotService from '../../services/itemSlotService';
 import imageService from '../../services/imageService';
 import { downloadExcel, convertSlotsToExcelData } from '../../utils/excelExport';
+import { sortEmptyCells } from '../../utils/emptyCellSort';
 import { formatYearMonthLabel } from '../../utils/dateFormat';
 
 // Handsontable 모든 모듈 등록
@@ -372,6 +374,9 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
     dayGroup: null
   });
 
+  // 빈 셀 정렬 토글 상태
+  const [isEmptyCellSorted, setIsEmptyCellSorted] = useState(false);
+
   // 접힌 품목 ID Set - localStorage에서 복원
   const [collapsedItems, setCollapsedItems] = useState(() => {
     try {
@@ -512,6 +517,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
     if (!forceRefresh && slotsCache.has(cacheKey)) {
       const cached = slotsCache.get(cacheKey);
       setSlots(cached.slots);
+      setIsEmptyCellSorted(false);
       changedSlotsRef.current = {};
       changedItemsRef.current = {};
       hasUnsavedChangesRef.current = false;
@@ -527,6 +533,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
       if (response.success) {
         const newSlots = response.data || [];
         setSlots(newSlots);
+        setIsEmptyCellSorted(false);
         changedSlotsRef.current = {};
         changedItemsRef.current = {};
         hasUnsavedChangesRef.current = false;
@@ -972,9 +979,24 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
     return { baseTableData: data, baseRowMeta: meta };
   }, [groupedSlots]); // 성능 최적화: collapsedItems 의존성 제거 (hiddenRows 플러그인으로 처리)
 
-  // 성능 최적화: baseTableData를 tableData로 alias (OperatorItemSheet와 동일 패턴)
-  const tableData = baseTableData;
-  const rowMeta = baseRowMeta;
+  // 성능 최적화: 빈 셀 정렬 활성 시 그룹 내 BUYER_DATA 행을 주문번호 유무 기준으로 재정렬
+  const { tableData, rowMeta } = useMemo(() => {
+    if (!isEmptyCellSorted) return { tableData: baseTableData, rowMeta: baseRowMeta };
+    const { sortedData, slotNumberChanges, sortedMetaArray } = sortEmptyCells(
+      baseTableData, 'col8', { seqCol: 'col3', metaArray: baseRowMeta }
+    );
+    // slot_number 변경을 changedSlotsRef에 기록 (저장 시 DB 반영)
+    for (const { slotId, slot_number } of slotNumberChanges) {
+      if (!changedSlotsRef.current[slotId]) {
+        changedSlotsRef.current[slotId] = { id: slotId };
+      }
+      changedSlotsRef.current[slotId].slot_number = slot_number;
+    }
+    if (slotNumberChanges.length > 0) {
+      hasUnsavedChangesRef.current = true;
+    }
+    return { tableData: sortedData, rowMeta: sortedMetaArray };
+  }, [baseTableData, baseRowMeta, isEmptyCellSorted]);
 
   // 성능 최적화: tableData/rowMeta를 ref로도 유지 (handleAfterChange 의존성에서 제거하기 위함)
   const tableDataRef = useRef(tableData);
@@ -1049,7 +1071,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
     const hidden = [];
     let currentCollapsedKey = null;
 
-    baseTableData.forEach((row, index) => {
+    tableData.forEach((row, index) => {
       const collapseKey = row._groupKey;
 
       // 제품 데이터 행에서 접힘 상태 확인
@@ -1068,7 +1090,7 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
     });
 
     return hidden;
-  }, [baseTableData, collapsedItems]);
+  }, [tableData, collapsedItems]);
 
   // 월 필터로 숨길 행 인덱스 계산 (overdue 모드 전용)
   // 그룹의 월 판정 우선순위: PRODUCT_DATA의 productInfo.date → 그룹 내 BUYER_DATA 행의 날짜
@@ -1128,12 +1150,12 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
   // collapse + 리뷰샷 + 월 필터 합집합
   const hiddenRowIndices = useMemo(() => {
     const collapseSet = new Set(collapseHiddenIndices);
-    const reviewHidden = computeReviewHiddenRows(reviewFilter, baseTableData);
+    const reviewHidden = computeReviewHiddenRows(reviewFilter, tableData);
     for (const idx of reviewHidden) collapseSet.add(idx);
-    const monthHidden = computeMonthHiddenRows(monthFilter, baseTableData);
+    const monthHidden = computeMonthHiddenRows(monthFilter, tableData);
     for (const idx of monthHidden) collapseSet.add(idx);
     return [...collapseSet];
-  }, [collapseHiddenIndices, baseTableData, computeReviewHiddenRows, reviewFilter, computeMonthHiddenRows, monthFilter]);
+  }, [collapseHiddenIndices, tableData, computeReviewHiddenRows, reviewFilter, computeMonthHiddenRows, monthFilter]);
 
   // hiddenRowIndices를 ref로 유지 (afterLoadData/handleReviewFilterChange에서 사용)
   const hiddenRowIndicesRef = useRef(hiddenRowIndices);
@@ -1203,6 +1225,11 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
   const collapseAll = useCallback(() => {
     setCollapsedItems(new Set(allGroupKeys));
   }, [allGroupKeys]);
+
+  // 빈 셀 정렬 토글
+  const handleEmptyCellSort = useCallback(() => {
+    setIsEmptyCellSorted(prev => !prev);
+  }, []);
 
   // 업로드 링크 복사 핸들러
   const handleCopyUploadLink = useCallback((token) => {
@@ -2326,6 +2353,19 @@ function DailyWorkSheetInner({ userRole = 'operator', viewAsUserId = null, mode 
             <Tooltip title="모두 접기" arrow>
               <IconButton size="small" onClick={collapseAll} sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' } }}>
                 <UnfoldLessIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="빈 셀 정렬" arrow>
+              <IconButton
+                size="small"
+                onClick={handleEmptyCellSort}
+                sx={{
+                  color: 'white',
+                  bgcolor: isEmptyCellSorted ? 'rgba(255,255,255,0.3)' : 'transparent',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.15)' }
+                }}
+              >
+                <SortIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           </Box>

@@ -142,7 +142,7 @@ exports.updateSlotsBulk = async (req, res) => {
     }
 
     // 슬롯 필드 (ItemSlot 모델 기준) - day_group별 독립 제품 정보 필드 포함
-    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'unit_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes'];
+    const slotFields = ['date', 'product_name', 'purchase_option', 'keyword', 'product_price', 'unit_price', 'notes', 'status', 'buyer_id', 'expected_buyer', 'review_cost', 'day_group', 'platform', 'shipping_type', 'total_purchase_count', 'daily_purchase_count', 'courier_service_yn', 'courier_name', 'product_url', 'buyer_notes', 'slot_number'];
     // 구매자 필드 (Buyer 모델 기준)
     const buyerFields = ['order_number', 'buyer_name', 'recipient_name', 'user_id', 'contact', 'address', 'account_info', 'amount', 'unit_price', 'shipping_delayed', 'tracking_number', 'courier_company', 'payment_status', 'deposit_name', 'date'];
 
