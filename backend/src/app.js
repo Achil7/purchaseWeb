@@ -69,13 +69,12 @@ app.use('/api/monthly-brands', require('./routes/monthlyBrands'));
 app.use('/api/item-slots', require('./routes/itemSlots'));
 app.use('/api/sheet-memos', require('./routes/sheetMemos'));
 app.use('/api/trash', require('./routes/trash'));
-app.use('/api/estimates', require('./routes/estimates'));
-app.use('/api/settlements', require('./routes/settlements'));
 app.use('/api/brand-settlements', require('./routes/brandSettlements'));
 app.use('/api/brand-dashboard', require('./routes/brandDashboard'));
 app.use('/api/sales-dashboard', require('./routes/salesDashboard'));
 app.use('/api/rankings', require('./routes/rankings'));
 app.use('/api/buyer-analytics', require('./routes/buyerAnalytics'));
+app.use('/api/ai-chat', require('./routes/aiChat'));
 
 // Serve static files from React build (production)
 if (process.env.NODE_ENV === 'production') {

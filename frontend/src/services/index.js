@@ -11,4 +11,5 @@ export { default as monthlyBrandService } from './monthlyBrandService';
 export { default as trashService } from './trashService';
 export { default as rankingService } from './rankingService';
 export { default as buyerAnalyticsService } from './buyerAnalyticsService';
+export { default as aiChatService } from './aiChatService';
 export * as userService from './userService';

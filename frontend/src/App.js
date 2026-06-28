@@ -12,8 +12,8 @@ import AdminLayout from './components/admin/AdminLayout';
 import AdminMonthlyBuyers from './components/admin/AdminMonthlyBuyers';
 import AdminDailyPayments from './components/admin/AdminDailyPayments';
 import AdminTrackingManagement from './components/admin/AdminTrackingManagement';
+import AdminCourierTracking from './components/admin/AdminCourierTracking';
 import AdminControlTower from './components/admin/AdminControlTower';
-import AdminMarginDashboard from './components/admin/AdminMarginDashboard';
 import AdminCampaignAssignment from './components/admin/AdminCampaignAssignment';
 import AdminTrash from './components/admin/AdminTrash';
 import AdminImageApproval from './components/admin/AdminImageApproval';
@@ -21,6 +21,7 @@ import AdminBrandCampaignSettlement from './components/admin/AdminBrandCampaignS
 import AdminReviewSearch from './components/admin/AdminReviewSearch';
 import AdminRankingDashboard from './components/admin/AdminRankingDashboard';
 import AdminBuyerAnalytics from './components/admin/AdminBuyerAnalytics';
+import AdminAIChat from './components/admin/AdminAIChat';
 
 // --- 영업사 관련 페이지 ---
 import SalesLayout from './components/sales/SalesLayout';
@@ -95,13 +96,14 @@ function App() {
             <Route path="daily-items" element={<AdminMonthlyBuyers />} />
             <Route path="daily-payments" element={<AdminDailyPayments />} />
             <Route path="tracking-management" element={<AdminTrackingManagement />} />
-            <Route path="margin" element={<AdminMarginDashboard />} />
+            <Route path="courier-tracking" element={<AdminCourierTracking />} />
             <Route path="trash" element={<AdminTrash />} />
             <Route path="image-approval" element={<AdminImageApproval />} />
             <Route path="review-search" element={<AdminReviewSearch />} />
             <Route path="brand-settlement" element={<AdminBrandCampaignSettlement />} />
             <Route path="rankings" element={<AdminRankingDashboard />} />
             <Route path="buyer-analytics" element={<AdminBuyerAnalytics />} />
+            <Route path="ai-chat" element={<AdminAIChat />} />
           </Route>
 
           {/* Admin이 영업사 페이지를 그대로 볼 수 있는 라우트 (쿼리: ?userId=xxx) */}

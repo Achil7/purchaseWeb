@@ -8,7 +8,6 @@ import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import PaymentsIcon from '@mui/icons-material/Payments';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -17,12 +16,17 @@ import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import ImageSearchIcon from '@mui/icons-material/ImageSearch';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import LeaderboardIcon from '@mui/icons-material/Leaderboard';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import PersonSearchIcon from '@mui/icons-material/PersonSearch';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import AdminUserCreate from './AdminUserCreate';
 import AdminLoginSettings from './AdminLoginSettings';
 import { notificationService, imageService } from '../../services';
+
+// AI 챗 메뉴 노출: 운영은 masterkangwoo만, test 도메인은 모든 admin
+const IS_TEST_ENV = typeof window !== 'undefined' && window.location.hostname.includes('test');
 
 function AdminLayout() {
   const navigate = useNavigate();
@@ -176,10 +180,14 @@ function AdminLayout() {
               <ListItemIcon><PaymentsIcon fontSize="small" /></ListItemIcon>
               <ListItemText primary="날짜 별 입금관리" />
             </MenuItem>
-            {user?.username === 'masterkangwoo' && (
-              <MenuItem onClick={() => handleMenuItemClick('/admin/margin')}>
-                <ListItemIcon><TrendingUpIcon fontSize="small" /></ListItemIcon>
-                <ListItemText primary="마진 현황" />
+            <MenuItem onClick={() => handleMenuItemClick('/admin/courier-tracking')}>
+              <ListItemIcon><LocalShippingIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="택배대행 송장관리" />
+            </MenuItem>
+            {(IS_TEST_ENV || user?.username === 'masterkangwoo') && (
+              <MenuItem onClick={() => handleMenuItemClick('/admin/ai-chat')}>
+                <ListItemIcon><SmartToyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText primary="AI 챗" />
               </MenuItem>
             )}
             <MenuItem onClick={() => handleMenuItemClick('/admin/brand-settlement')}>
