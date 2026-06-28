@@ -163,19 +163,22 @@ exports.updateSlotsBulk = async (req, res) => {
       buyerMap = new Map(existingBuyers.map(b => [b.id, b]));
     }
 
-    // slot_number 변경이 포함된 슬롯들을 2-pass로 처리 (unique 제약 우회)
+    // 36차: slot_number 2-pass를 CASE WHEN 벌크 SQL로 통합 (2*N회 → 2회)
     const slotNumberUpdates = slots.filter(s => s.id && s.slot_number !== undefined && slotMap.has(s.id));
     if (slotNumberUpdates.length > 0) {
-      // 1-pass: 임시 음수값으로 변경 (충돌 방지)
-      for (const s of slotNumberUpdates) {
-        const slot = slotMap.get(s.id);
-        if (slot) await slot.update({ slot_number: -s.id });
-      }
-      // 2-pass: 최종 값으로 변경
-      for (const s of slotNumberUpdates) {
-        const slot = slotMap.get(s.id);
-        if (slot) await slot.update({ slot_number: s.slot_number });
-      }
+      const ids = slotNumberUpdates.map(s => s.id);
+      // 1-pass: 임시 음수값 (충돌 방지) — 1회 SQL
+      const tempCases = slotNumberUpdates.map(s => `WHEN ${parseInt(s.id, 10)} THEN ${-parseInt(s.id, 10)}`).join(' ');
+      await sequelize.query(
+        `UPDATE item_slots SET slot_number = CASE id ${tempCases} END, updated_at = NOW() WHERE id IN (:ids)`,
+        { replacements: { ids }, type: sequelize.QueryTypes.UPDATE }
+      );
+      // 2-pass: 최종 값 — 1회 SQL
+      const finalCases = slotNumberUpdates.map(s => `WHEN ${parseInt(s.id, 10)} THEN ${parseInt(s.slot_number, 10)}`).join(' ');
+      await sequelize.query(
+        `UPDATE item_slots SET slot_number = CASE id ${finalCases} END, updated_at = NOW() WHERE id IN (:ids)`,
+        { replacements: { ids }, type: sequelize.QueryTypes.UPDATE }
+      );
     }
 
     const results = [];

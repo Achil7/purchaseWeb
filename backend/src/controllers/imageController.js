@@ -822,23 +822,27 @@ exports.approveImage = async (req, res) => {
       transaction
     });
 
-    // 기존 이미지들 S3 및 DB에서 삭제
-    for (const oldImage of existingImages) {
-      try {
-        await deleteFromS3(oldImage.s3_key);
-      } catch (s3Error) {
-        console.error('S3 delete old image error:', s3Error);
-      }
-      await oldImage.destroy({ transaction });
+    // 36차: S3 병렬 삭제 + DB 벌크 처리 (순차 루프 제거)
+    await Promise.all(existingImages.map(oldImage =>
+      deleteFromS3(oldImage.s3_key).catch(e => console.error('S3 delete old image error:', e))
+    ));
+    if (existingImages.length > 0) {
+      await Image.destroy({
+        where: { id: { [Op.in]: existingImages.map(img => img.id) } },
+        transaction
+      });
     }
 
-    // 그룹 내 모든 새 이미지 승인
-    for (const img of imagesToApprove) {
-      await img.update({
+    // 그룹 내 모든 새 이미지 벌크 승인
+    if (approveImageIds.length > 0) {
+      await Image.update({
         status: 'approved',
         previous_image_id: null,
-        resubmission_group_id: null  // 승인 후 그룹 ID 제거
-      }, { transaction });
+        resubmission_group_id: null
+      }, {
+        where: { id: { [Op.in]: approveImageIds } },
+        transaction
+      });
     }
 
     // 입금 예정일 업데이트 (재제출 승인 시점 기준)

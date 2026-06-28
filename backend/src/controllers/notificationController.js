@@ -10,28 +10,35 @@ exports.getMyNotifications = async (req, res) => {
     const { unread_only } = req.query;
 
     const whereClause = { user_id: userId };
-    if (unread_only === 'true') {
+    const isUnreadOnly = unread_only === 'true';
+    if (isUnreadOnly) {
       whereClause.is_read = false;
     }
 
-    // 30차: findAll + count 병렬 실행 + raw:true로 toJSON 오버헤드 제거
-    const [notifications, unreadCount] = await Promise.all([
-      Notification.findAll({
+    // 36차: unread_only=false일 때 findAll 결과에서 JS 카운트 (count 쿼리 제거)
+    if (isUnreadOnly) {
+      const [notifications, unreadCount] = await Promise.all([
+        Notification.findAll({
+          where: whereClause,
+          order: [['created_at', 'DESC']],
+          limit: 50,
+          raw: true
+        }),
+        Notification.count({
+          where: { user_id: userId, is_read: false }
+        })
+      ]);
+      res.json({ success: true, data: notifications, unreadCount });
+    } else {
+      const notifications = await Notification.findAll({
         where: whereClause,
         order: [['created_at', 'DESC']],
         limit: 50,
         raw: true
-      }),
-      Notification.count({
-        where: { user_id: userId, is_read: false }
-      })
-    ]);
-
-    res.json({
-      success: true,
-      data: notifications,
-      unreadCount
-    });
+      });
+      const unreadCount = notifications.filter(n => !n.is_read).length;
+      res.json({ success: true, data: notifications, unreadCount });
+    }
   } catch (error) {
     console.error('Get notifications error:', error);
     res.status(500).json({
