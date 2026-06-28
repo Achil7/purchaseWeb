@@ -1072,3 +1072,90 @@ exports.getBuyersByDate = async (req, res) => {
     });
   }
 };
+
+// 택배대행 송장관리용 구매자 조회 (courier_service_yn='Y'만)
+exports.getCourierTrackingBuyers = async (req, res) => {
+  try {
+    const { year, month, day } = req.query;
+
+    if (!year || !month || !day) {
+      return res.status(400).json({
+        success: false,
+        message: 'year, month, day 파라미터가 필요합니다'
+      });
+    }
+
+    const yearInt = parseInt(year, 10);
+    const monthInt = parseInt(month, 10);
+    const dayInt = parseInt(day, 10);
+
+    if (isNaN(yearInt) || isNaN(monthInt) || isNaN(dayInt) || monthInt < 1 || monthInt > 12 || dayInt < 1 || dayInt > 31) {
+      return res.status(400).json({
+        success: false,
+        message: '유효한 year, month, day 값이 필요합니다'
+      });
+    }
+
+    // 제품 날짜(ItemSlot.date) 기준 필터링
+    // 제품 날짜는 TEXT이며 yyyy-mm-dd 또는 yy-mm-dd 두 형식이 섞여 있어 둘 다 매칭
+    const dateStr = `${yearInt}-${String(monthInt).padStart(2, '0')}-${String(dayInt).padStart(2, '0')}`;
+    const dateFormats = [dateStr, dateStr.slice(2)]; // ['2026-06-18', '26-06-18']
+    const dateFilter = 'COALESCE(s.date, b.date, i.date) IN (:dateFormats)';
+    const replacements = { dateFormats };
+
+    const buyers = await sequelize.query(`
+      SELECT
+        b.id,
+        b.order_number,
+        b.buyer_name,
+        b.recipient_name,
+        b.address,
+        b.tracking_number,
+        b.courier_company,
+        b.created_at,
+        b.expected_payment_date,
+        COALESCE(s.date, b.date, i.date) AS product_date,
+        i.id AS item_id,
+        i.product_name,
+        c.id AS campaign_id,
+        c.name AS campaign_name,
+        COALESCE(s.courier_service_yn, i.courier_service_yn) AS courier_service_yn,
+        s.day_group,
+        creator.name AS operator_name,
+        creator.id AS operator_id,
+        latest_img.s3_url AS image_url
+      FROM buyers b
+      LEFT JOIN item_slots s ON s.buyer_id = b.id AND s.deleted_at IS NULL
+      LEFT JOIN items i ON i.id = b.item_id AND i.deleted_at IS NULL
+      LEFT JOIN campaigns c ON c.id = i.campaign_id AND c.deleted_at IS NULL
+      LEFT JOIN users creator ON creator.id = b.created_by
+      LEFT JOIN LATERAL (
+        SELECT im.s3_url FROM images im
+        WHERE im.buyer_id = b.id AND im.status = 'approved' AND im.deleted_at IS NULL
+        ORDER BY im.created_at DESC LIMIT 1
+      ) latest_img ON true
+      WHERE b.is_temporary = false
+        AND b.deleted_at IS NULL
+        AND UPPER(COALESCE(s.courier_service_yn, i.courier_service_yn)) LIKE '%Y%'
+        AND ${dateFilter}
+      ORDER BY creator.name ASC, c.name ASC, i.product_name ASC, b.created_at ASC
+    `, {
+      replacements,
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    res.json({
+      success: true,
+      data: buyers,
+      count: buyers.length,
+      period: { year: yearInt, month: monthInt, day: dayInt }
+    });
+  } catch (error) {
+    console.error('Get courier tracking buyers error:', error);
+    res.status(500).json({
+      success: false,
+      message: '택배대행 구매자 조회 실패',
+      error: error.message
+    });
+  }
+};

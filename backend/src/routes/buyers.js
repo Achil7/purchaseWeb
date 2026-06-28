@@ -53,6 +53,13 @@ router.post('/item/:itemId/bulk', authenticate, authorize(['operator', 'admin'])
 router.post('/item/:itemId/tracking-bulk', authenticate, authorize(['admin']), buyerController.updateTrackingNumbersBulk);
 
 /**
+ * @route   GET /api/buyers/courier-tracking
+ * @desc    택배대행(courier_service_yn='Y') 구매자 조회 (날짜별 송장관리용)
+ * @access  Private (Admin only)
+ */
+router.get('/courier-tracking', authenticate, authorize(['admin']), buyerController.getCourierTrackingBuyers);
+
+/**
  * @route   GET /api/buyers/:id
  * @desc    구매자 상세 조회
  * @access  Private

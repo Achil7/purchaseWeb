@@ -144,6 +144,16 @@ const buyerService = {
     }
   },
 
+  // 택배대행 송장관리용 구매자 조회 (courier_service_yn='Y'만, 제품 날짜 기준)
+  getCourierTrackingBuyers: async (year, month, day) => {
+    try {
+      const response = await apiClient.get(`/buyers/courier-tracking?year=${year}&month=${month}&day=${day}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
   // 배송지연 상태 토글 (Admin, Operator)
   toggleShippingDelayed: async (id, shipping_delayed) => {
     try {
