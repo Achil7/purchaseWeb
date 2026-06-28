@@ -71,8 +71,9 @@ function AdminUserCreate({ open, onClose, onSuccess }) {
     setError('');
 
     try {
-      await createUser(formData);
-      alert('사용자가 생성되었습니다');
+      const res = await createUser(formData);
+      const serial = res?.data?.serial ?? res?.serial;
+      alert(serial ? `사용자가 생성되었습니다 (일련번호: ${serial})` : '사용자가 생성되었습니다');
       handleClose();
       if (onSuccess) onSuccess();
     } catch (err) {

@@ -71,7 +71,7 @@ function UserDashboardViewer({ user, roleLabels }) {
             <Box>
               <Typography variant="subtitle1" fontWeight="bold">{user.name}</Typography>
               <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                @{user.username} · {roleLabels[user.role]}
+                @{user.username} · {roleLabels[user.role]}{user.serial ? ` · ${user.serial}` : ''}
               </Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

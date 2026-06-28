@@ -1,4 +1,5 @@
 const bcrypt = require('bcrypt');
+const { Op } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
   const User = sequelize.define('User', {
@@ -65,6 +66,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       allowNull: true,
       comment: '마지막 활동 시간 (Heartbeat 기준)'
+    },
+    serial: {
+      type: DataTypes.STRING(10),
+      unique: true,
+      allowNull: true,
+      comment: '브랜드사 일련번호 (BR0001 형식, 브랜드 전용 - 견적서 매칭키)'
     }
   }, {
     tableName: 'users',
@@ -78,10 +85,25 @@ module.exports = (sequelize, DataTypes) => {
     ]
   });
 
-  // 비밀번호 해싱 훅
-  User.beforeCreate(async (user) => {
+  // 비밀번호 해싱 + 브랜드 일련번호 자동 생성 훅
+  User.beforeCreate(async (user, options) => {
     if (user.password_hash) {
       user.password_hash = await bcrypt.hash(user.password_hash, 10);
+    }
+    // 브랜드 계정이면 일련번호(BR0001...) 자동 부여
+    if (user.role === 'brand' && !user.serial) {
+      const last = await User.findOne({
+        where: { role: 'brand', serial: { [Op.ne]: null } },
+        order: [['serial', 'DESC']],
+        attributes: ['serial'],
+        transaction: options && options.transaction
+      });
+      let lastNum = 0;
+      if (last && last.serial) {
+        const parsed = parseInt(String(last.serial).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(parsed)) lastNum = parsed;
+      }
+      user.serial = 'BR' + String(lastNum + 1).padStart(4, '0');
     }
   });
 

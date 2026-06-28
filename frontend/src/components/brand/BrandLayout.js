@@ -795,7 +795,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
             </Avatar>
             {/* 모바일에서는 사용자 이름 숨김 (공간 부족) */}
             <Typography variant="subtitle2" sx={{ display: { xs: 'none', md: 'block' } }}>
-              {user?.name || '브랜드사'}
+              {user?.name || '브랜드사'}{user?.serial ? ` (${user.serial})` : ''}
             </Typography>
           </Box>
 

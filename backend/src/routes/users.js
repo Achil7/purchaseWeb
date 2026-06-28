@@ -59,7 +59,7 @@ router.get('/', authenticate, async (req, res) => {
 
     const users = await User.findAll({
       where: whereClause,
-      attributes: ['id', 'username', 'name', 'email', 'role', 'phone', 'is_active', 'last_login', 'created_at', 'assigned_sales_id'],
+      attributes: ['id', 'username', 'name', 'email', 'role', 'phone', 'is_active', 'last_login', 'created_at', 'assigned_sales_id', 'serial'],
       include: role === 'brand' ? [{
         model: User,
         as: 'assignedSales',
@@ -342,7 +342,7 @@ router.get('/control-tower/users', authenticate, authorize(['admin']), async (re
       attributes: [
         'id', 'username', 'name', 'email', 'role', 'phone',
         'is_active', 'last_login', 'last_activity', 'initial_password',
-        'created_at', 'assigned_sales_id'
+        'created_at', 'assigned_sales_id', 'serial'
       ],
       include: [{
         model: User,
