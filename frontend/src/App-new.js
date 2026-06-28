@@ -22,7 +22,6 @@ import AdminMonthlyBuyers from './components/admin/AdminMonthlyBuyers';
 import AdminDailyPayments from './components/admin/AdminDailyPayments';
 import AdminTrackingManagement from './components/admin/AdminTrackingManagement';
 import AdminControlTower from './components/admin/AdminControlTower';
-import AdminMarginDashboard from './components/admin/AdminMarginDashboard';
 import AdminCampaignAssignment from './components/admin/AdminCampaignAssignment';
 import AdminTrash from './components/admin/AdminTrash';
 import AdminImageApproval from './components/admin/AdminImageApproval';
@@ -98,7 +97,6 @@ function App() {
               <Route path="daily-items" element={<AdminMonthlyBuyers />} />
               <Route path="daily-payments" element={<AdminDailyPayments />} />
               <Route path="tracking-management" element={<AdminTrackingManagement />} />
-              <Route path="margin" element={<AdminMarginDashboard />} />
               <Route path="trash" element={<AdminTrash />} />
               <Route path="image-approval" element={<AdminImageApproval />} />
               <Route path="review-search" element={<AdminReviewSearch />} />
