@@ -19,6 +19,8 @@ import LeaderboardIcon from '@mui/icons-material/Leaderboard';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import PersonSearchIcon from '@mui/icons-material/PersonSearch';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
+import GroupsIcon from '@mui/icons-material/Groups';
+import HandshakeIcon from '@mui/icons-material/Handshake';
 import { useAuth } from '../../context/AuthContext';
 import ProfileEditDialog from '../common/ProfileEditDialog';
 import AdminUserCreate from './AdminUserCreate';
@@ -197,6 +199,14 @@ function AdminLayout() {
             <MenuItem onClick={() => handleMenuItemClick('/admin/rankings')}>
               <ListItemIcon><LeaderboardIcon fontSize="small" /></ListItemIcon>
               <ListItemText primary="올리브영 랭킹" />
+            </MenuItem>
+            <MenuItem onClick={() => handleMenuItemClick('/admin/bloggers')}>
+              <ListItemIcon><GroupsIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="블로거 관리" />
+            </MenuItem>
+            <MenuItem onClick={() => handleMenuItemClick('/admin/blogger-requests')}>
+              <ListItemIcon><HandshakeIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="블로거 협의 요청" />
             </MenuItem>
             <MenuItem onClick={() => handleMenuItemClick('/admin/review-search')}>
               <ListItemIcon><ImageSearchIcon fontSize="small" /></ListItemIcon>

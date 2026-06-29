@@ -12,4 +12,5 @@ export { default as trashService } from './trashService';
 export { default as rankingService } from './rankingService';
 export { default as buyerAnalyticsService } from './buyerAnalyticsService';
 export { default as aiChatService } from './aiChatService';
+export { default as bloggerService } from './bloggerService';
 export * as userService from './userService';

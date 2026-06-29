@@ -22,6 +22,8 @@ import AdminReviewSearch from './components/admin/AdminReviewSearch';
 import AdminRankingDashboard from './components/admin/AdminRankingDashboard';
 import AdminBuyerAnalytics from './components/admin/AdminBuyerAnalytics';
 import AdminAIChat from './components/admin/AdminAIChat';
+import AdminBloggers from './components/admin/AdminBloggers';
+import AdminBloggerRequests from './components/admin/AdminBloggerRequests';
 
 // --- 영업사 관련 페이지 ---
 import SalesLayout from './components/sales/SalesLayout';
@@ -33,9 +35,13 @@ import OperatorLayout from './components/operator/OperatorLayout';
 import BrandLayout from './components/brand/BrandLayout';
 import BrandDashboard from './components/brand/BrandDashboard';
 import BrandRankingView from './components/brand/BrandRankingView';
+import BrandBloggerView from './components/brand/BrandBloggerView';
 
 // --- 이미지 업로드 페이지 (Public) ---
 import UploadPage from './components/upload/UploadPage';
+
+// --- 블로거 작성 링크 제출 페이지 (Public) ---
+import BloggerSubmitPage from './components/blogger/BloggerSubmitPage';
 
 // --- Admin View 래퍼 컴포넌트 (URL 쿼리에서 viewAsUserId 추출) ---
 function AdminViewSales() {
@@ -77,6 +83,9 @@ function App() {
           {/* 슬롯 토큰용 이미지 업로드 페이지 (일 구매건수 그룹별) */}
           <Route path="/upload-slot/:token" element={<UploadPage isSlotUpload={true} />} />
 
+          {/* 블로거 작성 링크 제출 페이지 (Public - 인증 불필요) */}
+          <Route path="/blogger-submit/:token" element={<BloggerSubmitPage />} />
+
           {/* 기본 경로는 로그인으로 리다이렉트 */}
           <Route path="/" element={<Navigate to="/login" replace />} />
 
@@ -104,6 +113,8 @@ function App() {
             <Route path="rankings" element={<AdminRankingDashboard />} />
             <Route path="buyer-analytics" element={<AdminBuyerAnalytics />} />
             <Route path="ai-chat" element={<AdminAIChat />} />
+            <Route path="bloggers" element={<AdminBloggers />} />
+            <Route path="blogger-requests" element={<AdminBloggerRequests />} />
           </Route>
 
           {/* Admin이 영업사 페이지를 그대로 볼 수 있는 라우트 (쿼리: ?userId=xxx) */}
@@ -137,6 +148,7 @@ function App() {
           >
             <Route index element={<BrandDashboard />} />
             <Route path="rankings" element={<BrandRankingView />} />
+            <Route path="bloggers" element={<BrandBloggerView />} />
           </Route>
 
           {/* 영업사 - 모든 콘텐츠는 SalesLayout 내부 탭으로 처리 */}
@@ -170,6 +182,7 @@ function App() {
           >
             <Route index element={<BrandDashboard />} />
             <Route path="rankings" element={<BrandRankingView />} />
+            <Route path="bloggers" element={<BrandBloggerView />} />
           </Route>
 
           {/* 404 - 로그인으로 리다이렉트 */}

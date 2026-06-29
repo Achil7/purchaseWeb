@@ -194,9 +194,9 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
     try { localStorage.setItem(VIEW_MODE_KEY, viewMode); } catch {}
   }, [viewMode]);
 
-  // /rankings 자식 라우트 진입 시 viewMode='dashboard' 로 강제 (Outlet 렌더링되도록)
+  // /rankings, /bloggers 자식 라우트 진입 시 viewMode='dashboard' 로 강제 (Outlet 렌더링되도록)
   useEffect(() => {
-    if (location.pathname.includes('/rankings')) {
+    if (location.pathname.includes('/rankings') || location.pathname.includes('/bloggers')) {
       setViewMode('dashboard');
       setSelectedCampaign(null);
     }
@@ -709,6 +709,25 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
               }}
             >
               {isMobile ? '랭킹' : '올리브영 랭킹'}
+            </Button>
+            <Button
+              color="inherit"
+              onClick={() => {
+                const target = isAdminMode && viewAsUserId
+                  ? `/admin/view-brand/bloggers?userId=${viewAsUserId}`
+                  : '/brand/bloggers';
+                navigate(target);
+              }}
+              sx={{
+                fontWeight: location.pathname.includes('/bloggers') ? 'bold' : 'normal',
+                borderBottom: location.pathname.includes('/bloggers') ? '2px solid #fff' : '2px solid transparent',
+                borderRadius: 0,
+                px: { xs: 1, md: 2 },
+                fontSize: { xs: '0.75rem', md: '0.875rem' },
+                minWidth: { xs: 'auto', md: 64 }
+              }}
+            >
+              블로거
             </Button>
           </Box>
 
@@ -1318,7 +1337,7 @@ function BrandLayout({ isAdminMode = false, viewAsUserId = null, isEmbedded = fa
         {viewMode === 'dashboard' ? (
           /* 현황 대시보드 탭: 기본은 index 라우트의 Outlet (BrandDashboard).
              Admin 컨트롤타워에서 embedded 모드면 라우트 자식이 없으므로 직접 렌더 */
-          isEmbedded && !location.pathname.includes('/rankings') ? (
+          isEmbedded && !location.pathname.includes('/rankings') && !location.pathname.includes('/bloggers') ? (
             <BrandDashboard
               isAdminMode={isAdminMode}
               viewAsUserId={viewAsUserId}
