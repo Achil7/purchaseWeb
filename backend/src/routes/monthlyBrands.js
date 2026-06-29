@@ -105,6 +105,7 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
     let itemsByCampaign = {};
     let slotsByItem = {};
     let allItemIds = [];
+    let buyerStatsMap = {};
 
     if (allCampaignIds.length > 0) {
       const items = await Item.findAll({
@@ -118,66 +119,62 @@ router.get('/my-brand', authenticate, authorize(['brand', 'admin']), async (req,
         allItemIds.push(item.id);
       }
 
-      // 30차: ItemSlot도 별도 쿼리
+      // 37차: ItemSlot + buyer stats 병렬 조회 (순차 2회 → 병렬 1회)
       if (allItemIds.length > 0) {
-        const slots = await ItemSlot.findAll({
-          where: { item_id: { [Op.in]: allItemIds } },
-          attributes: ['id', 'item_id'],
-          raw: true
-        });
+        const [slots, stats] = await Promise.all([
+          ItemSlot.findAll({
+            where: { item_id: { [Op.in]: allItemIds } },
+            attributes: ['id', 'item_id'],
+            raw: true
+          }),
+          sequelize.query(`
+            SELECT
+              bc.item_id,
+              bc.normal_count,
+              bc.total_amount,
+              COALESCE(rc.review_count, 0) AS review_count,
+              COALESCE(rc.image_count, 0) AS image_count
+            FROM (
+              SELECT
+                item_id,
+                COUNT(id) AS normal_count,
+                SUM(CASE
+                  WHEN REPLACE(amount, ',', '') ~ '^[0-9]+(\\.[0-9]+)?$'
+                  THEN REPLACE(amount, ',', '')::NUMERIC
+                  ELSE 0
+                END) AS total_amount
+              FROM buyers
+              WHERE item_id IN (:itemIds) AND is_temporary = false AND deleted_at IS NULL
+              GROUP BY item_id
+            ) bc
+            LEFT JOIN (
+              SELECT
+                b.item_id,
+                COUNT(DISTINCT b.id) AS review_count,
+                COUNT(i.id) AS image_count
+              FROM buyers b
+              INNER JOIN images i ON i.buyer_id = b.id AND i.status = 'approved'
+              WHERE b.item_id IN (:itemIds) AND b.is_temporary = false AND b.deleted_at IS NULL
+              GROUP BY b.item_id
+            ) rc ON bc.item_id = rc.item_id
+          `, {
+            replacements: { itemIds: allItemIds },
+            type: sequelize.QueryTypes.SELECT
+          })
+        ]);
+
         for (const slot of slots) {
           if (!slotsByItem[slot.item_id]) slotsByItem[slot.item_id] = [];
           slotsByItem[slot.item_id].push(slot);
         }
-      }
-    }
-
-    // ✅ Step 3: COUNT/SUM 쿼리로 통계만 조회 (객체 전체 로드 안 함)
-    let buyerStatsMap = {};
-    if (allItemIds.length > 0) {
-      // 품목별 일반 구매자 수 + 금액 합계 + 리뷰 완료 수 + 이미지 수 (단일 raw SQL)
-      const stats = await sequelize.query(`
-        SELECT
-          bc.item_id,
-          bc.normal_count,
-          bc.total_amount,
-          COALESCE(rc.review_count, 0) AS review_count,
-          COALESCE(rc.image_count, 0) AS image_count
-        FROM (
-          SELECT
-            item_id,
-            COUNT(id) AS normal_count,
-            SUM(CASE
-              WHEN REPLACE(amount, ',', '') ~ '^[0-9]+(\\.[0-9]+)?$'
-              THEN REPLACE(amount, ',', '')::NUMERIC
-              ELSE 0
-            END) AS total_amount
-          FROM buyers
-          WHERE item_id IN (:itemIds) AND is_temporary = false AND deleted_at IS NULL
-          GROUP BY item_id
-        ) bc
-        LEFT JOIN (
-          SELECT
-            b.item_id,
-            COUNT(DISTINCT b.id) AS review_count,
-            COUNT(i.id) AS image_count
-          FROM buyers b
-          INNER JOIN images i ON i.buyer_id = b.id AND i.status = 'approved'
-          WHERE b.item_id IN (:itemIds) AND b.is_temporary = false AND b.deleted_at IS NULL
-          GROUP BY b.item_id
-        ) rc ON bc.item_id = rc.item_id
-      `, {
-        replacements: { itemIds: allItemIds },
-        type: sequelize.QueryTypes.SELECT
-      });
-
-      for (const stat of stats) {
-        buyerStatsMap[stat.item_id] = {
-          normalCount: parseInt(stat.normal_count, 10) || 0,
-          totalAmount: parseFloat(stat.total_amount) || 0,
-          reviewCount: parseInt(stat.review_count, 10) || 0,
-          imageCount: parseInt(stat.image_count, 10) || 0
-        };
+        for (const stat of stats) {
+          buyerStatsMap[stat.item_id] = {
+            normalCount: parseInt(stat.normal_count, 10) || 0,
+            totalAmount: parseFloat(stat.total_amount) || 0,
+            reviewCount: parseInt(stat.review_count, 10) || 0,
+            imageCount: parseInt(stat.image_count, 10) || 0
+          };
+        }
       }
     }
 
@@ -276,56 +273,45 @@ router.get('/all', authenticate, authorize(['admin']), async (req, res) => {
       });
     }
 
-    // Step 3: Item 기본 정보를 별도 쿼리로 조회 (JOIN 없이)
-    const items = await Item.findAll({
-      where: { campaign_id: { [Op.in]: allCampaignIds } },
-      attributes: ['id', 'campaign_id', 'product_name', 'daily_purchase_count'],
-      raw: true
-    });
-
-    const allItemIds = items.map(i => i.id);
-
-    // Step 4: Active day_group을 GROUP BY로 조회 (전체 슬롯 로드 대신)
-    let activeDayGroupMap = new Map(); // key: item_id → Set of day_groups
-    if (allItemIds.length > 0) {
-      const activeDayGroups = await ItemSlot.findAll({
-        attributes: ['item_id', 'day_group'],
-        where: {
-          item_id: { [Op.in]: allItemIds },
-          is_suspended: false
-        },
-        group: ['item_id', 'day_group'],
-        raw: true
-      });
-
-      activeDayGroups.forEach(row => {
-        if (!activeDayGroupMap.has(row.item_id)) {
-          activeDayGroupMap.set(row.item_id, new Set());
+    // 37차: Item→ItemSlot 체인 + CampaignOperator 병렬 조회
+    let activeDayGroupMap = new Map();
+    const [items, assignmentCounts] = await Promise.all([
+      (async () => {
+        const itms = await Item.findAll({
+          where: { campaign_id: { [Op.in]: allCampaignIds } },
+          attributes: ['id', 'campaign_id', 'product_name', 'daily_purchase_count'],
+          raw: true
+        });
+        const itemIds = itms.map(i => i.id);
+        if (itemIds.length > 0) {
+          const activeDayGroups = await ItemSlot.findAll({
+            attributes: ['item_id', 'day_group'],
+            where: { item_id: { [Op.in]: itemIds }, is_suspended: false },
+            group: ['item_id', 'day_group'],
+            raw: true
+          });
+          activeDayGroups.forEach(row => {
+            if (!activeDayGroupMap.has(row.item_id)) activeDayGroupMap.set(row.item_id, new Set());
+            activeDayGroupMap.get(row.item_id).add(row.day_group);
+          });
         }
-        activeDayGroupMap.get(row.item_id).add(row.day_group);
-      });
-    }
+        return itms;
+      })(),
+      CampaignOperator.findAll({
+        attributes: ['campaign_id', 'item_id', 'day_group'],
+        where: { campaign_id: { [Op.in]: allCampaignIds } },
+        group: ['campaign_id', 'item_id', 'day_group'],
+        raw: true
+      })
+    ]);
 
-    // Step 5: Item을 campaign_id별로 그룹화
     const itemsByCampaign = new Map();
     items.forEach(item => {
-      if (!itemsByCampaign.has(item.campaign_id)) {
-        itemsByCampaign.set(item.campaign_id, []);
-      }
+      if (!itemsByCampaign.has(item.campaign_id)) itemsByCampaign.set(item.campaign_id, []);
       itemsByCampaign.get(item.campaign_id).push(item);
     });
 
-    // Step 6: 배정 상태를 단일 쿼리로 조회
     let assignmentMap = new Map();
-    const assignmentCounts = await CampaignOperator.findAll({
-      attributes: ['campaign_id', 'item_id', 'day_group'],
-      where: {
-        campaign_id: { [Op.in]: allCampaignIds }
-      },
-      group: ['campaign_id', 'item_id', 'day_group'],
-      raw: true
-    });
-
     assignmentCounts.forEach(row => {
       const key = `${row.campaign_id}_${row.item_id}_${row.day_group}`;
       assignmentMap.set(key, true);
@@ -499,6 +485,9 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
     // 26차: Item + ItemSlot을 별도 쿼리로 조회 (JOIN 분리)
     let itemsByCampaign = {};
     let slotsByItem = {};
+    let buyerStatsMap = {};
+    let dayGroupBuyerStats = {};
+    let dayGroupReviewStats = {};
     if (allCampaignIds.length > 0) {
       const items = await Item.findAll({
         where: { campaign_id: { [Op.in]: allCampaignIds } },
@@ -511,65 +500,58 @@ router.get('/', authenticate, authorize(['sales', 'admin']), async (req, res) =>
       }
 
       const allItemIds = items.map(i => i.id);
+      // 37차: ItemSlot + buyer stats 병렬 조회 (순차 2회 → 병렬 1회)
       if (allItemIds.length > 0) {
-        const slots = await ItemSlot.findAll({
-          where: { item_id: { [Op.in]: allItemIds } },
-          attributes: ['id', 'item_id', 'date', 'day_group'],
-          raw: true
-        });
+        const sequelize = require('../models').sequelize;
+        const placeholders = allItemIds.map((_, i) => `$${i + 1}`).join(',');
+        const [slots, combinedStats] = await Promise.all([
+          ItemSlot.findAll({
+            where: { item_id: { [Op.in]: allItemIds } },
+            attributes: ['id', 'item_id', 'date', 'day_group'],
+            raw: true
+          }),
+          sequelize.query(`
+            SELECT
+              s.item_id,
+              s.day_group,
+              COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.is_temporary = false) AS normal_count,
+              COUNT(DISTINCT s.buyer_id) FILTER (
+                WHERE b.is_temporary = false
+                AND EXISTS (SELECT 1 FROM images i WHERE i.buyer_id = b.id AND i.status = 'approved')
+              ) AS review_count
+            FROM item_slots s
+            INNER JOIN buyers b ON b.id = s.buyer_id AND b.deleted_at IS NULL
+            WHERE s.item_id IN (${placeholders})
+              AND s.buyer_id IS NOT NULL
+            GROUP BY s.item_id, s.day_group
+          `, {
+            bind: allItemIds,
+            type: sequelize.QueryTypes.SELECT
+          })
+        ]);
+
         for (const slot of slots) {
           if (!slotsByItem[slot.item_id]) slotsByItem[slot.item_id] = [];
           slotsByItem[slot.item_id].push(slot);
         }
-      }
-    }
+        for (const row of combinedStats) {
+          const itemId = row.item_id;
+          const dayGroup = row.day_group;
+          const normalCount = parseInt(row.normal_count, 10) || 0;
+          const reviewCount = parseInt(row.review_count, 10) || 0;
 
-    // 전체 item ID 수집
-    const allItemIds = Object.values(itemsByCampaign).flat().map(i => i.id);
+          if (!buyerStatsMap[itemId]) {
+            buyerStatsMap[itemId] = { normalCount: 0, reviewCount: 0 };
+          }
+          buyerStatsMap[itemId].normalCount += normalCount;
+          buyerStatsMap[itemId].reviewCount += reviewCount;
 
-    // 26차: 4개 통계 쿼리 → 1개 raw SQL 통합 (EXISTS 서브쿼리로 images JOIN 방지)
-    let buyerStatsMap = {};
-    let dayGroupBuyerStats = {};
-    let dayGroupReviewStats = {};
-    if (allItemIds.length > 0) {
-      const sequelize = require('../models').sequelize;
-      const placeholders = allItemIds.map((_, i) => `$${i + 1}`).join(',');
-      const combinedStats = await sequelize.query(`
-        SELECT
-          s.item_id,
-          s.day_group,
-          COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.is_temporary = false) AS normal_count,
-          COUNT(DISTINCT s.buyer_id) FILTER (
-            WHERE b.is_temporary = false
-            AND EXISTS (SELECT 1 FROM images i WHERE i.buyer_id = b.id AND i.status = 'approved')
-          ) AS review_count
-        FROM item_slots s
-        INNER JOIN buyers b ON b.id = s.buyer_id AND b.deleted_at IS NULL
-        WHERE s.item_id IN (${placeholders})
-          AND s.buyer_id IS NOT NULL
-        GROUP BY s.item_id, s.day_group
-      `, {
-        bind: allItemIds,
-        type: sequelize.QueryTypes.SELECT
-      });
+          if (!dayGroupBuyerStats[itemId]) dayGroupBuyerStats[itemId] = {};
+          dayGroupBuyerStats[itemId][dayGroup] = normalCount;
 
-      for (const row of combinedStats) {
-        const itemId = row.item_id;
-        const dayGroup = row.day_group;
-        const normalCount = parseInt(row.normal_count, 10) || 0;
-        const reviewCount = parseInt(row.review_count, 10) || 0;
-
-        if (!buyerStatsMap[itemId]) {
-          buyerStatsMap[itemId] = { normalCount: 0, reviewCount: 0 };
+          if (!dayGroupReviewStats[itemId]) dayGroupReviewStats[itemId] = {};
+          dayGroupReviewStats[itemId][dayGroup] = reviewCount;
         }
-        buyerStatsMap[itemId].normalCount += normalCount;
-        buyerStatsMap[itemId].reviewCount += reviewCount;
-
-        if (!dayGroupBuyerStats[itemId]) dayGroupBuyerStats[itemId] = {};
-        dayGroupBuyerStats[itemId][dayGroup] = normalCount;
-
-        if (!dayGroupReviewStats[itemId]) dayGroupReviewStats[itemId] = {};
-        dayGroupReviewStats[itemId][dayGroup] = reviewCount;
       }
     }
 

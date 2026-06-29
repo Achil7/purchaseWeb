@@ -2521,6 +2521,45 @@ td.className = 'product-data-row col-platform';
 
 ---
 
+### 37차 최적화 (2026-06-29) - monthly-brands API 독립 쿼리 병렬화
+
+**배경:**
+서버 로그에서 `/monthly-brands` 1543ms, `/monthly-brands/all` 641ms 확인. 3개 엔드포인트 모두 독립적인 DB 쿼리를 순차 실행 중.
+
+**적용 내용:**
+
+#### A. `/monthly-brands/my-brand` — ItemSlot + buyer stats 병렬
+- **변경 전:** ItemSlot.findAll → 완료 후 → buyer stats raw SQL (순차 2회)
+- **변경 후:** Promise.all([ItemSlot.findAll, sequelize.query(stats)]) → 병렬 1회
+- 두 쿼리 모두 allItemIds만 필요하므로 완전 독립
+
+#### B. `/monthly-brands/all` — Item→ItemSlot 체인 + CampaignOperator 병렬
+- **변경 전:** Item.findAll → ItemSlot.findAll → CampaignOperator.findAll (순차 3회)
+- **변경 후:** Promise.all([(async: Item→ItemSlot 체인), CampaignOperator]) → CampaignOperator가 Item+ItemSlot 체인과 병렬 실행
+- CampaignOperator는 allCampaignIds만 필요 (allItemIds 불필요)
+
+#### C. `/monthly-brands` — ItemSlot + buyer stats 병렬
+- **변경 전:** ItemSlot.findAll → 완료 후 → buyer stats raw SQL (순차 2회, 중간에 allItemIds 재계산)
+- **변경 후:** Promise.all([ItemSlot.findAll, sequelize.query(stats)]) → 병렬 1회
+- 불필요한 allItemIds 재계산 제거 (items.map 1회로 통일)
+
+**수정 파일:**
+- `backend/src/routes/monthlyBrands.js`
+
+**프론트엔드 수정 없음. 마이그레이션 없음.**
+
+**빌드:** ✅ 문법 검증 통과
+
+**기능 검증 항목:**
+- [ ] Sales 대시보드 → 연월브랜드/캠페인/품목 목록 + 구매자 통계 정상
+- [ ] Brand 대시보드 → 연월브랜드/캠페인/품목 목록 + 통계 정상
+- [ ] Admin 컨트롤 타워 → 진행자 배정 탭 (연월브랜드/all) 배정 상태 정상
+- [ ] Admin embedded → Sales/Brand 대시보드 조회 정상
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### 템플릿 (26차부터 적용)
 
 ### n차 최적화 (날짜) - 제목
