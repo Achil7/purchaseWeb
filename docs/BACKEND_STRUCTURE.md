@@ -3,26 +3,29 @@
 ## 개요
 Node.js + Express 기반의 RESTful API 서버
 
+본 문서는 `backend/src/routes/`의 실제 라우트 파일과 `backend/src/app.js`의 마운트 설정을 그대로 반영한 백엔드 API 레퍼런스입니다. 아래 모든 엔드포인트는 실제 코드에 존재합니다.
+
 ## 기술 스택 결정
 
 ### 백엔드 프레임워크
-- **Node.js 18+** + **Express.js 4.x**
+- **Node.js 18+** + **Express.js**
   - 이유: 빠른 개발, 가벼운 구조, React와 동일한 언어(JavaScript)
 
 ### 데이터베이스
 - **PostgreSQL** (AWS RDS)
 - **ORM**: Sequelize
-  - 이유: TypeScript 타입 지원 좋음, 마이그레이션 관리 용이
+  - 이유: 마이그레이션 관리 용이, 모델 기반 관계 정의
 
-### 인증 (✅ 구현 완료)
-- **JWT (JSON Web Token)** - 7일 만료
-- **bcrypt** - 비밀번호 해싱 (salt rounds: 10)
+### 인증 (구현 완료)
+- **JWT (JSON Web Token)** - 7일 만료 (웹 세션)
+- **Refresh Token** - 모바일 로그인용 (별도 `refresh_tokens` 테이블)
+- **bcrypt** - 비밀번호 해싱
 - **jsonwebtoken** - JWT 생성 및 검증
 
 ### 파일 업로드
 - **AWS SDK v3** - S3 업로드
-- **multer** - 파일 업로드 처리 (최대 10MB/파일)
-- **uuid** - 고유 파일명 생성
+- **multer** - 파일 업로드 처리 (리뷰 이미지 최대 10MB/파일, 로그인 배너 5MB)
+- **uuid** - 고유 토큰/파일명 생성
 
 ### 기타
 - **dotenv** - 환경 변수 관리
@@ -36,77 +39,58 @@ Node.js + Express 기반의 RESTful API 서버
 purchaseweb/
 ├── backend/                      # 백엔드 루트
 │   ├── src/
-│   │   ├── config/              # 설정 파일
-│   │   │   ├── database.js      # DB 연결 설정
-│   │   │   ├── s3.js            # S3 설정
-│   │   │   └── jwt.js           # JWT 설정
+│   │   ├── config/              # 설정 파일 (database.js, s3.js 등)
 │   │   │
-│   │   ├── models/              # Sequelize 모델
-│   │   │   ├── index.js         # 모델 통합
-│   │   │   ├── User.js
-│   │   │   ├── Campaign.js
-│   │   │   ├── Item.js
-│   │   │   ├── ItemSlot.js      # NEW
-│   │   │   ├── CampaignOperator.js
-│   │   │   ├── Buyer.js
-│   │   │   ├── Image.js
-│   │   │   ├── MonthlyBrand.js  # NEW
-│   │   │   ├── Notification.js  # NEW
-│   │   │   ├── Setting.js       # NEW
-│   │   │   ├── UserActivity.js  # NEW
-│   │   │   └── UserMemo.js      # NEW
+│   │   ├── models/              # Sequelize 모델 (index.js에서 통합 등록)
 │   │   │
 │   │   ├── middleware/          # 미들웨어
 │   │   │   ├── auth.js          # JWT 인증 (generateToken, authenticate, authorize)
 │   │   │   ├── errorHandler.js  # 에러 핸들러
-│   │   │   └── upload.js        # 파일 업로드
+│   │   │   └── upload.js        # 파일 업로드 (multer)
 │   │   │
 │   │   ├── controllers/         # 컨트롤러
+│   │   │   ├── aiChatController.js
 │   │   │   ├── authController.js
-│   │   │   ├── userController.js
-│   │   │   ├── campaignController.js
-│   │   │   ├── itemController.js
-│   │   │   ├── itemSlotController.js    # NEW
+│   │   │   ├── brandDashboardController.js
+│   │   │   ├── brandSettlementController.js
+│   │   │   ├── buyerAnalyticsController.js
 │   │   │   ├── buyerController.js
+│   │   │   ├── campaignController.js
 │   │   │   ├── imageController.js
-│   │   │   ├── monthlyBrandController.js # NEW
-│   │   │   ├── notificationController.js # NEW
-│   │   │   ├── settingController.js      # NEW
-│   │   │   └── memoController.js         # NEW
+│   │   │   ├── itemController.js
+│   │   │   ├── itemSlotController.js
+│   │   │   ├── memoController.js
+│   │   │   ├── notificationController.js
+│   │   │   ├── rankingController.js
+│   │   │   └── salesDashboardController.js
+│   │   │   └── settingController.js
 │   │   │
-│   │   ├── routes/              # 라우트
-│   │   │   ├── index.js         # 라우트 통합
+│   │   ├── routes/              # 라우트 (app.js에서 마운트)
+│   │   │   ├── aiChat.js
 │   │   │   ├── auth.js
-│   │   │   ├── users.js
-│   │   │   ├── campaigns.js
-│   │   │   ├── items.js
-│   │   │   ├── itemSlots.js     # NEW
+│   │   │   ├── brandDashboard.js
+│   │   │   ├── brandSettlements.js
+│   │   │   ├── buyerAnalytics.js
 │   │   │   ├── buyers.js
+│   │   │   ├── campaigns.js
 │   │   │   ├── images.js
-│   │   │   ├── monthlyBrands.js # NEW
-│   │   │   ├── notifications.js # NEW
-│   │   │   ├── settings.js      # NEW
-│   │   │   └── memos.js         # NEW
+│   │   │   ├── itemSlots.js
+│   │   │   ├── items.js
+│   │   │   ├── memos.js
+│   │   │   ├── monthlyBrands.js   # 핸들러 인라인 구현 (전용 컨트롤러 없음)
+│   │   │   ├── notifications.js
+│   │   │   ├── rankings.js
+│   │   │   ├── salesDashboard.js
+│   │   │   ├── settings.js
+│   │   │   ├── sheetMemos.js      # 핸들러 인라인 구현 (전용 컨트롤러 없음)
+│   │   │   ├── trash.js           # 핸들러 인라인 구현 (전용 컨트롤러 없음)
+│   │   │   └── users.js           # 핸들러 인라인 구현 (전용 컨트롤러 없음)
 │   │   │
-│   │   ├── services/            # 비즈니스 로직
-│   │   │   ├── authService.js
-│   │   │   ├── campaignService.js
-│   │   │   ├── s3Service.js
-│   │   │   └── permissionService.js
-│   │   │
-│   │   ├── utils/               # 유틸리티
-│   │   │   ├── logger.js
-│   │   │   ├── validator.js
-│   │   │   └── accountNormalizer.js  # NEW - 계좌번호 정규화
-│   │   │
-│   │   └── app.js               # Express 앱 설정
+│   │   └── app.js               # Express 앱 설정 + 라우트 마운트 + /health
 │   │
 │   ├── migrations/              # DB 마이그레이션
 │   ├── seeders/                 # 시드 데이터
-│   ├── tests/                   # 테스트 파일
 │   ├── .env.example             # 환경 변수 예시
-│   ├── .env                     # 환경 변수 (gitignore)
-│   ├── .gitignore
 │   ├── package.json
 │   └── server.js                # 서버 진입점
 │
@@ -115,167 +99,321 @@ purchaseweb/
 └── docs/                        # 문서
 ```
 
-## API 엔드포인트 설계
+> **참고**: `users.js`, `monthlyBrands.js`, `sheetMemos.js`, `trash.js`는 별도 컨트롤러 파일 없이 라우트 파일 안에 핸들러를 인라인으로 구현합니다. (`userController.js`, `monthlyBrandController.js`, `sheetMemoController.js`, `trashController.js`는 존재하지 않음.)
 
-### 인증 (Auth) ✅ 구현 완료
-```
-POST   /api/auth/login           # 로그인 (JWT 발급)
-POST   /api/auth/logout          # 로그아웃
-GET    /api/auth/me              # 현재 사용자 정보 (인증 필요)
-POST   /api/auth/verify-password # 비밀번호 검증
-PUT    /api/auth/profile         # 프로필 수정
-```
+## 라우트 마운트 (`backend/src/app.js`)
 
-### 사용자 (Users) - 총관리자만
-```
-GET    /api/users                # 사용자 목록
-GET    /api/users?role=operator  # 역할별 조회
-GET    /api/users/control-tower  # 컨트롤 타워용 사용자 목록 (역할별 그룹핑)
-POST   /api/users                # 사용자 생성
-GET    /api/users/:id            # 사용자 조회
-PUT    /api/users/:id            # 사용자 수정
-DELETE /api/users/:id            # 사용자 비활성화
-POST   /api/users/:id/reset-password # 비밀번호 초기화
-```
+| 마운트 경로 | 라우트 파일 |
+|---|---|
+| `/api/auth` | `routes/auth.js` |
+| `/api/users` | `routes/users.js` |
+| `/api/campaigns` | `routes/campaigns.js` |
+| `/api/items` | `routes/items.js` |
+| `/api/buyers` | `routes/buyers.js` |
+| `/api/images` | `routes/images.js` |
+| `/api/notifications` | `routes/notifications.js` |
+| `/api/settings` | `routes/settings.js` |
+| `/api/memos` | `routes/memos.js` |
+| `/api/monthly-brands` | `routes/monthlyBrands.js` |
+| `/api/item-slots` | `routes/itemSlots.js` |
+| `/api/sheet-memos` | `routes/sheetMemos.js` |
+| `/api/trash` | `routes/trash.js` |
+| `/api/brand-settlements` | `routes/brandSettlements.js` |
+| `/api/brand-dashboard` | `routes/brandDashboard.js` |
+| `/api/sales-dashboard` | `routes/salesDashboard.js` |
+| `/api/rankings` | `routes/rankings.js` |
+| `/api/buyer-analytics` | `routes/buyerAnalytics.js` |
+| `/api/ai-chat` | `routes/aiChat.js` |
 
-### 캠페인 (Campaigns)
-```
-GET    /api/campaigns            # 캠페인 목록 (역할별 필터)
-POST   /api/campaigns            # 캠페인 생성 (영업사)
-GET    /api/campaigns/:id        # 캠페인 조회
-PUT    /api/campaigns/:id        # 캠페인 수정
-DELETE /api/campaigns/:id        # 캠페인 삭제
-```
+이외에 헬스 체크용 `GET /health` (인증 불필요)가 `app.js`에 직접 정의되어 있습니다.
 
-### 연월브랜드 (Monthly Brands) - NEW
-```
-GET    /api/monthly-brands                    # 연월브랜드 목록
-GET    /api/monthly-brands?viewAsUserId=xxx   # Admin이 특정 사용자 데이터 조회
-POST   /api/monthly-brands                    # 연월브랜드 생성
-PUT    /api/monthly-brands/:id                # 연월브랜드 수정
-DELETE /api/monthly-brands/:id                # 연월브랜드 삭제
-```
+## 공통 사항
 
-### 품목 (Items)
-```
-GET    /api/items                           # 전체 품목 (Admin - 진행자 배정용)
-GET    /api/items/my-assigned               # 내게 배정된 품목 (Operator)
-GET    /api/items/my-preuploads             # 선 업로드 있는 품목 (Operator)
-GET    /api/items/my-monthly-brands         # 내게 배정된 연월브랜드 (Operator)
-GET    /api/items/my-monthly-brands?viewAsUserId=xxx  # Admin이 특정 진행자 데이터 조회
-GET    /api/items/campaign/:campaignId      # 캠페인별 품목
-GET    /api/items/token/:token              # 토큰으로 품목 조회 (Public)
-POST   /api/items/campaign/:campaignId      # 품목 생성 (Sales, Admin)
-GET    /api/items/:id                       # 품목 조회
-PUT    /api/items/:id                       # 품목 수정
-DELETE /api/items/:id                       # 품목 삭제
-POST   /api/items/:id/operator              # 진행자 배정 (Admin) - day_group 지원
-PUT    /api/items/:id/operator              # 진행자 재배정 (Admin) - day_group 지원
-DELETE /api/items/:id/operator/:operatorId  # 배정 해제 (Admin)
-PATCH  /api/items/:id/deposit-name          # 입금명 수정 (Admin, Operator, Sales)
-```
+- **인증 미들웨어**: `authenticate` = 로그인 필수(JWT 검증), `authorize([...])` = 지정 역할만 허용, "Public" = 인증 불필요. 일부 라우트는 컨트롤러 내부에서 레코드 단위 소유권을 추가로 검사합니다 (예: 캠페인/품목 수정·삭제).
+- **viewAsUserId**: Admin이 다른 사용자(영업사/진행자/브랜드사)의 입장에서 데이터를 조회·생성할 수 있게 하는 쿼리/바디 파라미터입니다. 지원 엔드포인트 목록은 문서 하단의 "viewAsUserId 지원" 섹션을 참고하세요.
+- **모바일 인증**: 웹 JWT(7일)와 별개로 모바일은 Access + Refresh Token 흐름을 사용합니다 (`mobile-login` / `refresh` / `mobile-logout` + `heartbeat`).
+
+---
+
+## API 엔드포인트
+
+### Auth (`/api/auth`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| POST | `/api/auth/login` | Public | 로그인 (JWT 발급) |
+| POST | `/api/auth/logout` | Private | 로그아웃 |
+| GET | `/api/auth/me` | Private | 현재 사용자 정보 |
+| POST | `/api/auth/verify-password` | Private | 비밀번호 재확인 (2차 검증) |
+| PUT | `/api/auth/profile` | Private | 프로필 수정 (name, password) |
+| POST | `/api/auth/mobile-login` | Public | 모바일 로그인 (Access + Refresh Token 발급) |
+| POST | `/api/auth/refresh` | Public | Refresh Token으로 Access Token 갱신 |
+| POST | `/api/auth/mobile-logout` | Public | 모바일 로그아웃 (Refresh Token 폐기) |
+| POST | `/api/auth/heartbeat` | Private | 사용자 활동 상태 갱신 (last_activity) |
+
+### Users (`/api/users`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/users` | Private (admin; role=brand도 sales 허용) | 사용자 목록 (role 필터) |
+| GET | `/api/users/my-brands` | sales, admin | 로그인 영업사 담당 브랜드 목록 (BrandSales 기준) |
+| GET | `/api/users/sales/:salesId/brands` | admin | 특정 영업사 담당 브랜드 목록 |
+| POST | `/api/users/brand` | sales, admin | 브랜드 사용자 생성 + 영업사 자동 할당 |
+| GET | `/api/users/control-tower/users` | admin | 컨트롤 타워용 사용자 목록 (초기비번/온라인/로그인횟수 포함) |
+| POST | `/api/users/brands/:brandId/assign-me` | sales, admin | 영업사가 기존 브랜드에 자신을 할당 (멱등) |
+| GET | `/api/users/brands/:brandId/sales` | admin | 특정 브랜드 담당 영업사 목록 |
+| POST | `/api/users/brands/:brandId/sales` | admin | 브랜드에 영업사 추가 할당 |
+| DELETE | `/api/users/brands/:brandId/sales/:salesId` | admin | 브랜드-영업사 할당 해제 |
+| GET | `/api/users/sales/:fromSalesId/transfer-preview` | admin | 영업사 전체 인수인계 미리보기 (DB 변경 없음) |
+| POST | `/api/users/sales/:fromSalesId/transfer-all/:toSalesId` | admin | 영업사 A에서 B로 전체 권한 일괄 이전 |
+| GET | `/api/users/brands/:brandId/transfer-preview` | admin | 특정 브랜드 한정 영업사 이전 미리보기 (query fromSalesId) |
+| POST | `/api/users/brands/:brandId/transfer` | admin | 특정 브랜드 한정 영업사 A에서 B로 이전 (body fromSalesId/toSalesId) |
+| POST | `/api/users` | admin | 사용자 생성 |
+| GET | `/api/users/brands-for-review-search` | admin, operator | 리뷰샷 검색/구매자 분석용 브랜드사 드롭다운 옵션 |
+| GET | `/api/users/:id` | admin | 사용자 상세 |
+| PUT | `/api/users/:id` | admin | 사용자 수정 |
+| PATCH | `/api/users/:id/deactivate` | admin | 사용자 비활성화 (리프레시 토큰 폐기) |
+| PATCH | `/api/users/:id/activate` | admin | 사용자 재활성화 |
+| DELETE | `/api/users/:id` | admin | 사용자 삭제 (force/delegateTo 쿼리로 연관데이터 위임/cascade) |
+| POST | `/api/users/:id/reset-password` | admin | 비밀번호 초기화 (임시 8자리 발급) |
+| GET | `/api/users/:id/activities` | admin | 사용자 활동 로그 (limit/offset/date) |
+| GET | `/api/users/:id/stats` | admin | 사용자 활동 통계 (일별 로그인, days) |
+| GET | `/api/users/:id/campaigns` | admin | 사용자 역할별 캠페인 목록 |
+| GET | `/api/users/:id/items` | admin | 사용자 역할별 품목 목록 (campaign_id 필터) |
+| GET | `/api/users/:id/buyers` | admin | 사용자 역할별 구매자 목록 (item_id 필터) |
+
+> 브랜드-영업사 N:M 매핑은 `brand_sales` 테이블 기반입니다. `DELETE /api/users/:id`는 단순 비활성화가 아니라 실제 삭제이며, 활성/비활성 전환은 별도의 `deactivate`/`activate` 엔드포인트입니다.
+
+### Campaigns (`/api/campaigns`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/campaigns` | Private (역할별 필터) | 캠페인 목록 |
+| POST | `/api/campaigns` | sales, admin | 캠페인 생성 |
+| GET | `/api/campaigns/:id` | Private | 캠페인 상세 |
+| PUT | `/api/campaigns/:id` | Private (owner/admin, 컨트롤러 체크) | 캠페인 수정 |
+| DELETE | `/api/campaigns/:id` | Private (owner/admin, 컨트롤러 체크) | 캠페인 삭제 |
+| DELETE | `/api/campaigns/:id/cascade` | admin, sales, operator | 캠페인 강제 삭제 (하위 cascade) |
+| PATCH | `/api/campaigns/:id/hide` | Private (전 역할) | 캠페인 숨기기 |
+| PATCH | `/api/campaigns/:id/restore` | Private (전 역할) | 캠페인 복구 |
+| POST | `/api/campaigns/:id/operators` | admin | 진행자 배정 |
+| DELETE | `/api/campaigns/:campaignId/operators/:operatorId` | admin | 진행자 배정 해제 |
+| GET | `/api/campaigns/:id/operators` | Private | 배정된 진행자 목록 |
+| PATCH | `/api/campaigns/:id/change-sales` | admin | 캠페인 영업사 변경 |
+
+### Items (`/api/items`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/items/token/:token` | Public | 토큰으로 품목 조회 (업로드 페이지용) |
+| GET | `/api/items` | admin | 전체 품목 목록 (진행자 배정용) |
+| GET | `/api/items/my-assigned` | operator, admin | 내게 배정된 품목 |
+| GET | `/api/items/my-monthly-brands` | operator, admin | 내게 배정된 연월브랜드 (viewAsUserId 지원) |
+| GET | `/api/items/by-brand` | brand, admin | 브랜드별 품목 |
+| GET | `/api/items/by-sales` | sales, admin | 영업사 캠페인 품목 (일별 조회) |
+| GET | `/api/items/by-operator` | operator, admin | 진행자 배정 품목 플랫 리스트 (일별 조회) |
+| GET | `/api/items/campaign/:campaignId` | Private | 캠페인별 품목 |
+| POST | `/api/items/campaign/:campaignId` | sales, admin | 품목 생성 |
+| POST | `/api/items/campaign/:campaignId/bulk` | sales, admin | 품목 일괄 생성 |
+| GET | `/api/items/:id` | Private | 품목 상세 |
+| PUT | `/api/items/:id` | Private (owner/admin) | 품목 수정 |
+| POST | `/api/items/:id/operator` | admin | 품목에 진행자 배정 (day_group 지원) |
+| PUT | `/api/items/:id/operator` | admin | 품목 진행자 재배정 |
+| DELETE | `/api/items/:id/operator/:operatorId` | admin | 품목 진행자 배정 해제 |
+| PATCH | `/api/items/:id/deposit-name` | operator, admin, sales | 입금명 수정 |
+| DELETE | `/api/items/:id` | Private (owner/admin) | 품목 삭제 |
 
 **진행자 배정 API Body 예시:**
 ```json
 {
   "operatorId": 21,
-  "day_group": 1    // null이면 전체 품목, 숫자면 해당 일차만
+  "day_group": 1
 }
 ```
+`day_group`이 null이면 전체 품목, 숫자면 해당 일차만 배정합니다.
 
-### 품목 슬롯 (Item Slots) - NEW
-```
-GET    /api/item-slots/item/:itemId                    # 품목별 슬롯 조회
-GET    /api/item-slots/campaign/:campaignId            # 캠페인별 슬롯 조회 (Sales, Admin, Brand)
-GET    /api/item-slots/campaign/:campaignId?viewAsRole=brand  # Brand 뷰 (이미지 포함)
-GET    /api/item-slots/operator/campaign/:campaignId   # Operator용 캠페인별 슬롯
-GET    /api/item-slots/operator/campaign/:campaignId?viewAsUserId=xxx  # Admin이 특정 진행자 데이터 조회
-GET    /api/item-slots/operator/my-assigned            # 내게 배정된 슬롯 (Operator)
-PUT    /api/item-slots/:id                             # 슬롯 수정
-PUT    /api/item-slots/bulk/update                     # 다중 슬롯 일괄 수정
-DELETE /api/item-slots/:id                             # 슬롯 삭제
-DELETE /api/item-slots/bulk/delete                     # 다중 슬롯 삭제
-DELETE /api/item-slots/group/:itemId/:dayGroup         # 그룹별 슬롯 삭제
-DELETE /api/item-slots/item/:itemId                    # 품목의 모든 슬롯 삭제
-```
+### Item Slots (`/api/item-slots`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/item-slots/item/:itemId` | sales, admin, operator | 품목별 슬롯 목록 |
+| GET | `/api/item-slots/campaign/:campaignId` | sales, admin, brand | 캠페인별 전체 슬롯 |
+| GET | `/api/item-slots/by-product-name` | brand, admin | 제품명으로 브랜드 전체 캠페인 슬롯 통합 검색 (viewAsUserId 지원) |
+| GET | `/api/item-slots/operator/campaign/:campaignId` | operator, admin | Operator용 캠페인별 배정 슬롯 (viewAsUserId 지원) |
+| GET | `/api/item-slots/operator/my-assigned` | operator, admin | Operator용 전체 배정 슬롯 |
+| GET | `/api/item-slots/by-date` | operator, sales, admin | 날짜별 슬롯 (날짜별 작업 페이지) |
+| GET | `/api/item-slots/operator/overdue` | operator, admin | 14일 경과 + 리뷰샷 미제출 슬롯 |
+| GET | `/api/item-slots/operator/monthly-counts` | operator, admin | 월별 일자별 카운트 (전체/작성/리뷰샷) |
+| POST | `/api/item-slots/adjust-daily-count` | sales, admin | 일건수 조정 (day_group별 슬롯 수 변경) |
+| POST | `/api/item-slots` | sales, admin, operator | 슬롯 추가 |
+| PUT | `/api/item-slots/:id` | sales, admin, operator | 슬롯 개별 수정 |
+| PUT | `/api/item-slots/bulk/update` | sales, admin, operator | 다중 슬롯 일괄 수정 |
+| GET | `/api/item-slots/token/:token` | Public | 슬롯 토큰 조회 (업로드 페이지) |
+| DELETE | `/api/item-slots/bulk/delete` | sales, admin, operator | 다중 슬롯 삭제 |
+| DELETE | `/api/item-slots/group/:itemId/:dayGroup` | sales, admin, operator | 그룹별(day_group) 슬롯 삭제 |
+| DELETE | `/api/item-slots/item/:itemId` | sales, admin | 품목 전체 슬롯 삭제 |
+| DELETE | `/api/item-slots/:id` | sales, admin, operator | 개별 슬롯 삭제 |
+| POST | `/api/item-slots/:slotId/split-day-group` | sales, admin, operator | 일 마감 (day_group 분할 + 진행자/제품정보 복사) |
+| POST | `/api/item-slots/suspend` | admin | day_group 중단 (배정 해제 + 중단 상태) |
+| POST | `/api/item-slots/resume` | admin | day_group 재개 |
 
-### 구매자/리뷰어 (Buyers)
-```
-GET    /api/buyers/item/:itemId            # 구매자 목록
-POST   /api/buyers/item/:itemId            # 구매자 추가
-POST   /api/buyers/item/:itemId/parse      # 슬래시 구분 데이터 파싱 후 추가
-POST   /api/buyers/item/:itemId/bulk       # 다중 구매자 일괄 추가
-GET    /api/buyers/:id                     # 구매자 조회
-PUT    /api/buyers/:id                     # 구매자 수정
-DELETE /api/buyers/:id                     # 구매자 삭제
-PATCH  /api/buyers/:id/payment             # 입금 확인 (총관리자만)
-```
+### Buyers (`/api/buyers`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/buyers/by-month` | operator, sales, admin | 월별 구매자 (이미지 업로드일 기준, KST) |
+| GET | `/api/buyers/by-date` | operator, sales, admin | 일별 구매자 (KST) |
+| GET | `/api/buyers/item/:itemId` | Private | 품목 구매자 목록 |
+| POST | `/api/buyers/item/:itemId` | operator, admin | 구매자 추가 |
+| POST | `/api/buyers/item/:itemId/parse` | operator, admin | 슬래시 구분 파싱 후 구매자 추가 |
+| POST | `/api/buyers/item/:itemId/bulk` | operator, admin | 다중 구매자 일괄 추가 |
+| POST | `/api/buyers/item/:itemId/tracking-bulk` | admin | 송장번호 일괄 입력 (등록 순서 매칭) |
+| GET | `/api/buyers/courier-tracking` | admin | 택배대행(Y) 구매자 조회 (날짜별 송장관리) |
+| GET | `/api/buyers/:id` | Private | 구매자 상세 |
+| PUT | `/api/buyers/:id` | operator, admin | 구매자 수정 |
+| DELETE | `/api/buyers/:id` | operator, admin | 구매자 삭제 |
+| PATCH | `/api/buyers/:id/payment` | admin | 입금 확인 토글 |
+| PATCH | `/api/buyers/:id/tracking` | sales, admin | 송장번호 수정 |
+| PATCH | `/api/buyers/:id/tracking-info` | admin | 송장정보(번호+택배사) 수정 |
+| PATCH | `/api/buyers/:id/shipping-delayed` | admin, operator | 배송지연 상태 토글 |
+| PATCH | `/api/buyers/:id/courier` | admin | 택배사 수정 |
 
-### 이미지 (Images)
-```
-GET    /api/images/search-buyers/:token    # 이름으로 구매자 검색 (Public) - NEW
-POST   /api/images/upload/:token           # 토큰 기반 이미지 업로드 (Public, 최대 10개)
-POST   /api/images/upload-slot/:token      # 슬롯용 이미지 업로드 (Public)
-GET    /api/images/item/:itemId            # 이미지 목록
-DELETE /api/images/:id                     # 이미지 삭제
-```
+### Images (`/api/images`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/images/search-buyers/:token` | Public (토큰) | 이름으로 구매자 검색 (업로드 선택용) |
+| POST | `/api/images/upload/:token` | Public (토큰) | 다중 이미지 업로드 (buyer_ids 직접 매칭, multer) |
+| GET | `/api/images/item/:itemId` | Private | 품목 이미지 목록 |
+| DELETE | `/api/images/:id` | operator, admin | 리뷰샷 삭제 (Buyer 리뷰 필드 초기화) |
+| GET | `/api/images/pending` | admin | 대기 중(status=pending) 재제출 이미지 목록 |
+| GET | `/api/images/pending/count` | admin | 대기 중 재제출 이미지 개수 (알림 배지) |
+| GET | `/api/images/search` | admin, operator | 리뷰샷 검색 (브랜드사 필수, 제품명/기간 선택) |
+| POST | `/api/images/:id/approve` | admin | 재제출 이미지 승인 |
+| POST | `/api/images/:id/reject` | admin | 재제출 이미지 거절 (reason) |
+| GET | `/api/images/proxy` | Private | 이미지 프록시 (CORS 우회, ZIP 다운로드용, query url) |
 
-**구매자 검색 API (NEW):**
-```javascript
-// 이름으로 구매자 검색 (이미지 업로드 전 선택용)
+**구매자 검색 API:**
+```
 GET /api/images/search-buyers/:token?name=홍길동
-
-// 응답
-{
-  "success": true,
-  "data": [
-    {
-      "id": 234,
-      "date": "2026-01-14",
-      "order_number": "8100156654664",
-      "recipient_name": "홍길동",
-      "user_id": "hong1"
-    }
-  ]
-}
 ```
+이미지 업로드 전, 이름으로 동일 슬롯 그룹 내 구매자를 검색하여 업로드 대상 주문을 선택합니다.
 
-**이미지 업로드 API (변경됨):**
-```javascript
-// 기존: 주문번호/계좌번호 텍스트 입력
-// 변경: buyer_ids 배열로 직접 지정
+**이미지 업로드 API:**
+```
 POST /api/images/upload/:token
 Body: {
   buyer_ids: [234, 235],  // 선택된 구매자 ID 배열
-  images: File[]          // buyer_ids[i] ↔ images[i] 1:1 매칭
+  images: File[]          // 선택한 주문에 직접 매칭
 }
 ```
 
-### 알림 (Notifications) - NEW
-```
-GET    /api/notifications                  # 내 알림 목록 (읽지 않은 것만)
-GET    /api/notifications/all              # 내 알림 전체
-PATCH  /api/notifications/:id/read         # 알림 읽음 처리
-PATCH  /api/notifications/read-all         # 모든 알림 읽음 처리
-DELETE /api/notifications/:id              # 알림 삭제
-```
+> **이미지 승인 워크플로우**: 이미지는 `status`(pending/approved/rejected)를 가집니다. 통계/대시보드 집계는 `images.status='approved'`만 포함합니다. 재제출 이미지는 `pending` 상태로 등록되어 Admin이 승인/거절합니다.
 
-### 설정 (Settings) - NEW (Admin 전용)
-```
-GET    /api/settings                       # 전체 설정 조회
-GET    /api/settings/:key                  # 특정 설정 조회
-PUT    /api/settings/:key                  # 설정 수정
-POST   /api/settings                       # 설정 생성
-DELETE /api/settings/:key                  # 설정 삭제
-```
+### Notifications (`/api/notifications`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/notifications` | Private | 내 알림 목록 |
+| PATCH | `/api/notifications/:id/read` | Private | 알림 읽음 처리 |
+| PATCH | `/api/notifications/read-all` | Private | 모든 알림 읽음 처리 |
+| DELETE | `/api/notifications/:id` | Private | 알림 삭제 |
 
-### 사용자 메모 (Memos) - NEW (Admin 전용)
-```
-GET    /api/memos/user/:userId             # 사용자의 메모 목록
-POST   /api/memos/user/:userId             # 메모 추가
-PUT    /api/memos/:id                      # 메모 수정
-DELETE /api/memos/:id                      # 메모 삭제
-```
+### Settings (`/api/settings`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/settings/login` | Public | 로그인 페이지 설정 조회 |
+| PUT | `/api/settings/login` | admin | 로그인 페이지 설정 수정 |
+| POST | `/api/settings/login/banner` | admin | 로그인 배너 이미지 업로드 (multer, 5MB) |
+| DELETE | `/api/settings/login/banner` | admin | 로그인 배너 이미지 삭제 |
+
+> 설정 라우트는 로그인 페이지 설정과 배너 전용입니다. 범용 key 기반 CRUD 엔드포인트는 존재하지 않습니다.
+
+### Memos (`/api/memos`) — 개인 메모장
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/memos/me` | Private | 내 메모 조회 |
+| PUT | `/api/memos/me` | Private | 내 메모 저장 |
+
+> 메모는 로그인한 본인의 개인 메모(1인 1메모)이며, 다른 사용자의 메모에 접근하는 엔드포인트는 없습니다.
+
+### Sheet Memos (`/api/sheet-memos`) — 시트 셀 메모
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/sheet-memos/campaign/:campaignId` | operator, sales, admin | 캠페인별 시트 메모 조회 (query sheetType, viewAsUserId) |
+| POST | `/api/sheet-memos/campaign/:campaignId/bulk` | operator, sales, admin | 시트 메모 일괄 upsert (빈 값은 삭제) |
+| DELETE | `/api/sheet-memos/campaign/:campaignId` | operator, sales, admin | 캠페인 메모 삭제 (query sheetType 선택) |
+
+### Monthly Brands (`/api/monthly-brands`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/monthly-brands/my-brand` | brand, admin | 브랜드사용 연월브랜드 목록 (viewAsUserId, 통계 포함) |
+| GET | `/api/monthly-brands/all` | admin | 모든 연월브랜드 (진행자 배정 상태 포함) |
+| GET | `/api/monthly-brands` | sales, admin | 영업사 연월브랜드 목록 (viewAsUserId, 슬롯/통계 포함) |
+| GET | `/api/monthly-brands/:id` | sales, admin | 연월브랜드 상세 |
+| POST | `/api/monthly-brands` | sales, admin | 연월브랜드 생성 (viewAsUserId 지원) |
+| PATCH | `/api/monthly-brands/:id/change-brand` | admin | 브랜드사 변경 (하위 캠페인 brand_id 동기화) |
+| PUT | `/api/monthly-brands/:id` | sales, admin | 연월브랜드 수정 |
+| PATCH | `/api/monthly-brands/:id/hide` | sales, admin, operator, brand | 연월브랜드 숨기기 |
+| PATCH | `/api/monthly-brands/:id/restore` | sales, admin, operator, brand | 연월브랜드 복구 |
+| DELETE | `/api/monthly-brands/:id` | sales, admin | 연월브랜드 삭제 (캠페인 있으면 거부) |
+| DELETE | `/api/monthly-brands/:id/cascade` | admin, sales, operator | 강제 삭제 (하위 cascade, 휴지통 이동) |
+| PATCH | `/api/monthly-brands/reorder` | sales, admin | 순서 변경 (created_by 기준) |
+| PATCH | `/api/monthly-brands/reorder-operator` | operator, admin | 순서 변경 (배정 기준) |
+| PATCH | `/api/monthly-brands/reorder-brand` | brand, admin | 순서 변경 (brand_id 기준) |
+
+### Trash (`/api/trash`) — 휴지통 (soft delete)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/trash` | admin, sales, operator | 휴지통 목록 (연월브랜드/캠페인/품목, 30일 만료일 포함) |
+| POST | `/api/trash/restore/:type/:id` | admin, sales, operator | 휴지통 복원 (type: monthlyBrand/campaign/item, 하위 cascade 복원) |
+| DELETE | `/api/trash/permanent/:type/:id` | admin | 영구 삭제 |
+| DELETE | `/api/trash/empty` | admin | 휴지통 비우기 (30일 경과분 영구 삭제) |
+
+### Brand Settlements (`/api/brand-settlements`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/brand-settlements/summary` | admin | 브랜드사 > 연월브랜드 > 캠페인 3단 정산 요약 |
+| GET | `/api/brand-settlements/sales-products` | admin, sales | 영업사 본인 캠페인 제품 단위 정산 요약 (admin은 viewAsUserId) |
+
+### Brand Dashboard (`/api/brand-dashboard`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/brand-dashboard/overview` | brand, admin | 브랜드 현황 대시보드 요약 (카드/추이/이슈) |
+| GET | `/api/brand-dashboard/product-list` | brand, admin | 제품별 현황 리스트 |
+
+> 현재 라우트 파일에는 `overview`, `product-list` 2개만 등록되어 있습니다. `product-rollup` 라우트는 존재하지 않습니다.
+
+### Sales Dashboard (`/api/sales-dashboard`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/sales-dashboard/brands` | sales, admin | 영업사 대시보드 브랜드 필터 옵션 |
+| GET | `/api/sales-dashboard/months` | sales, admin | 영업사 대시보드 월 필터 옵션 |
+| GET | `/api/sales-dashboard/overview` | sales, admin | 영업사 현황 대시보드 요약 |
+| GET | `/api/sales-dashboard/product-list` | sales, admin | 영업사 제품별 현황 리스트 |
+
+### Rankings (`/api/rankings`) — BEST100 랭킹 수집/분석
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/rankings/categories` | Private | 랭킹 카테고리 목록 |
+| GET | `/api/rankings/latest` | admin | 최신 랭킹 스냅샷 |
+| GET | `/api/rankings/changes` | admin | 랭킹 시계열 변동 분석 (window/base) |
+| GET | `/api/rankings/history` | admin, brand | 특정 상품 랭킹 추이 (추이 모달용) |
+| GET | `/api/rankings/insights` | admin | 랭킹 인사이트 |
+| GET | `/api/rankings/my-products` | brand, admin | 자사 제품 랭킹 |
+| GET | `/api/rankings/my-changes` | brand, admin | 자사 제품 종합 변동/추이/이탈/요약/인사이트 |
+| POST | `/api/rankings/trigger` | admin, brand | 랭킹 수집 트리거 (캐시/lock/rate-limit 자동) |
+| GET | `/api/rankings/progress` | Private | 수집 진행 상태 폴링 |
+
+### Buyer Analytics (`/api/buyer-analytics`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/buyer-analytics/accounts` | admin, operator | 계좌(account_normalized) 단위 구매자 통계 집계 |
+| GET | `/api/buyer-analytics/accounts/:accountNormalized/buyers` | admin, operator | 특정 계좌에 묶인 구매자 상세 목록 |
+
+### AI Chat (`/api/ai-chat`)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| POST | `/api/ai-chat` | admin (컨트롤러에서 masterkangwoo 계정 추가 검증) | AI 챗 질의 |
+
+### Health
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/health` | Public | 헬스 체크 (app.js 직접 정의) |
+
+---
 
 ## 환경 변수 (.env)
 
@@ -288,119 +426,77 @@ DELETE /api/memos/:id                      # 메모 삭제
 - `DB_PORT`: 데이터베이스 포트 (기본: 5432)
 - `DB_NAME`: 데이터베이스 이름
 - `DB_USER`: 데이터베이스 사용자
-- `DB_PASS`: 데이터베이스 비밀번호
+- `DB_PASSWORD`: 데이터베이스 비밀번호
 - `JWT_SECRET`: JWT 서명 키
+- `JWT_EXPIRE` / `JWT_REFRESH_EXPIRE`: 토큰 유효기간 (기본 7d / 30d)
 - `AWS_ACCESS_KEY_ID`: AWS 액세스 키
 - `AWS_SECRET_ACCESS_KEY`: AWS 시크릿 키
 - `AWS_REGION`: AWS 리전 (기본: ap-northeast-2)
 - `S3_BUCKET_NAME`: S3 버킷 이름
 - `FRONTEND_URL`: CORS 허용 URL
 
+AI 챗(`AI_CHAT_ENABLED`/`ANTHROPIC_API_KEY`/`AI_CHAT_ALLOWED_USERS`/`DB_READONLY_*`), 리뷰 추출(`OPENAI_*`/`EXTRACTION_*`), 올리브영 랭킹 워커(`RANKING_AUTO_ENABLED`/`PROXY_MODE`/프록시 자격증명) 관련 변수는 [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) 참고.
+
 ## 권한 체크 미들웨어 로직
 
-### 역할별 권한
-```javascript
-const PERMISSIONS = {
-  admin: {
-    campaigns: ['read', 'create', 'update', 'delete'],
-    items: ['read', 'create', 'update', 'delete'],
-    buyers: ['read', 'create', 'update', 'delete'],
-    users: ['read', 'create', 'update', 'delete'],
-    operators: ['assign', 'unassign'],
-    payment: ['confirm'],
-    settings: ['read', 'update'],
-    controlTower: ['viewAnyUser']  // NEW - 다른 사용자 대시보드 조회
-  },
-  sales: {
-    campaigns: ['read', 'create', 'update'], // 자신의 것만
-    items: ['read', 'create', 'update'],     // 자신의 것만
-    buyers: ['read'],                        // 자신의 것만
-    depositName: ['update'],                 // NEW - 입금명 수정
-    users: [],
-    operators: [],
-    payment: []
-  },
-  operator: {
-    campaigns: ['read'],                     // 배정된 것만
-    items: ['read'],                         // 배정된 것만
-    itemSlots: ['read', 'update'],           // NEW - 슬롯 편집
-    buyers: ['read', 'create', 'update', 'delete'], // 배정된 것만
-    depositName: ['update'],                 // NEW - 입금명 수정
-    users: [],
-    operators: [],
-    payment: []  // 표시만 가능, 확인 불가
-  },
-  brand: {
-    campaigns: ['read'],                     // 연결된 것만
-    items: ['read'],                         // 연결된 것만
-    buyers: ['read'],                        // 제한된 컬럼만
-    users: [],
-    operators: [],
-    payment: []
-  }
-};
+### 역할
+JWT 기반 인증(`authenticate`)으로 사용자를 식별하고, `authorize([...])`로 역할별 접근을 제어합니다. 역할은 `admin`, `sales`, `operator`, `brand` 4종입니다.
+
+- **admin**: 모든 리소스 CRUD, 진행자 배정/재배정, 입금 확인, 사용자 등록/관리, 영업사 변경, 마진/정산 관리, 컨트롤 타워(다른 사용자 대시보드 조회)
+- **sales**: 연월브랜드/캠페인/품목 생성 (자신의 것), 구매자 조회, 입금명 수정, 마진/정산 조회 (자신의 캠페인)
+- **operator**: 배정된 품목의 구매자 CRUD, 슬롯 편집, 입금명 수정, 메모/시트 메모
+- **brand**: 연결된 연월브랜드의 캠페인/품목/구매자 조회 (제한된 컬럼, 읽기 전용)
+
+### viewAsUserId 지원
+
+Admin이 다른 사용자(영업사/진행자/브랜드사)의 데이터를 조회·생성할 때 사용하는 쿼리/바디 파라미터입니다.
+
 ```
-
-### viewAsUserId 지원 API
-
-Admin이 다른 사용자의 데이터를 조회할 때 사용하는 쿼리 파라미터:
-
-```javascript
-// 예시: Admin이 특정 진행자의 연월브랜드 목록 조회
-GET /api/items/my-monthly-brands?viewAsUserId=123
-
-// 예시: Admin이 특정 진행자의 캠페인별 슬롯 조회
+GET /api/monthly-brands?viewAsUserId=123
 GET /api/item-slots/operator/campaign/456?viewAsUserId=123
 ```
 
 **지원 엔드포인트:**
-- `GET /api/items/my-monthly-brands`
-- `GET /api/item-slots/operator/campaign/:campaignId`
-- `GET /api/monthly-brands`
-
-## 구현 완료 현황
-
-1. ✅ 데이터베이스 스키마 설계 완료
-2. ✅ 백엔드 구조 설계 완료
-3. ✅ 백엔드 프로젝트 초기화
-4. ✅ 데이터베이스 연결 및 모델 생성
-5. ✅ **JWT 인증 시스템 구현**
-6. ✅ API 엔드포인트 구현
-7. ✅ Docker 컨테이너 배포
-8. ✅ **ItemSlot 시스템 구현** (2025-12)
-9. ✅ **viewAsUserId 지원** (2025-12-29)
-10. ✅ **일차별(day_group) 진행자 배정** (2026-01-03)
-11. ✅ **Brand 시트 14컬럼 확장** (2026-01-10)
-12. ✅ **순번→플랫폼 컬럼 변경** (2026-01-10)
-13. ✅ **데이터 타입 TEXT 전환** (2026-01-15) - 모든 데이터 필드 유연화
-14. ✅ **이미지 업로드 방식 변경** (2026-01-15) - 이름 검색 + 선택 방식
+- Monthly Brands: `GET /`, `GET /my-brand`, `POST /`, `reorder`, `reorder-operator`, `reorder-brand`
+- Items: `GET /my-monthly-brands`
+- Item Slots: `GET /operator/campaign/:campaignId`, `GET /by-product-name`
+- Sheet Memos: `GET /campaign/:campaignId`
+- Brand Settlements: `GET /sales-products`
+- Brand Dashboard: `overview`, `product-list`
+- Sales Dashboard: 전 엔드포인트
+- Rankings: `my-products`, `my-changes`
+- Images: `GET /search`
+- Users: `GET /brands-for-review-search`, `POST /brand`, `POST /brands/:brandId/assign-me`
 
 ## JWT 인증 시스템 상세
 
 ### 구현된 기능
-- **JWT 토큰 발급**: 로그인 시 7일 유효 토큰 발급
-- **비밀번호 해싱**: bcrypt (salt rounds: 10)
+- **JWT 토큰 발급**: 웹 로그인 시 7일 유효 토큰 발급
+- **Refresh Token**: 모바일 로그인 시 Access + Refresh Token 발급, `refresh` 엔드포인트로 갱신 (`refresh_tokens` 테이블)
+- **비밀번호 해싱**: bcrypt
 - **역할 기반 접근 제어**: admin, sales, operator, brand
 - **토큰 검증 미들웨어**: authenticate, authorize
+- **활동 추적**: heartbeat로 last_activity 갱신, `user_activities` 테이블에 로그인/로그아웃/heartbeat 기록
 
 ### 관련 파일
 ```
 backend/src/
-├── middleware/auth.js      # JWT 미들웨어 (generateToken, authenticate, authorize)
-├── controllers/authController.js  # login, logout, getMe
-├── routes/auth.js          # /api/auth/* 라우트
-└── models/User.js          # comparePassword, toJSON 메서드
+├── middleware/auth.js            # JWT 미들웨어 (generateToken, authenticate, authorize)
+├── controllers/authController.js # login, logout, getMe, verifyPassword, updateProfile,
+│                                 #   mobileLogin, refresh, mobileLogout, heartbeat
+├── routes/auth.js                # /api/auth/* 라우트
+└── models/User.js                # comparePassword, toJSON 메서드
 ```
 
 ### 프론트엔드 인증
 ```
 frontend/src/
-├── context/AuthContext.js  # 인증 상태 관리 (React Context)
-├── components/Login.js     # 로그인 페이지
+├── context/AuthContext.js        # 인증 상태 관리 (React Context)
+├── components/Login.js           # 로그인 페이지
 ├── components/ProtectedRoute.js  # 역할 기반 라우트 보호
 └── services/
-    ├── authService.js      # 로그인/로그아웃 API
-    └── api.js              # Axios 인터셉터 (토큰 자동 첨부, 401 처리)
+    ├── authService.js            # 로그인/로그아웃 API
+    └── api.js                    # Axios 인터셉터 (토큰 자동 첨부, 401 처리)
 ```
 
 ## 개발 워크플로우
@@ -433,10 +529,12 @@ make deploy
 docker compose pull
 docker compose up -d --force-recreate
 
-# 마이그레이션 및 시더
-docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
-docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:seed:all"
+# 마이그레이션 및 시더 (서비스명은 deploy/docker-compose.yml의 campmanager)
+docker compose exec campmanager sh -c "cd backend && npx sequelize-cli db:migrate"
+docker compose exec campmanager sh -c "cd backend && npx sequelize-cli db:seed:all"
 ```
+
+> 상세 배포 절차(전체 env, Makefile, ai_readonly 역할, 랭킹 워커/프록시)는 [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) 참고.
 
 ### Nginx + SSL (현재 구성)
 - SSL: Let's Encrypt
@@ -444,4 +542,4 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:seed:all"
 
 ---
 
-**최종 업데이트**: 2026-01-15
+**최종 업데이트**: 2026-06-29

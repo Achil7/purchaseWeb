@@ -78,7 +78,7 @@ purchaseweb/
 | 총관리자 | `admin` | **모든 기능** (캠페인/품목/구매자 CRUD, 진행자 배정/재배정, 입금 확인, 사용자 등록/관리, 업로드 링크 복사, 캠페인 영업사 변경, 마진 관리, **컨트롤 타워에서 모든 사용자 대시보드 조회**) |
 | 영업사 | `sales` | 연월브랜드/캠페인/품목 생성 (자신의 것만), 브랜드 등록, 구매자 조회 (수정/삭제 불가), 마진 조회 (자신의 캠페인만) |
 | 진행자 | `operator` | 배정된 품목의 구매자 CRUD, 이미지 업로드 링크 공유, 메모장 기능, 입금명 수정 가능 |
-| 브랜드사 | `brand` | 연결된 캠페인의 리뷰 현황 조회 (제한된 컬럼: 주문번호/구매자/수취인/아이디/주소/금액/송장번호/리뷰샷 - 연락처, 계좌 제외) |
+| 브랜드사 | `brand` | 연결된 캠페인의 리뷰 현황 조회 (주문번호/구매자/수취인/아이디/연락처/주소/금액/송장번호/리뷰샷 - 계좌정보(account_info)만 제외) |
 
 **중요**: 각 역할은 자신의 페이지만 접근 가능 (admin은 /admin에서 모든 역할의 기능 API 접근 가능)
 
@@ -337,7 +337,7 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정,
 - 이미지 업로드 링크 공유 (슬롯별 토큰 링크 복사)
 - 입금명 수정 가능
 - 메모장 기능 (OperatorMemoDialog)
-- **선 업로드 알림**: 헤더 알림 아이콘에 선 업로드된 이미지 개수 표시 (30초마다 갱신)
+- **선 업로드(임시 구매자)**: 구매자 등록 전 업로드된 이미지는 임시 buyer로 보관 → 실제 구매자 등록 시 자동 병합 (과거 헤더 알림 아이콘은 현재 코드에 없음)
 - **Handsontable 시트**: 연월브랜드별 캠페인 목록 → 캠페인 클릭 시 품목 시트 표시
 - **배정상태 표시**: 당일 배정=신규(주황 'NEW' 칩), 다음날=진행 + 구매자 없으면 경고 아이콘(빨강)
 
@@ -346,8 +346,8 @@ CampaignOperator (품목-진행자 매핑) ← 총관리자가 배정/재배정,
 - 연결된 연월브랜드의 캠페인/품목/구매자 조회 (읽기 전용)
 - **제한된 컬럼만 표시**:
   - 제품 테이블: 접기, 날짜, 플랫폼, 제품명, 옵션, 출고, 키워드, 가격, 총건수, 일건수, 택배대행, URL, 빈칸, 특이사항
-  - 구매자 테이블: 빈칸, 주문번호, 구매자, 수취인, 아이디, 주소, 금액, 송장번호, 리뷰샷
-  - **제외**: 연락처, 계좌번호
+  - 구매자 테이블: 빈칸, 주문번호, 구매자, 수취인, 아이디, 연락처, 주소, 금액, 송장번호, 리뷰샷
+  - **제외**: 계좌정보(account_info)만 (연락처/주소/금액은 표시됨)
 - **선 업로드 숨김**: is_temporary=false인 구매자만 표시
 - **진행률 표시**: 슬롯 수 대비 리뷰 완료 구매자 퍼센트 (3개 역할 공통 기준)
 
@@ -514,6 +514,13 @@ POST   /api/images/upload/:token            # 이미지 업로드 (Public, buyer
 DELETE /api/images/:id                      # 이미지 삭제 (Operator, Admin, Sales)
 ```
 
+### AI Chat (Admin)
+```
+POST   /api/ai-chat                         # 자연어 DB 질의/검증/리포트 (Admin, 화이트리스트 계정)
+                                            # body: { messages, attachment?, model? }
+                                            # 읽기전용 역할(ai_readonly)로만 SELECT 실행
+```
+
 ---
 
 ## 배포
@@ -567,9 +574,35 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 - [x] 숨김 항목 관리 (연월브랜드/캠페인 숨기기/복구)
 - [x] Shift+스크롤 횡스크롤 전용
 - [x] Operator 메모장 기능 (OperatorMemoDialog)
-- [x] Operator 선 업로드 알림 (30초 갱신)
+- [x] 선 업로드(임시 구매자) 자동 병합 — 진행자 등록 시 (헤더 알림 아이콘은 제거됨)
 
-### 최신 수정 (2026-04-24)
+### 최신 수정 (2026-06-29)
+- [x] **Admin AI 챗 (text-to-SQL) 도입**
+  - `/admin/ai-chat` 신규 — 자연어로 DB 질의·검증·리포트 생성 (Claude API 기반)
+  - **읽기전용 전용 역할 `ai_readonly`로만 접속** — INSERT/UPDATE/DELETE 원천 차단, `statement_timeout` 10초
+  - 접근 제어: 운영(kwad.co.kr)은 `masterkangwoo`만 (`AI_CHAT_ALLOWED_USERS`), test 도메인은 모든 admin. 비허용 계정은 메뉴 비노출 + 조용히 리다이렉트
+  - 도구(tool use): `run_sql`(SELECT/WITH 전용 검증 + 자동 LIMIT), `generate_pdf`(Playwright HTML→PDF)
+  - 엑셀 첨부 대조: 견적서 등 업로드(SheetJS 파싱) → 해당 월 DB와 대조 검증 (단발, 그 요청에만 적용)
+  - 표 형식 답변(react-markdown + remark-gfm), 프롬프트 캐싱으로 비용 절감
+  - 백엔드 신규: `POST /api/ai-chat`, `config/anthropic`, `config/readonlyDb`, `services/aiChatService`, `aiChatKnowledge`, `sqlValidator`, `pdfRenderer`
+- [x] **AI 챗 질문 난이도별 모델 선택 + 비용 표시**
+  - 입력창 위 선택 바 3종: 간단 조회(Haiku 4.5) / 일반 분석(Sonnet 4.6, 기본·추천) / 정밀 대조(Opus 4.8)
+  - 비개발자용 자동 설명(예시·상대 비용) + 답변별 "모델 · 예상 비용(원)" 표시 + 선택값 localStorage 유지
+  - 기본 Sonnet (재무성 작업 안전). **Haiku는 adaptive thinking 미지원이라 thinking 생략**(400 방지, 비용 절감)
+  - 모델 화이트리스트 + 단가표 서버측 관리 (`resolveModel`, `PRICING`)
+- [x] **마진현황 기능 제거**
+  - admin 마진/정산(settlement)/견적(estimate) UI·모델·라우트 전사 제거 (`AdminMarginDashboard`, margin 탭 4종, Estimate/Settlement/SettlementProduct/MarginSetting 모델, estimate/settlement 컨트롤러·라우트·서비스)
+  - 브랜드 정산(brand-settlement) 및 마이그레이션 파일은 보존
+- [x] **브랜드 계정 일련번호(serial) 도입**
+  - 각 브랜드 계정(users role='brand')에 고유 `serial`(BR0001..) 자동 부여, 기존 계정은 등록순 백필 (마이그레이션 `20260626000000-add-serial-to-users`)
+  - 목적: 견적서 브랜드명 ≠ 시스템 계정명 문제 해결 — 일련번호로 `users.serial` 정확 매칭
+  - 표시: 브랜드사 페이지/컨트롤타워 헤더, 계정 생성 완료 안내
+- [x] **택배대행 송장관리**
+  - `/admin/courier-tracking` 신규 — 택배대행 대상 구매자 송장번호 일괄 조회/입력 (Admin 전용)
+- [x] **36차 DB 부하 최적화**
+  - slot_number 2-pass를 CASE WHEN 벌크 SQL로, 재제출 승인 S3 병렬 삭제 + DB 벌크, 택배대행 조회 LATERAL 조인, 알림 count 쿼리 제거
+
+### 이전 수정 (2026-04-24)
 - [x] **브랜드사 대시보드 도입 (1차 + 2차)**
   - `/brand` 첫 화면을 빈 안내 → **브랜드 현황 대시보드**로 교체
   - 상단 탭 2개: **현황 대시보드 / 캠페인 보기** (AppBar 내부 버튼 스타일, 기본은 대시보드)
@@ -581,7 +614,7 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
     - 제품별 현황 테이블: 제품명 단위 합산, 컬럼 정렬(TableSortLabel), 필터(client-side), 20행 페이지네이션, 행 클릭 시 Collapse 로 포함 캠페인 목록 펼침(내부도 정렬 가능)
   - 제품별 현황 → 캠페인 클릭 시 `/brand?openCampaign=:id` 로 이동 → BrandLayout 이 쿼리 감지하여 탭 전환 + 캠페인 자동 선택 (시트 바로 오픈)
   - **제거된 컴포넌트**: BrandItemTable, BrandBuyerTable, BrandCampaignTable (중간 경유지, App.js 라우트 포함 완전 제거)
-  - 백엔드 신규: `GET /api/brand-dashboard/overview`, `GET /api/brand-dashboard/product-list`, `GET /api/brand-dashboard/product-rollup` (rollup은 보존)
+  - 백엔드 신규: `GET /api/brand-dashboard/overview`, `GET /api/brand-dashboard/product-list`
   - 공통 SQL fragment `BUYER_LEVEL_VIEW_SQL` 재사용, 필터 원칙: `is_temporary=false` + `images.status='approved'` + `item_slots.is_suspended=false`
 - [x] **시트 스크롤 영역 슬림화**
   - 캠페인 보기 탭의 제품명 통합 검색 툴바 / 캠페인 헤더 높이 축소
@@ -805,4 +838,4 @@ FPS: 60.4
 
 ---
 
-**최종 업데이트**: 2026-04-24
+**최종 업데이트**: 2026-06-29

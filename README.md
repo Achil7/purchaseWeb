@@ -26,6 +26,7 @@ http://localhost:5000
 
 - **Frontend**: React 19, Material-UI 7, Handsontable
 - **Backend**: Node.js, Express, Sequelize, PostgreSQL
+- **AI**: Claude API (Admin AI 챗 - text-to-SQL)
 - **Infrastructure**: Docker, AWS (EC2, RDS, S3), Nginx
 
 ## 문서
@@ -40,11 +41,11 @@ http://localhost:5000
 
 | 역할 | 주요 기능 |
 |------|----------|
-| 총관리자 | 전체 관리, 진행자 배정, 입금확인, 마진관리 |
-| 영업사 | 캠페인/품목 생성, 마진 조회 |
+| 총관리자 | 전체 관리, 진행자 배정, 입금확인, 택배대행 송장관리, AI 챗(text-to-SQL) |
+| 영업사 | 캠페인/품목 생성, 구매자 조회 |
 | 진행자 | 구매자 관리, 이미지 업로드 링크 공유 |
-| 브랜드사 | 리뷰 현황 조회 |
+| 브랜드사 | 리뷰 현황 대시보드, 캠페인 조회 |
 
 ---
 
-**최종 업데이트**: 2026-01-20
+**최종 업데이트**: 2026-06-29
