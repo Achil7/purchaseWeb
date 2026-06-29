@@ -75,6 +75,9 @@ app.use('/api/sales-dashboard', require('./routes/salesDashboard'));
 app.use('/api/rankings', require('./routes/rankings'));
 app.use('/api/buyer-analytics', require('./routes/buyerAnalytics'));
 app.use('/api/ai-chat', require('./routes/aiChat'));
+app.use('/api/bloggers', require('./routes/bloggers'));
+app.use('/api/blogger-requests', require('./routes/bloggerRequests'));
+app.use('/api/blogger-submit', require('./routes/bloggerSubmit'));
 
 // Serve static files from React build (production)
 if (process.env.NODE_ENV === 'production') {
