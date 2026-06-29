@@ -60,7 +60,7 @@ exports.chat = async (req, res) => {
       });
     }
 
-    const { messages, attachment } = req.body;
+    const { messages, attachment, model } = req.body;
 
     let safeAttachment = null;
     try {
@@ -97,7 +97,7 @@ exports.chat = async (req, res) => {
       });
     }
 
-    const result = await aiChatService.runChat(messages, { attachment: safeAttachment });
+    const result = await aiChatService.runChat(messages, { attachment: safeAttachment, model });
 
     return res.json({
       success: true,

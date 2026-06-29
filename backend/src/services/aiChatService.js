@@ -1,5 +1,5 @@
 const { QueryTypes } = require('sequelize');
-const { getAnthropicClient, DEFAULT_MODEL, calculateCost } = require('../config/anthropic');
+const { getAnthropicClient, resolveModel, calculateCost } = require('../config/anthropic');
 const { readonlySequelize } = require('../config/readonlyDb');
 const { validateAndPrepare, MAX_LIMIT } = require('./sqlValidator');
 const { KNOWLEDGE } = require('./aiChatKnowledge');
@@ -206,7 +206,8 @@ const withCacheBreakpoint = (msgs) => {
  * @returns {Promise<{answer:string, executedQueries:string[], pdfArtifacts:Array, usage:object}>}
  */
 const runChat = async (history, opts = {}) => {
-  const { attachment } = opts;
+  const { attachment, model: requestedModel } = opts;
+  const model = resolveModel(requestedModel); // 화이트리스트 외/미지정 시 기본 모델
   const client = getAnthropicClient();
 
   const messages = history.map((m) => ({ role: m.role, content: m.content }));
@@ -224,15 +225,20 @@ const runChat = async (history, opts = {}) => {
   let answer = '';
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const resp = await client.messages.create({
-      model: DEFAULT_MODEL,
+    const createParams = {
+      model,
       // PDF 리포트 HTML이 tool 입력(=출력 토큰)으로 생성되므로 넉넉히 (비스트리밍 안전 상한)
       max_tokens: 16000,
-      thinking: { type: 'adaptive' },
       system,
       tools: TOOLS,
       messages: withCacheBreakpoint(messages),
-    });
+    };
+    // adaptive thinking은 4.6/4.7+ 세대 기능(Sonnet 4.6, Opus 4.x). Haiku 4.5는
+    // 미지원이라 보내면 400 → 생략(단순 조회용이라 thinking 불필요, 비용도 절감).
+    if (model !== 'claude-haiku-4-5') {
+      createParams.thinking = { type: 'adaptive' };
+    }
+    const resp = await client.messages.create(createParams);
 
     inputTokens += resp.usage?.input_tokens || 0;
     outputTokens += resp.usage?.output_tokens || 0;
@@ -320,11 +326,12 @@ const runChat = async (history, opts = {}) => {
     executedQueries,
     pdfArtifacts,
     usage: {
+      model,
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       cache_read_input_tokens: cacheReadTokens,
       cache_creation_input_tokens: cacheWriteTokens,
-      cost_usd: calculateCost(DEFAULT_MODEL, {
+      cost_usd: calculateCost(model, {
         inputTokens,
         outputTokens,
         cacheReadTokens,
