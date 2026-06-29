@@ -124,6 +124,9 @@ purchaseweb/
 | `/api/rankings` | `routes/rankings.js` |
 | `/api/buyer-analytics` | `routes/buyerAnalytics.js` |
 | `/api/ai-chat` | `routes/aiChat.js` |
+| `/api/bloggers` | `routes/bloggers.js` |
+| `/api/blogger-requests` | `routes/bloggerRequests.js` |
+| `/api/blogger-submit` | `routes/bloggerSubmit.js` (Public) |
 
 이외에 헬스 체크용 `GET /health` (인증 불필요)가 `app.js`에 직접 정의되어 있습니다.
 
@@ -407,6 +410,33 @@ Body: {
 | Method | Path | Access | 설명 |
 |---|---|---|---|
 | POST | `/api/ai-chat` | admin (컨트롤러에서 masterkangwoo 계정 추가 검증) | AI 챗 질의 |
+
+### Bloggers (`/api/bloggers`) — 블로그 체험단 마스터 (전역 공통)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/bloggers` | admin, brand | 블로거 목록 (admin: 전체+memo / brand: 노출중인 것만, brand_id 필터 없음) |
+| POST | `/api/bloggers` | admin | 블로거 등록 |
+| PUT | `/api/bloggers/:id` | admin | 블로거 수정 |
+| DELETE | `/api/bloggers/:id` | admin | 블로거 삭제 (soft delete) |
+| PATCH | `/api/bloggers/:id/active` | admin | 노출 토글 |
+
+### Blogger Requests (`/api/blogger-requests`) — 발행 협의 요청
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| POST | `/api/blogger-requests` | brand, admin | 협의 요청 생성 (`blogger_ids[]`, `campaign_id?`, `product_provision?`) |
+| GET | `/api/blogger-requests/my` | brand, admin | 내 요청 목록 (viewAsUserId 지원) |
+| GET | `/api/blogger-requests` | admin | 전체 인박스 (status 필터) |
+| GET | `/api/blogger-requests/:id` | admin, brand(소유자) | 요청 상세 |
+| PUT | `/api/blogger-requests/:id` | admin | 요청 수정 (상태/가이드/메모) |
+| PATCH | `/api/blogger-requests/:id/cancel` | brand(소유자), admin | 요청 취소 |
+| PUT | `/api/blogger-requests/items/:itemId` | admin | 항목 수정 (참여의사/단가/제품제공/주소) |
+| POST | `/api/blogger-requests/items/:itemId/issue-token` | admin | 제출 토큰 발급 |
+
+### Blogger Submit (`/api/blogger-submit`) — 작성 링크 제출 (Public)
+| Method | Path | Access | 설명 |
+|---|---|---|---|
+| GET | `/api/blogger-submit/:token` | Public | 제출 컨텍스트 조회 (활동명/캠페인/가이드 등) |
+| POST | `/api/blogger-submit/:token` | Public | 작성 글 링크 제출 (`{ url }`) |
 
 ### Health
 | Method | Path | Access | 설명 |

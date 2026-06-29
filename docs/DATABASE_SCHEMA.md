@@ -55,7 +55,7 @@ review_extracted_texts (리뷰샷 GPT-4o Vision OCR 결과, 구매자 1:1)
 
 ---
 
-## 테이블 상세 (모델 기반 18개)
+## 테이블 상세 (모델 기반 21개)
 
 ### 1. users (사용자 테이블)
 사용자 계정 및 역할 관리. `role`은 Postgres ENUM 입니다. `deleted_at` 컬럼은 소프트 삭제 마이그레이션(20260114)으로 추가되었으나, User 모델 자체에는 `paranoid` 옵션이 선언되어 있지 않습니다 (컬럼은 물리적으로 존재).
@@ -707,11 +707,76 @@ CREATE TABLE ranking_collection_jobs (
 
 ---
 
+### 19. bloggers (블로거/블로그 체험단 마스터 테이블)
+블로그 체험단으로 진행 가능한 블로거 풀. **전역 공통**(brand_id 없음) — 모든 브랜드사가 동일 목록 조회. 리뷰 캠페인의 구매자(buyers)와 무관한 독립 테이블. (마이그레이션 `20260629000001`)
+
+```sql
+CREATE TABLE bloggers (
+  id SERIAL PRIMARY KEY,
+  activity_name VARCHAR(200) NOT NULL,      -- 활동명
+  blog_url TEXT,                            -- 블로그 주소
+  daily_visitors TEXT,                      -- 평균 1일 방문자 수 (TEXT 정책)
+  main_content TEXT,                        -- 주요 콘텐츠
+  memo TEXT,                                -- admin 내부 메모 (브랜드 비노출)
+  is_active BOOLEAN NOT NULL DEFAULT true,  -- 브랜드 노출 여부
+  sort_order INTEGER,                       -- 목록 정렬 순서
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMP                      -- soft delete (paranoid)
+);
+```
+
+### 20. blogger_requests (블로거 발행 협의 요청 헤더 테이블)
+브랜드사가 블로거를 선택해 보낸 발행 협의 요청(브랜드 단위 헤더). `brand_id`로 소유권 구분. (마이그레이션 `20260629000002`)
+
+```sql
+CREATE TABLE blogger_requests (
+  id SERIAL PRIMARY KEY,
+  brand_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- 요청 브랜드사
+  campaign_id INTEGER REFERENCES campaigns(id) ON DELETE SET NULL,   -- 연관 캠페인 (선택)
+  status TEXT NOT NULL DEFAULT 'requested',  -- requested/reviewing/in_progress/completed/cancelled
+  product_provision TEXT,                    -- sponsored(협찬) / self_purchase(내돈내산)
+  guide_text TEXT,                           -- 브랜드 가이드(키워드/소구점)
+  brand_memo TEXT,
+  admin_memo TEXT,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMP
+);
+```
+
+### 21. blogger_request_items (요청-블로거 매핑 + 블로거별 진행 테이블)
+한 협의 요청에 포함된 블로거별 진행 행. 참여의사/단가/작성 링크/공개 제출 토큰. (마이그레이션 `20260629000003`)
+
+```sql
+CREATE TABLE blogger_request_items (
+  id SERIAL PRIMARY KEY,
+  request_id INTEGER NOT NULL REFERENCES blogger_requests(id) ON DELETE CASCADE,
+  blogger_id INTEGER NOT NULL REFERENCES bloggers(id) ON DELETE CASCADE,
+  participation_status TEXT NOT NULL DEFAULT 'pending',  -- pending/accepted/declined
+  product_provision TEXT,                    -- 항목별 override (없으면 request 상속)
+  unit_price TEXT,                           -- 협의 단가 (TEXT)
+  shipping_address TEXT,                     -- 협찬 배송 주소
+  submission_url TEXT,                       -- 작성 글 링크 (Phase 3)
+  submitted_at TIMESTAMP,                    -- 작성 제출 일자
+  submit_token VARCHAR(100),                 -- 공개 제출 링크용 토큰 (UUID)
+  admin_memo TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMP,
+  UNIQUE(request_id, blogger_id)
+);
+```
+
+---
+
 ## 마이그레이션 전용 테이블 (모델 없음, 4개)
 
 다음 테이블들은 마이그레이션으로 생성되어 DB에 존재하지만 Sequelize 모델이 없어 `models/index.js`에 등록되지 않습니다 (견적/정산 관련 raw 쿼리로 접근).
 
-### 19. estimates (견적서 테이블)
+### 22. estimates (견적서 테이블)
 견적서 파일 업로드/파싱 결과. (마이그레이션 `20260121000000`)
 
 ```sql
@@ -740,7 +805,7 @@ CREATE INDEX ON estimates(estimate_date);
 CREATE INDEX ON estimates(company_name);
 ```
 
-### 20. settlements (정산 테이블)
+### 23. settlements (정산 테이블)
 정산 헤더 (매출/지출 단가·수량). (마이그레이션 `20260221000001`)
 
 ```sql
@@ -764,7 +829,7 @@ CREATE INDEX ON settlements(month);
 CREATE INDEX ON settlements(company_name);
 ```
 
-### 21. settlement_products (정산 제품 테이블)
+### 24. settlement_products (정산 제품 테이블)
 정산에 포함된 제품별 명세. (마이그레이션 `20260221000001`)
 
 ```sql
@@ -782,7 +847,7 @@ CREATE TABLE settlement_products (
 CREATE INDEX ON settlement_products(settlement_id);
 ```
 
-### 22. margin_settings (마진 설정 테이블)
+### 25. margin_settings (마진 설정 테이블)
 마진 계산용 전역 설정. (마이그레이션 `20260221000001`, `delivery_cost_with_vat='2750'` 시드)
 
 ```sql
