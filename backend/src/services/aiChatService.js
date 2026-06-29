@@ -47,6 +47,12 @@ id, campaign_id, item_id, operator_id→users.id, day_group(nullable), assigned_
 id, item_id→items.id, order_number, buyer_name, recipient_name, user_id(쇼핑몰 아이디), contact, address, account_info, is_temporary(bool), amount(TEXT), payment_status('pending'|'completed'), payment_confirmed_at, tracking_number, courier_company, shipping_delayed(bool), deposit_name, expected_payment_date(date), review_submitted_at, date(TEXT), created_by→users.id, created_at
 ### images (paranoid, updated_at 없음)
 id, buyer_id→buyers.id, item_id→items.id, s3_url, status('pending'|'approved'|'rejected', 기본 'approved'), created_at
+### bloggers (블로그 체험단 마스터 — 전역 공통, 브랜드와 무관, paranoid)
+id, activity_name(활동명), blog_url(블로그 주소), daily_visitors(TEXT, 평균 1일 방문자수), main_content(주요 콘텐츠), is_active(브랜드 노출여부), sort_order, created_by→users.id, created_at
+### blogger_requests (브랜드의 블로거 발행 협의 요청 헤더, paranoid)
+id, brand_id→users.id(role='brand'), campaign_id→campaigns.id(nullable), status('requested'요청됨|'reviewing'확인중|'in_progress'진행중|'completed'완료|'cancelled'취소), product_provision('sponsored'협찬배송|'self_purchase'내돈내산), guide_text, brand_memo, admin_memo, created_at
+### blogger_request_items (요청-블로거 매핑 + 블로거별 진행, paranoid)
+id, request_id→blogger_requests.id, blogger_id→bloggers.id, participation_status('pending'대기|'accepted'참여|'declined'거절), product_provision(nullable, 없으면 request 상속), unit_price(TEXT, 협의단가), submission_url(작성 글 링크), submitted_at(작성 제출일), created_at
 (이 외 review_extracted_texts 등도 SELECT 가능)
 
 ## 쿼리 작성 규칙
@@ -54,8 +60,9 @@ id, buyer_id→buyers.id, item_id→items.id, s3_url, status('pending'|'approved
 - **시간대(KST)**: 타임스탬프는 timestamptz(UTC). 날짜 집계·표시는 \`(created_at AT TIME ZONE 'Asia/Seoul')\`, 날짜만 \`(created_at AT TIME ZONE 'Asia/Seoul')::date\`.
 - **유효 데이터/리뷰 완료**: \`buyers.is_temporary=false\` + \`item_slots.is_suspended=false\`, "리뷰 완료"는 buyer에 \`images.status='approved'\` 이미지 1건 이상.
 - **구매자 등록 판정(중요)**: 구매자 행(슬롯)은 영업사가 품목 등록 시 자동 생성되는 빈 칸이다. **주문번호(order_number)가 있으면 등록된 구매자, 없으면 미등록 슬롯(정상)**. "등록 구매자 수"는 \`order_number IS NOT NULL AND order_number <> ''\` 기준으로 센다. 빈 슬롯(주문번호 없음)은 누락·이상치가 아니다.
-- **숫자 캐스팅**: amount/product_price/total_purchase_count/sale_price_per_unit 등 TEXT → \`CAST(NULLIF(regexp_replace(amount,'[^0-9]','','g'),'') AS BIGINT)\`.
+- **숫자 캐스팅**: amount/product_price/total_purchase_count/sale_price_per_unit 등 TEXT → \`CAST(NULLIF(regexp_replace(amount,'[^0-9]','','g'),'') AS BIGINT)\`. blogger의 daily_visitors, blogger_request_items의 unit_price도 TEXT → 동일 캐스팅.
 - **진행률 분모**: item_slots 행 수(is_suspended=false)가 기본.
+- **블로거(체험단)**: bloggers/blogger_requests/blogger_request_items도 \`deleted_at IS NULL\`. bloggers는 전역 공통(brand_id 컬럼 없음) — 특정 브랜드 기준 집계는 blogger_requests.brand_id로 필터한다. "참여 확정 블로거" = blogger_request_items.participation_status='accepted'. "작성 완료" = submission_url IS NOT NULL. 한 요청의 확정 인원 = 그 request_id의 accepted 항목 수.
 
 ## 결과 보고 = 사람이 알아볼 수 있게 (raw ID 금지, 위치 경로 필수)
 관리자는 **연월브랜드 → 캠페인** 순으로 화면을 찾아간다. 연월브랜드·캠페인이 수십 개라 이 위치 정보가 없으면 어디 데이터인지 못 찾는다. 따라서 점검·분석 결과의 **모든 항목**에 raw ID 대신 아래를 **빠짐없이** 붙여라 — 일부만 채우고 나머지를 생략하지 마라. 매번 필요한 테이블을 전부 JOIN해서 채운다.
