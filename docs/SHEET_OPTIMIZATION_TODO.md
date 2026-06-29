@@ -2438,6 +2438,49 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 
 ---
 
+### 36차 최적화 (2026-06-29) - 루프 내 순차 DB/S3 호출 제거 + CASE WHEN 벌크
+
+**배경:**
+35차 이후 추가된 빈 셀 정렬(slot_number 2-pass) 코드와 기존 코드의 순차 루프 패턴을 벌크/병렬로 전환.
+
+**적용 내용:**
+
+#### A. itemSlotController.js — slot_number 2-pass 루프 → CASE WHEN 벌크
+- **변경 전:** for 루프로 개별 slot.update() 2*N회 (10개 정렬 = 20회 UPDATE)
+- **변경 후:** raw SQL `CASE id WHEN ... THEN ...` 2회 UPDATE (슬롯 수 무관)
+
+#### B. imageController.js — approveImage 순차 S3/DB → 병렬 + 벌크
+- **변경 전:** for 루프 순차 deleteFromS3 + destroy + update (기존5+신규3 = 13회)
+- **변경 후:** Promise.all S3 병렬 + Image.destroy 벌크 + Image.update 벌크 (DB 2회)
+
+#### C. buyerController.js — getCourierTrackingBuyers 상관 서브쿼리 → LATERAL
+- **변경 전:** SELECT 절 내 `(SELECT im.s3_url ... LIMIT 1)` 상관 서브쿼리
+- **변경 후:** `LEFT JOIN LATERAL (SELECT ... LIMIT 1) latest_img ON true`
+
+#### D. notificationController.js — unread_only=false 시 count 쿼리 제거
+- **변경 전:** findAll + count 항상 병렬 2회 쿼리
+- **변경 후:** unread_only=false(기본)일 때 findAll 결과에서 JS 카운트 → DB 1회
+
+**수정 파일:**
+- `backend/src/controllers/itemSlotController.js`
+- `backend/src/controllers/imageController.js`
+- `backend/src/controllers/buyerController.js`
+- `backend/src/controllers/notificationController.js`
+
+**프론트엔드 수정 없음. 마이그레이션 없음.**
+
+**빌드:** ✅ 4개 파일 문법 검증 통과
+
+**기능 검증 항목:**
+- [ ] Operator/Sales → 빈 셀 정렬 (slot_number 변경) 정상 동작
+- [ ] Admin → 재제출 이미지 승인 정상 + 기존 이미지 삭제 확인
+- [ ] Admin → 택배대행 관리 이미지 URL 정상 표시
+- [ ] 전 역할 → 알림 목록 조회 + unreadCount 정확
+
+**결론:** ⏳ 테스트 대기
+
+---
+
 ### [예정] CSS 클래스 기반 스타일링 전환 (시트 렌더러 최적화)
 
 **목적:** 시트 빠른 스크롤 시 셀이 비어있다가 늦게 채워지는 현상 개선
@@ -2605,4 +2648,4 @@ measureFPS();
 
 ---
 
-## 최종 업데이트: 2026-05-30
+## 최종 업데이트: 2026-06-29
