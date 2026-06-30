@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
   Button, IconButton, Switch, TextField, InputAdornment, Dialog, DialogTitle,
-  DialogContent, DialogActions, Stack, Link, Alert, CircularProgress, Tooltip, Chip
+  DialogContent, DialogActions, Stack, Link, Alert, CircularProgress, Tooltip, Chip,
+  TableSortLabel
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -17,15 +18,21 @@ const EMPTY_FORM = {
   daily_visitors: '',
   main_content: '',
   memo: '',
-  sort_order: '',
   is_active: true
 };
+
+// 방문자수 등 TEXT 컬럼에서 숫자만 추출 (정렬용)
+const parseNum = (v) => parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10) || 0;
 
 function AdminBloggers() {
   const [bloggers, setBloggers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+
+  // 정렬 상태 (컬럼 클릭)
+  const [sortKey, setSortKey] = useState(null);   // 'activity_name' | 'daily_visitors' | 'is_active'
+  const [sortDir, setSortDir] = useState('asc');
 
   // 등록/수정 다이얼로그
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -52,6 +59,15 @@ function AdminBloggers() {
 
   useEffect(() => { load(); }, [load]);
 
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
   const openCreate = () => {
     setEditId(null);
     setForm(EMPTY_FORM);
@@ -66,7 +82,6 @@ function AdminBloggers() {
       daily_visitors: b.daily_visitors || '',
       main_content: b.main_content || '',
       memo: b.memo || '',
-      sort_order: b.sort_order ?? '',
       is_active: !!b.is_active
     });
     setDialogOpen(true);
@@ -131,7 +146,38 @@ function AdminBloggers() {
         (b.blog_url || '').toLowerCase().includes(q))
     : bloggers;
 
+  // 정렬 적용 (미선택 시 등록순=서버 id순 유지)
+  const rows = useMemo(() => {
+    if (!sortKey) return filtered;
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      if (sortKey === 'daily_visitors') {
+        return sortDir === 'asc' ? parseNum(a.daily_visitors) - parseNum(b.daily_visitors) : parseNum(b.daily_visitors) - parseNum(a.daily_visitors);
+      }
+      if (sortKey === 'is_active') {
+        const av = a.is_active ? 1 : 0, bv = b.is_active ? 1 : 0;
+        return sortDir === 'asc' ? av - bv : bv - av;
+      }
+      const av = (a[sortKey] || '').toString();
+      const bv = (b[sortKey] || '').toString();
+      return sortDir === 'asc' ? av.localeCompare(bv, 'ko') : bv.localeCompare(av, 'ko');
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
+
   const activeCount = bloggers.filter(b => b.is_active).length;
+
+  const sortHeader = (key, label, width) => (
+    <TableCell sx={{ width, fontWeight: 'bold' }} sortDirection={sortKey === key ? sortDir : false}>
+      <TableSortLabel
+        active={sortKey === key}
+        direction={sortKey === key ? sortDir : 'asc'}
+        onClick={() => handleSort(key)}
+      >
+        {label}
+      </TableSortLabel>
+    </TableCell>
+  );
 
   return (
     <Box>
@@ -164,6 +210,7 @@ function AdminBloggers() {
 
       <Alert severity="info" variant="outlined" sx={{ mb: 2 }}>
         여기에 등록된 블로거는 <b>모든 브랜드사</b>가 공통으로 보게 됩니다 (올리브영 랭킹 탭처럼).
+        목록은 등록순으로 표시되며, 컬럼 헤더(활동명/평균 1일 방문자/노출)를 클릭해 정렬할 수 있습니다.
         노출을 끄면 브랜드 화면에서 숨겨집니다. 메모는 내부용으로 브랜드에 보이지 않습니다.
       </Alert>
 
@@ -174,7 +221,7 @@ function AdminBloggers() {
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
             <CircularProgress />
           </Box>
-        ) : filtered.length === 0 ? (
+        ) : rows.length === 0 ? (
           <Box sx={{ py: 6, textAlign: 'center', color: 'text.secondary' }}>
             <Typography>{bloggers.length === 0 ? '등록된 블로거가 없습니다. "블로거 추가"로 등록하세요.' : '검색 결과가 없습니다.'}</Typography>
           </Box>
@@ -182,20 +229,20 @@ function AdminBloggers() {
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                <TableCell sx={{ width: 60, fontWeight: 'bold' }}>정렬</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>활동명</TableCell>
+                <TableCell sx={{ width: 50, fontWeight: 'bold' }}>No.</TableCell>
+                {sortHeader('activity_name', '활동명')}
                 <TableCell sx={{ fontWeight: 'bold' }}>블로그 주소</TableCell>
-                <TableCell sx={{ width: 120, fontWeight: 'bold' }}>평균 1일 방문자</TableCell>
+                {sortHeader('daily_visitors', '평균 1일 방문자', 140)}
                 <TableCell sx={{ fontWeight: 'bold' }}>주요 콘텐츠</TableCell>
                 <TableCell sx={{ fontWeight: 'bold' }}>메모</TableCell>
-                <TableCell sx={{ width: 80, fontWeight: 'bold' }} align="center">노출</TableCell>
+                {sortHeader('is_active', '노출', 90)}
                 <TableCell sx={{ width: 100, fontWeight: 'bold' }} align="center">작업</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filtered.map((b) => (
+              {rows.map((b, idx) => (
                 <TableRow key={b.id} hover sx={{ opacity: b.is_active ? 1 : 0.5 }}>
-                  <TableCell>{b.sort_order ?? '-'}</TableCell>
+                  <TableCell>{idx + 1}</TableCell>
                   <TableCell sx={{ fontWeight: 500 }}>{b.activity_name}</TableCell>
                   <TableCell sx={{ maxWidth: 240 }}>
                     {b.blog_url ? (
@@ -260,19 +307,9 @@ function AdminBloggers() {
               onChange={(e) => setForm(f => ({ ...f, memo: e.target.value }))}
               fullWidth multiline minRows={2}
             />
-            <Stack direction="row" spacing={2} alignItems="center">
-              <TextField
-                label="정렬 순서"
-                type="number"
-                value={form.sort_order}
-                onChange={(e) => setForm(f => ({ ...f, sort_order: e.target.value }))}
-                sx={{ width: 140 }}
-                helperText="작을수록 위"
-              />
-              <Stack direction="row" spacing={0.5} alignItems="center">
-                <Switch checked={form.is_active} onChange={(e) => setForm(f => ({ ...f, is_active: e.target.checked }))} />
-                <Typography variant="body2">브랜드 노출</Typography>
-              </Stack>
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              <Switch checked={form.is_active} onChange={(e) => setForm(f => ({ ...f, is_active: e.target.checked }))} />
+              <Typography variant="body2">브랜드 노출</Typography>
             </Stack>
           </Stack>
         </DialogContent>

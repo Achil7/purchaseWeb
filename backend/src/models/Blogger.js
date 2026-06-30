@@ -36,11 +36,6 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: true,
       comment: '브랜드 노출 여부'
     },
-    sort_order: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      comment: '목록 정렬 순서'
-    },
     created_by: {
       type: DataTypes.INTEGER,
       allowNull: true,
@@ -60,7 +55,6 @@ module.exports = (sequelize, DataTypes) => {
     deletedAt: 'deleted_at',
     indexes: [
       { fields: ['is_active'], name: 'idx_bloggers_is_active' },
-      { fields: ['sort_order'], name: 'idx_bloggers_sort_order' },
       { fields: ['deleted_at'], name: 'idx_bloggers_deleted_at' }
     ]
   });

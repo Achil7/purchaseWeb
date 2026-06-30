@@ -2,7 +2,7 @@ const { Blogger } = require('../models');
 
 // 브랜드에 노출하지 않는 내부 필드를 제외한 컬럼
 const BRAND_ATTRIBUTES = [
-  'id', 'activity_name', 'blog_url', 'daily_visitors', 'main_content', 'is_active', 'sort_order'
+  'id', 'activity_name', 'blog_url', 'daily_visitors', 'main_content', 'is_active'
 ];
 
 /**
@@ -22,7 +22,7 @@ exports.getBloggers = async (req, res) => {
     const bloggers = await Blogger.findAll({
       where,
       attributes: isAdmin ? undefined : BRAND_ATTRIBUTES,
-      order: [['sort_order', 'ASC'], ['id', 'ASC']]
+      order: [['id', 'ASC']]
     });
 
     res.json({ success: true, data: bloggers });
@@ -37,7 +37,7 @@ exports.getBloggers = async (req, res) => {
  */
 exports.createBlogger = async (req, res) => {
   try {
-    const { activity_name, blog_url, daily_visitors, main_content, memo, is_active, sort_order } = req.body;
+    const { activity_name, blog_url, daily_visitors, main_content, memo, is_active } = req.body;
 
     if (!activity_name || !activity_name.trim()) {
       return res.status(400).json({ success: false, message: '활동명은 필수입니다' });
@@ -50,7 +50,6 @@ exports.createBlogger = async (req, res) => {
       main_content: main_content || null,
       memo: memo || null,
       is_active: is_active !== undefined ? !!is_active : true,
-      sort_order: (sort_order === undefined || sort_order === null || sort_order === '') ? null : parseInt(sort_order, 10),
       created_by: req.user.id
     });
 
@@ -76,11 +75,6 @@ exports.updateBlogger = async (req, res) => {
     ['activity_name', 'blog_url', 'daily_visitors', 'main_content', 'memo', 'is_active'].forEach((f) => {
       if (req.body[f] !== undefined) updates[f] = req.body[f];
     });
-    if (req.body.sort_order !== undefined) {
-      const v = req.body.sort_order;
-      updates.sort_order = (v === null || v === '') ? null : parseInt(v, 10);
-    }
-
     await blogger.update(updates);
     res.json({ success: true, data: blogger });
   } catch (error) {

@@ -46,11 +46,6 @@ module.exports = {
           defaultValue: true,
           comment: '브랜드 노출 여부'
         },
-        sort_order: {
-          type: Sequelize.INTEGER,
-          allowNull: true,
-          comment: '목록 정렬 순서'
-        },
         created_by: {
           type: Sequelize.INTEGER,
           allowNull: true,
@@ -92,9 +87,6 @@ module.exports = {
 
     await addIndexIfNotExists('bloggers', ['is_active'], {
       name: 'idx_bloggers_is_active'
-    });
-    await addIndexIfNotExists('bloggers', ['sort_order'], {
-      name: 'idx_bloggers_sort_order'
     });
     await addIndexIfNotExists('bloggers', ['deleted_at'], {
       name: 'idx_bloggers_deleted_at'
