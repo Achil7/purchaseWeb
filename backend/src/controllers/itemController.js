@@ -630,7 +630,7 @@ exports.getMyMonthlyBrands = async (req, res) => {
       }
     }
 
-    // 26차: ItemSlot include 제거 (3단계 JOIN → 2단계로 축소, 데카르트곱 방지)
+    // 38차: Q1 3-level JOIN 분리 → Q1a(CampaignOperator+Item) + Q1b/Q2/Q3 병렬
     const assignments = await CampaignOperator.findAll({
       where: { operator_id: operatorId },
       include: [
@@ -638,74 +638,67 @@ exports.getMyMonthlyBrands = async (req, res) => {
           model: Item,
           as: 'item',
           attributes: ['id', 'product_name', 'status', 'keyword', 'total_purchase_count', 'courier_service_yn']
-        },
-        {
-          model: Campaign,
-          as: 'campaign',
-          include: [
-            {
-              model: User,
-              as: 'brand',
-              attributes: ['id', 'name']
-            },
-            {
-              model: MonthlyBrand,
-              as: 'monthlyBrand',
-              attributes: ['id', 'name', 'year_month', 'is_hidden']
-            }
-          ]
         }
       ],
       order: [['assigned_at', 'DESC']]
     });
 
-    // 품목별 구매자 통계를 별도 쿼리로 조회 (COUNT만 - 훨씬 가벼움)
     const itemIds = [...new Set(assignments.map(a => a.item?.id).filter(Boolean))];
+    const campaignIds = [...new Set(assignments.map(a => a.campaign_id).filter(Boolean))];
 
-    // 26차: ItemSlot을 별도 쿼리로 조회 (JOIN 분리)
+    let campaignMap = new Map();
     let slotsByItem = {};
-    if (itemIds.length > 0) {
-      const slots = await ItemSlot.findAll({
-        where: { item_id: { [Op.in]: itemIds } },
-        attributes: ['id', 'item_id', 'date', 'day_group'],
-        raw: true
-      });
-      for (const slot of slots) {
-        if (!slotsByItem[slot.item_id]) slotsByItem[slot.item_id] = [];
-        slotsByItem[slot.item_id].push(slot);
-      }
-    }
-
     let buyerStats = {};
     let dayGroupBuyerStats = {};
     let dayGroupReviewStats = {};
 
     if (itemIds.length > 0) {
-      // 단일 raw SQL로 item_id + day_group별 구매자/리뷰 통계를 한번에 조회
-      // LEFT JOIN images 대신 EXISTS 서브쿼리 사용 (행 수 폭증 방지)
       const placeholders = itemIds.map((_, i) => `$${i + 1}`).join(',');
-      const combinedStats = await sequelize.query(`
-        SELECT
-          s.item_id,
-          s.day_group,
-          COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.id IS NOT NULL) AS total_count,
-          COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.is_temporary = true) AS temp_count,
-          COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.is_temporary = false) AS normal_count,
-          COUNT(DISTINCT s.buyer_id) FILTER (
-            WHERE b.is_temporary = false
-            AND EXISTS (SELECT 1 FROM images i WHERE i.buyer_id = b.id AND i.status = 'approved')
-          ) AS review_count
-        FROM item_slots s
-        INNER JOIN buyers b ON b.id = s.buyer_id AND b.deleted_at IS NULL
-        WHERE s.item_id IN (${placeholders})
-          AND s.buyer_id IS NOT NULL
-        GROUP BY s.item_id, s.day_group
-      `, {
-        bind: itemIds,
-        type: sequelize.QueryTypes.SELECT
-      });
+      // 38차: Campaign + ItemSlot + buyer stats 3개 쿼리 병렬 실행
+      const [campaigns, slots, combinedStats] = await Promise.all([
+        campaignIds.length > 0
+          ? Campaign.findAll({
+              where: { id: { [Op.in]: campaignIds } },
+              include: [
+                { model: User, as: 'brand', attributes: ['id', 'name'] },
+                { model: MonthlyBrand, as: 'monthlyBrand', attributes: ['id', 'name', 'year_month', 'is_hidden'] }
+              ]
+            })
+          : [],
+        ItemSlot.findAll({
+          where: { item_id: { [Op.in]: itemIds } },
+          attributes: ['id', 'item_id', 'date', 'day_group'],
+          raw: true
+        }),
+        sequelize.query(`
+          SELECT
+            s.item_id,
+            s.day_group,
+            COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.id IS NOT NULL) AS total_count,
+            COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.is_temporary = true) AS temp_count,
+            COUNT(DISTINCT s.buyer_id) FILTER (WHERE b.is_temporary = false) AS normal_count,
+            COUNT(DISTINCT s.buyer_id) FILTER (
+              WHERE b.is_temporary = false
+              AND EXISTS (SELECT 1 FROM images i WHERE i.buyer_id = b.id AND i.status = 'approved')
+            ) AS review_count
+          FROM item_slots s
+          INNER JOIN buyers b ON b.id = s.buyer_id AND b.deleted_at IS NULL
+          WHERE s.item_id IN (${placeholders})
+            AND s.buyer_id IS NOT NULL
+          GROUP BY s.item_id, s.day_group
+        `, {
+          bind: itemIds,
+          type: sequelize.QueryTypes.SELECT
+        })
+      ]);
 
-      // day_group별 통계 매핑 + item_id별 합산
+      for (const c of campaigns) {
+        campaignMap.set(c.id, c);
+      }
+      for (const slot of slots) {
+        if (!slotsByItem[slot.item_id]) slotsByItem[slot.item_id] = [];
+        slotsByItem[slot.item_id].push(slot);
+      }
       for (const row of combinedStats) {
         const itemId = row.item_id;
         const dayGroup = row.day_group;
@@ -714,7 +707,6 @@ exports.getMyMonthlyBrands = async (req, res) => {
         const normalCount = parseInt(row.normal_count, 10) || 0;
         const reviewCount = parseInt(row.review_count, 10) || 0;
 
-        // item_id별 합산
         if (!buyerStats[itemId]) {
           buyerStats[itemId] = { totalCount: 0, tempCount: 0, normalCount: 0, reviewCount: 0 };
         }
@@ -723,13 +715,22 @@ exports.getMyMonthlyBrands = async (req, res) => {
         buyerStats[itemId].normalCount += normalCount;
         buyerStats[itemId].reviewCount += reviewCount;
 
-        // day_group별 정상 구매자 수
         if (!dayGroupBuyerStats[itemId]) dayGroupBuyerStats[itemId] = {};
         dayGroupBuyerStats[itemId][dayGroup] = normalCount;
 
-        // day_group별 리뷰 완료 수
         if (!dayGroupReviewStats[itemId]) dayGroupReviewStats[itemId] = {};
         dayGroupReviewStats[itemId][dayGroup] = reviewCount;
+      }
+    } else if (campaignIds.length > 0) {
+      const campaigns = await Campaign.findAll({
+        where: { id: { [Op.in]: campaignIds } },
+        include: [
+          { model: User, as: 'brand', attributes: ['id', 'name'] },
+          { model: MonthlyBrand, as: 'monthlyBrand', attributes: ['id', 'name', 'year_month', 'is_hidden'] }
+        ]
+      });
+      for (const c of campaigns) {
+        campaignMap.set(c.id, c);
       }
     }
 
@@ -737,9 +738,9 @@ exports.getMyMonthlyBrands = async (req, res) => {
     const monthlyBrandMap = new Map();
 
     for (const assignment of assignments) {
-      if (!assignment.item || !assignment.campaign) continue;
-
-      const campaign = assignment.campaign;
+      if (!assignment.item) continue;
+      const campaign = campaignMap.get(assignment.campaign_id);
+      if (!campaign) continue;
       const monthlyBrand = campaign.monthlyBrand;
 
       // 연월브랜드가 없는 경우 "미분류" 그룹

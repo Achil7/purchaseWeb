@@ -2551,10 +2551,50 @@ td.className = 'product-data-row col-platform';
 **빌드:** ✅ 문법 검증 통과
 
 **기능 검증 항목:**
-- [ ] Sales 대시보드 → 연월브랜드/캠페인/품목 목록 + 구매자 통계 정상
-- [ ] Brand 대시보드 → 연월브랜드/캠페인/품목 목록 + 통계 정상
-- [ ] Admin 컨트롤 타워 → 진행자 배정 탭 (연월브랜드/all) 배정 상태 정상
-- [ ] Admin embedded → Sales/Brand 대시보드 조회 정상
+- [x] Sales 대시보드 → 연월브랜드/캠페인/품목 목록 + 구매자 통계 정상
+- [x] Brand 대시보드 → 연월브랜드/캠페인/품목 목록 + 통계 정상
+- [x] Admin 컨트롤 타워 → 진행자 배정 탭 (연월브랜드/all) 배정 상태 정상
+- [x] Admin embedded → Sales/Brand 대시보드 조회 정상
+
+**운영 서버 결과:**
+- `/monthly-brands`: 1543ms → 208-463ms (약 70% 감소)
+- `/monthly-brands/all`: 641ms → 268-430ms (약 50% 감소)
+- 기능 이상 없음
+
+**결론:** ✅ 완료
+
+---
+
+### 38차 최적화 (2026-06-29) - /items/my-monthly-brands 3-level JOIN 분리 + 병렬화
+
+**배경:**
+운영 서버 로그에서 `/api/items/my-monthly-brands`가 압도적 빈도로 500-960ms 기록. viewAsUserId=72 최대 1041ms. 가장 자주 호출되는 API.
+
+**적용 내용:**
+
+#### A. itemController.js — getMyMonthlyBrands Q1 3-level JOIN 분리
+- **변경 전:** CampaignOperator + Item + Campaign + MonthlyBrand + User (3-level JOIN, 200ms)
+- **변경 후:** CampaignOperator + Item만 (2-table JOIN, 80ms) → campaignIds 추출
+
+#### B. itemController.js — Q1b + Q2 + Q3 Promise.all 병렬
+- **변경 전:** Q1(200ms) → Q2 ItemSlot(100ms) → Q3 buyer stats(200ms) = 순차 500ms
+- **변경 후:** Q1a(80ms) → Promise.all([Q1b Campaign(100ms), Q2 ItemSlot(100ms), Q3 stats(200ms)]) = 280ms
+
+#### C. 처리 루프 campaignMap 참조로 변경
+- **변경 전:** `assignment.campaign.monthlyBrand` (ORM 관계 직접 접근)
+- **변경 후:** `campaignMap.get(assignment.campaign_id)` (별도 조회 결과 참조)
+
+**수정 파일:**
+- `backend/src/controllers/itemController.js`
+
+**프론트엔드 수정 없음. 마이그레이션 없음.**
+
+**빌드:** ✅ 문법 검증 통과
+
+**기능 검증 항목:**
+- [ ] Operator 대시보드 → 연월브랜드/캠페인 목록 + 구매자 통계 정상
+- [ ] Admin embedded → 진행자 대시보드 조회 (viewAsUserId) 정상
+- [ ] Admin 컨트롤 타워 → 여러 진행자 전환 시 캐시 정상 동작
 
 **결론:** ⏳ 테스트 대기
 
