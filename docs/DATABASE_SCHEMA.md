@@ -719,7 +719,6 @@ CREATE TABLE bloggers (
   main_content TEXT,                        -- 주요 콘텐츠
   memo TEXT,                                -- admin 내부 메모 (브랜드 비노출)
   is_active BOOLEAN NOT NULL DEFAULT true,  -- 브랜드 노출 여부
-  sort_order INTEGER,                       -- 목록 정렬 순서
   created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW(),

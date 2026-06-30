@@ -606,7 +606,7 @@ docker compose exec app sh -c "cd /app/backend && npx sequelize-cli db:migrate"
 ### 최신 수정 (2026-06-29)
 - [x] **블로거(블로그 체험단) 중개 기능 도입 (Phase 1~4)**
   - kwad 대표 통화 요청 기반 신규 기능. 리뷰 캠페인(구매자)과 **완전 별개**의 블로그 체험단 중개. buyers/images/item_slots 무수정.
-  - **Phase 1 - 블로거 목록 (전역 공통)**: `bloggers` 테이블/모델. admin "블로거 관리"(AdminBloggers) CRUD + 노출토글 + 정렬. 브랜드사 상단 "블로거" 탭(BrandBloggerView, 읽기). **모든 브랜드사가 동일 목록**(brand_id 없음, 올리브영 랭킹 탭과 동일 방식). 필드: 활동명/블로그주소/평균 1일 방문자/주요 콘텐츠.
+  - **Phase 1 - 블로거 목록 (전역 공통)**: `bloggers` 테이블/모델. admin "블로거 관리"(AdminBloggers) CRUD + 노출토글 + 컬럼 정렬(활동명/평균 1일 방문자/노출, 목록 순서는 등록순 id). 브랜드사 상단 "블로거" 탭(BrandBloggerView, 읽기). **모든 브랜드사가 동일 목록**(brand_id 없음, 올리브영 랭킹 탭과 동일 방식). 필드: 활동명/블로그주소/평균 1일 방문자/주요 콘텐츠.
   - **Phase 2 - 협의 요청/CS**: `blogger_requests`(헤더) + `blogger_request_items`(블로거별). 브랜드가 목록에서 다중 선택 → "발행 협의 요청"(캠페인 선택 + 협찬/내돈내산 + 메모). admin "블로거 협의 요청"(AdminBloggerRequests) 보드에서 참여의사(대기/참여/거절)·단가·상태(요청됨/확인중/진행중/완료/취소) 관리.
   - **Phase 3 - 작성 링크 제출**: admin이 항목별 제출 토큰 발급 → 공개 페이지 `/blogger-submit/:token`(로그인 불필요, BloggerSubmitPage)에서 블로거가 작성 글 링크 제출 → 브랜드 "내 협의 요청"에 작성 현황(작성일 + 링크) 표시. 리뷰샷 제출과 동일 철학.
   - **Phase 4 - AI 챗 연동**: `aiChatService`/`aiChatKnowledge`에 블로거 3테이블 스키마/업무규칙 노출 → text-to-SQL 조회 가능. **read-only 역할에 SELECT 부여 필요**: `GRANT SELECT ON bloggers, blogger_requests, blogger_request_items TO ai_readonly;`
